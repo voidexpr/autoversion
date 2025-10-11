@@ -43,6 +43,15 @@ func FilesEqual(info1, info2 FileInfo) bool {
 // sourceRoot: the root directory being watched
 // targetRoot: the target repository root
 func CopyFile(sourcePath, sourceRoot, targetRoot string) error {
+	// Check if source is a directory - never copy directories
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to stat source: %v", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("cannot copy directory: %s", sourcePath)
+	}
+
 	// Calculate relative path
 	relPath, err := filepath.Rel(sourceRoot, sourcePath)
 	if err != nil {

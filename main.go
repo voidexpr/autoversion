@@ -104,6 +104,15 @@ func filterCommand() {
 			return nil
 		}
 
+		// Skip symlinks to directories
+		if info.Mode()&os.ModeSymlink != 0 {
+			// Check if symlink points to a directory
+			targetInfo, err := os.Stat(path)
+			if err == nil && targetInfo.IsDir() {
+				return nil
+			}
+		}
+
 		// Check if file should be tracked
 		shouldTrack, err := ShouldTrack(path, *maxFileSize)
 		if err != nil {
@@ -228,6 +237,15 @@ func scanCommand() {
 
 		if info.IsDir() {
 			return nil
+		}
+
+		// Skip symlinks to directories
+		if info.Mode()&os.ModeSymlink != 0 {
+			// Check if symlink points to a directory
+			targetInfo, err := os.Stat(path)
+			if err == nil && targetInfo.IsDir() {
+				return nil
+			}
 		}
 
 		// Check if file should be tracked
