@@ -80,13 +80,25 @@ This command:
 
 ### Watch Command
 
-*(Coming soon in Phase 4)*
-
 Monitor a directory for changes in real-time:
 
 ```bash
 ./autoversion watch --repo REPO_PATH SOURCE_PATH [--buffer-time SECONDS] [--max-file-size MB]
 ```
+
+Example:
+```bash
+./autoversion watch --repo ~/autoversion_repos/myapp ~/projects/myapp
+./autoversion watch --repo ~/repos/data ~/data --buffer-time 10
+```
+
+This command:
+1. Runs an initial scan to capture any missed changes
+2. Starts watching the source directory for file system events
+3. Buffers events for the specified duration (default: 5 seconds)
+4. Collapses multiple operations on the same file (keeps last operation)
+5. Periodically processes buffered events and commits changes
+6. Handles SIGINT/SIGTERM gracefully (flushes buffer before exiting)
 
 ## File Filtering
 
@@ -149,9 +161,9 @@ git diff HEAD~1 HEAD
 
 - ✅ **Phase 1**: Filter command with comprehensive file filtering
 - ✅ **Phase 2**: Init and scan commands with git integration
-- ⏳ **Phase 3**: Event buffer with collapsing logic
-- ⏳ **Phase 4**: Watch command with real-time monitoring
-- ⏳ **Phase 5**: Testing and refinement
+- ✅ **Phase 3**: Event buffer with collapsing logic
+- ✅ **Phase 4**: Watch command with real-time monitoring
+- ⏳ **Phase 5**: Testing and refinement (ongoing)
 
 ## Development
 
@@ -162,11 +174,14 @@ autoversion/
 ├── main.go              # CLI entry point and commands
 ├── filter.go            # File filtering logic
 ├── filter_test.go       # Filter tests
+├── buffer.go            # Event buffer with collapsing
+├── buffer_test.go       # Buffer tests
+├── watcher.go           # File system watcher wrapper
 ├── fileops.go           # File operations (copy, delete)
 └── git.go               # Git wrapper with retry logic
 ```
 
-All code is in a single `package main` for simplicity - this is a small tool (~500 lines) that doesn't need package separation.
+All code is in a single `package main` for simplicity - this is a small tool (~800 lines) that doesn't need package separation.
 
 ### Testing Philosophy
 

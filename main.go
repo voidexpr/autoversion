@@ -4,11 +4,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 )
 
 const (
 	defaultMaxFileSizeMB = 10
+	defaultBufferTime    = 5
 )
 
 func main() {
@@ -17,147 +21,135 @@ func main() {
 		os.Exit(1)
 	}
 
-	command := os.Args[1]
-
-	switch command {
+	switch os.Args[1] {
 	case "filter":
-		filterCommand()
+		filterCommand(os.Args[2:])
 	case "init":
-		initCommand()
+		initCommand(os.Args[2:])
 	case "scan":
-		scanCommand()
+		scanCommand(os.Args[2:])
 	case "watch":
-		fmt.Fprintf(os.Stderr, "watch command not yet implemented\n")
-		os.Exit(1)
+		watchCommand(os.Args[2:])
+	case "-h", "--help", "help":
+		printUsage()
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", os.Args[1])
 		printUsage()
 		os.Exit(1)
 	}
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, `Usage: autoversion COMMAND [OPTIONS]
+	fmt.Fprintf(os.Stderr, `autoversion - track file versions in real-time using git
+
+Usage: autoversion <command> [options]
 
 Commands:
-  filter PATH [--max-file-size MB]
-      Scan recursively all files under PATH and print files to be versioned
+  filter <path>              List files that would be tracked
+  init --repo <path>         Initialize a version repository
+  scan --repo <repo> <src>   Scan and copy files to repository
+  watch --repo <repo> <src>  Watch for changes in real-time
 
-  init --repo PATH
-      Create repo directory and initialize git repository
+Examples:
+  autoversion filter ~/projects/myapp
+  autoversion init --repo ~/repos/myapp
+  autoversion scan --repo ~/repos/myapp ~/projects/myapp
 
-  scan --repo PATH1 PATH2 [--max-file-size MB]
-      Process all files from PATH2, filter and copy to PATH1, then commit
-
-  watch --repo PATH2 PATH1 [--buffer-time SECONDS] [--max-file-size MB]
-      Monitor PATH1 for changes and copy filtered files to PATH2
-
-Options:
-  --repo PATH           Repository path for versioned files
-  --max-file-size MB    Maximum file size in megabytes (default: %d)
-  --buffer-time SEC     Buffer time in seconds for watch (default: 5)
-`, defaultMaxFileSizeMB)
+Use "autoversion <command> -h" for more information about a command.
+`)
 }
 
-func filterCommand() {
+func filterCommand(args []string) {
 	fs := flag.NewFlagSet("filter", flag.ExitOnError)
 	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 
-	fs.Parse(os.Args[2:])
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: autoversion filter <path> [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Scan directory and list files that would be tracked.\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fs.PrintDefaults()
+	}
+
+	fs.Parse(args)
 
 	if fs.NArg() < 1 {
-		fmt.Fprintf(os.Stderr, "Error: filter command requires PATH argument\n")
-		fmt.Fprintf(os.Stderr, "Usage: autoversion filter PATH [--max-file-size MB]\n")
+		fs.Usage()
 		os.Exit(1)
 	}
 
 	sourcePath := fs.Arg(0)
 
-	// Verify path exists
+	// Verify path exists and is a directory
 	info, err := os.Stat(sourcePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-
 	if !info.IsDir() {
 		fmt.Fprintf(os.Stderr, "Error: %s is not a directory\n", sourcePath)
 		os.Exit(1)
 	}
 
-	// Get absolute path for relative path calculation
 	absSourcePath, err := filepath.Abs(sourcePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting absolute path: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Walk the directory and print matching files
-	err = filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
+	// Walk and print matching files
+	filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error accessing %s: %v\n", path, err)
-			return nil // Continue walking
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			return nil
 		}
 
-		// Skip directories
 		if info.IsDir() {
 			return nil
 		}
 
 		// Skip symlinks to directories
 		if info.Mode()&os.ModeSymlink != 0 {
-			// Check if symlink points to a directory
-			targetInfo, err := os.Stat(path)
-			if err == nil && targetInfo.IsDir() {
+			if targetInfo, err := os.Stat(path); err == nil && targetInfo.IsDir() {
 				return nil
 			}
 		}
 
-		// Check if file should be tracked
-		shouldTrack, err := ShouldTrack(path, *maxFileSize)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error checking %s: %v\n", path, err)
-			return nil
-		}
-
-		if shouldTrack {
-			// Print relative path
-			relPath, err := filepath.Rel(absSourcePath, path)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting relative path for %s: %v\n", path, err)
-				return nil
+		if shouldTrack, _ := ShouldTrack(path, *maxFileSize); shouldTrack {
+			if relPath, err := filepath.Rel(absSourcePath, path); err == nil {
+				fmt.Println(relPath)
 			}
-			fmt.Println(relPath)
 		}
 
 		return nil
 	})
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error walking directory: %v\n", err)
-		os.Exit(1)
-	}
 }
 
-func initCommand() {
+func initCommand(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	repoPath := fs.String("repo", "", "repository path (required)")
 
-	fs.Parse(os.Args[2:])
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: autoversion init --repo <path>\n\n")
+		fmt.Fprintf(os.Stderr, "Initialize a git repository for version tracking.\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fs.PrintDefaults()
+	}
+
+	fs.Parse(args)
 
 	if *repoPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: --repo PATH is required\n")
-		fmt.Fprintf(os.Stderr, "Usage: autoversion init --repo PATH\n")
+		fmt.Fprintf(os.Stderr, "Error: --repo is required\n\n")
+		fs.Usage()
 		os.Exit(1)
 	}
 
-	// Create directory if it doesn't exist
+	// Create directory if needed
 	if err := EnsureDir(*repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Check if already a git repo
+	// Check if already initialized
 	gitDir := filepath.Join(*repoPath, ".git")
 	if _, err := os.Stat(gitDir); err == nil {
 		fmt.Fprintf(os.Stderr, "Repository already initialized at %s\n", *repoPath)
@@ -166,161 +158,114 @@ func initCommand() {
 
 	// Initialize git repository
 	if err := Init(*repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing git repository: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Printf("Initialized git repository at %s\n", *repoPath)
 }
 
-func scanCommand() {
+func scanCommand(args []string) {
 	fs := flag.NewFlagSet("scan", flag.ExitOnError)
 	repoPath := fs.String("repo", "", "repository path (required)")
 	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 
-	fs.Parse(os.Args[2:])
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: autoversion scan --repo <repo> <source>\n\n")
+		fmt.Fprintf(os.Stderr, "Scan source directory and copy filtered files to repository.\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fs.PrintDefaults()
+	}
+
+	fs.Parse(args)
 
 	if *repoPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: --repo PATH is required\n")
-		fmt.Fprintf(os.Stderr, "Usage: autoversion scan --repo REPO_PATH SOURCE_PATH\n")
+		fmt.Fprintf(os.Stderr, "Error: --repo is required\n\n")
+		fs.Usage()
 		os.Exit(1)
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintf(os.Stderr, "Error: SOURCE_PATH is required\n")
-		fmt.Fprintf(os.Stderr, "Usage: autoversion scan --repo REPO_PATH SOURCE_PATH\n")
+		fmt.Fprintf(os.Stderr, "Error: source path is required\n\n")
+		fs.Usage()
 		os.Exit(1)
 	}
 
 	sourcePath := fs.Arg(0)
 
 	// Verify paths
-	sourceInfo, err := os.Stat(sourcePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: source path %s: %v\n", sourcePath, err)
-		os.Exit(1)
-	}
-
-	if !sourceInfo.IsDir() {
-		fmt.Fprintf(os.Stderr, "Error: source path %s is not a directory\n", sourcePath)
+	if info, err := os.Stat(sourcePath); err != nil || !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "Error: source path must be a directory\n")
 		os.Exit(1)
 	}
 
 	if _, err := os.Stat(*repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: repo path %s: %v\n", *repoPath, err)
+		fmt.Fprintf(os.Stderr, "Error: repo path does not exist: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Get absolute paths
-	absSourcePath, err := filepath.Abs(sourcePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting absolute source path: %v\n", err)
-		os.Exit(1)
-	}
+	absSourcePath, _ := filepath.Abs(sourcePath)
+	absRepoPath, _ := filepath.Abs(*repoPath)
 
-	absRepoPath, err := filepath.Abs(*repoPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting absolute repo path: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Track files to copy
+	// Scan and copy files
 	filesToCopy := make(map[string]bool)
 	changeCount := 0
 
 	// Walk source directory
-	err = filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error accessing %s: %v\n", path, err)
-			return nil
-		}
-
-		if info.IsDir() {
+	filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
 			return nil
 		}
 
 		// Skip symlinks to directories
 		if info.Mode()&os.ModeSymlink != 0 {
-			// Check if symlink points to a directory
-			targetInfo, err := os.Stat(path)
-			if err == nil && targetInfo.IsDir() {
+			if targetInfo, err := os.Stat(path); err == nil && targetInfo.IsDir() {
 				return nil
 			}
 		}
 
-		// Check if file should be tracked
-		shouldTrack, err := ShouldTrack(path, *maxFileSize)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error checking %s: %v\n", path, err)
-			return nil
-		}
-
+		shouldTrack, _ := ShouldTrack(path, *maxFileSize)
 		if !shouldTrack {
 			return nil
 		}
 
-		// Track this file
 		filesToCopy[path] = true
 
-		// Get relative path
-		relPath, err := filepath.Rel(absSourcePath, path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting relative path for %s: %v\n", path, err)
-			return nil
-		}
-
+		relPath, _ := filepath.Rel(absSourcePath, path)
 		targetPath := filepath.Join(absRepoPath, relPath)
 
-		// Compare with target
-		sourceFileInfo := GetFileInfo(path)
-		targetFileInfo := GetFileInfo(targetPath)
+		// Compare and copy if different
+		sourceInfo := GetFileInfo(path)
+		targetInfo := GetFileInfo(targetPath)
 
-		if !FilesEqual(sourceFileInfo, targetFileInfo) {
-			// Copy file
+		if !FilesEqual(sourceInfo, targetInfo) {
 			if err := CopyFile(path, absSourcePath, absRepoPath); err != nil {
-				fmt.Fprintf(os.Stderr, "Error copying %s: %v\n", path, err)
-				return nil
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			} else {
+				changeCount++
 			}
-			changeCount++
 		}
 
 		return nil
 	})
 
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error walking source directory: %v\n", err)
-		os.Exit(1)
-	}
+	// Find deleted files
+	var filesToDelete []string
 
-	// Now walk the repo to find files that don't exist in source (deleted files)
-	filesToDelete := []string{}
-
-	err = filepath.Walk(absRepoPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+	filepath.Walk(absRepoPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			if info != nil && info.IsDir() && info.Name() == ".git" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
-		// Skip .git directory
-		if info.IsDir() && info.Name() == ".git" {
-			return filepath.SkipDir
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		// Get relative path
-		relPath, err := filepath.Rel(absRepoPath, path)
-		if err != nil {
-			return nil
-		}
-
+		relPath, _ := filepath.Rel(absRepoPath, path)
 		sourcePath := filepath.Join(absSourcePath, relPath)
 
-		// If file doesn't exist in source, mark for deletion
 		if _, exists := filesToCopy[sourcePath]; !exists {
-			sourceInfo := GetFileInfo(sourcePath)
-			if !sourceInfo.Exists {
+			if sourceInfo := GetFileInfo(sourcePath); !sourceInfo.Exists {
 				filesToDelete = append(filesToDelete, relPath)
 			}
 		}
@@ -328,34 +273,226 @@ func scanCommand() {
 		return nil
 	})
 
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error walking repo directory: %v\n", err)
-	}
-
-	// Delete files that don't exist in source
+	// Delete files
 	if len(filesToDelete) > 0 {
-		if err := Remove(absRepoPath, filesToDelete); err != nil {
-			fmt.Fprintf(os.Stderr, "Error removing deleted files: %v\n", err)
-		} else {
+		if err := Remove(absRepoPath, filesToDelete); err == nil {
 			changeCount += len(filesToDelete)
 		}
 	}
 
-	// Git add and commit
+	// Commit changes
 	if changeCount > 0 {
-		if err := Add(absRepoPath, []string{"."}); err != nil {
-			fmt.Fprintf(os.Stderr, "Error adding files to git: %v\n", err)
-			os.Exit(1)
-		}
-
-		commitMsg := fmt.Sprintf("detected %d changes", changeCount)
-		if err := Commit(absRepoPath, commitMsg); err != nil {
-			fmt.Fprintf(os.Stderr, "Error committing changes: %v\n", err)
-			os.Exit(1)
-		}
-
+		Add(absRepoPath, []string{"."})
+		Commit(absRepoPath, fmt.Sprintf("detected %d changes", changeCount))
 		fmt.Printf("Scanned and committed %d changes\n", changeCount)
 	} else {
 		fmt.Println("No changes detected")
+	}
+}
+
+func watchCommand(args []string) {
+	fs := flag.NewFlagSet("watch", flag.ExitOnError)
+	repoPath := fs.String("repo", "", "repository path (required)")
+	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+	bufferTime := fs.Int("buffer-time", defaultBufferTime, "buffer time in seconds")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: autoversion watch --repo <repo> <source> [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Watch source directory for changes and copy to repository in real-time.\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fs.PrintDefaults()
+	}
+
+	fs.Parse(args)
+
+	if *repoPath == "" {
+		fmt.Fprintf(os.Stderr, "Error: --repo is required\n\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 1 {
+		fmt.Fprintf(os.Stderr, "Error: source path is required\n\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	sourcePath := fs.Arg(0)
+
+	// Verify paths
+	if info, err := os.Stat(sourcePath); err != nil || !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "Error: source path must be a directory\n")
+		os.Exit(1)
+	}
+
+	if _, err := os.Stat(*repoPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: repo path does not exist: %v\n", err)
+		os.Exit(1)
+	}
+
+	absSourcePath, _ := filepath.Abs(sourcePath)
+	absRepoPath, _ := filepath.Abs(*repoPath)
+
+	// First, run scan to capture any missed changes
+	fmt.Println("Initial scan...")
+	scanPaths(absSourcePath, absRepoPath, *maxFileSize)
+
+	// Create watcher
+	watcher, err := NewWatcher(absSourcePath, *maxFileSize)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer watcher.Close()
+
+	// Create event buffer
+	buffer := NewEventBuffer()
+
+	// Setup signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Start flush timer
+	flushDuration := time.Duration(*bufferTime) * time.Second
+	ticker := time.NewTicker(flushDuration)
+	defer ticker.Stop()
+
+	fmt.Printf("Watching %s for changes (buffer time: %ds)...\n", absSourcePath, *bufferTime)
+	fmt.Println("Press Ctrl+C to stop")
+
+	for {
+		select {
+		case event := <-watcher.Events():
+			if watcher.ShouldProcess(event) {
+				eventType := MapEventType(event.Op)
+				buffer.Add(event.Name, eventType)
+			}
+
+		case err := <-watcher.Errors():
+			fmt.Fprintf(os.Stderr, "Watch error: %v\n", err)
+
+		case <-ticker.C:
+			// Flush events older than buffer time
+			events := buffer.Flush(flushDuration)
+			if len(events) > 0 {
+				processEvents(events, absSourcePath, absRepoPath)
+			}
+
+		case <-sigChan:
+			fmt.Println("\nShutting down...")
+			// Flush all remaining events
+			events := buffer.Flush(0)
+			if len(events) > 0 {
+				fmt.Println("Processing remaining events...")
+				processEvents(events, absSourcePath, absRepoPath)
+			}
+			fmt.Println("Done")
+			return
+		}
+	}
+}
+
+// scanPaths performs the initial scan (same as scan command)
+func scanPaths(absSourcePath, absRepoPath string, maxFileSize int64) {
+	filesToCopy := make(map[string]bool)
+	changeCount := 0
+
+	filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			if targetInfo, err := os.Stat(path); err == nil && targetInfo.IsDir() {
+				return nil
+			}
+		}
+
+		shouldTrack, _ := ShouldTrack(path, maxFileSize)
+		if !shouldTrack {
+			return nil
+		}
+
+		filesToCopy[path] = true
+
+		relPath, _ := filepath.Rel(absSourcePath, path)
+		targetPath := filepath.Join(absRepoPath, relPath)
+
+		sourceInfo := GetFileInfo(path)
+		targetInfo := GetFileInfo(targetPath)
+
+		if !FilesEqual(sourceInfo, targetInfo) {
+			if err := CopyFile(path, absSourcePath, absRepoPath); err == nil {
+				changeCount++
+			}
+		}
+
+		return nil
+	})
+
+	var filesToDelete []string
+	filepath.Walk(absRepoPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			if info != nil && info.IsDir() && info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		relPath, _ := filepath.Rel(absRepoPath, path)
+		sourcePath := filepath.Join(absSourcePath, relPath)
+
+		if _, exists := filesToCopy[sourcePath]; !exists {
+			if sourceInfo := GetFileInfo(sourcePath); !sourceInfo.Exists {
+				filesToDelete = append(filesToDelete, relPath)
+			}
+		}
+
+		return nil
+	})
+
+	if len(filesToDelete) > 0 {
+		if err := Remove(absRepoPath, filesToDelete); err == nil {
+			changeCount += len(filesToDelete)
+		}
+	}
+
+	if changeCount > 0 {
+		Add(absRepoPath, []string{"."})
+		Commit(absRepoPath, fmt.Sprintf("detected %d changes", changeCount))
+		fmt.Printf("Initial scan: committed %d changes\n", changeCount)
+	} else {
+		fmt.Println("Initial scan: no changes")
+	}
+}
+
+// processEvents processes a batch of events
+func processEvents(events []Event, absSourcePath, absRepoPath string) {
+	changeCount := 0
+
+	for _, event := range events {
+		relPath, err := filepath.Rel(absSourcePath, event.Path)
+		if err != nil {
+			continue
+		}
+
+		if event.Action == EventDeleted {
+			// Delete from repo
+			if err := Remove(absRepoPath, []string{relPath}); err == nil {
+				fmt.Printf("Deleted: %s\n", relPath)
+				changeCount++
+			}
+		} else {
+			// Copy to repo
+			if err := CopyFile(event.Path, absSourcePath, absRepoPath); err == nil {
+				fmt.Printf("Updated: %s\n", relPath)
+				changeCount++
+			}
+		}
+	}
+
+	if changeCount > 0 {
+		Add(absRepoPath, []string{"."})
+		Commit(absRepoPath, fmt.Sprintf("detected %d changes", changeCount))
 	}
 }
