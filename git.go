@@ -4,11 +4,18 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 const retryDelay = 5 * time.Second
+
+func errf(format string, args ...interface{}) error {
+    err := fmt.Errorf(format, args...)
+    fmt.Fprintln(os.Stderr, "Error:", err)
+    return err
+}
 
 // runGit runs a git command and prints its output
 func runGit(repoPath string, args ...string) (string, error) {
@@ -28,7 +35,7 @@ func runGit(repoPath string, args ...string) (string, error) {
 func Init(repoPath string) error {
 	_, err := runGit(repoPath, "init", ".")
 	if err != nil {
-		return fmt.Errorf("git init failed: %v", err)
+		return errf("git init failed: %v", err)
 	}
 	return nil
 }
@@ -40,17 +47,12 @@ func Add(repoPath string, paths []string) error {
 	}
 
 	args := append([]string{"add"}, paths...)
-	output, err := runGit(repoPath, args...)
+	_, err := runGit(repoPath, args...)
 
 	// If some files are in .gitignore, git add will fail for those
 	// but we want to continue with the others
 	if err != nil {
-		// Check if it's a .gitignore error
-		if strings.Contains(output, "ignored") || strings.Contains(output, ".gitignore") {
-			// Continue - other files may have been added
-			return nil
-		}
-		return fmt.Errorf("git add failed: %v", err)
+		return errf("git add failed: %v", err)
 	}
 
 	return nil
@@ -66,7 +68,7 @@ func Commit(repoPath string, message string) error {
 			return nil
 		}
 
-		return fmt.Errorf("git commit failed: %v", err)
+		return errf("git commit failed: %v", err)
 	}
 
 	return nil
@@ -108,15 +110,10 @@ func Remove(repoPath string, paths []string) error {
 	}
 
 	args := append([]string{"rm"}, paths...)
-	output, err := runGit(repoPath, args...)
+	_, err := runGit(repoPath, args...)
 
 	if err != nil {
-		// File might not exist in git - that's ok
-		if strings.Contains(output, "did not match any files") {
-			return nil
-		}
-
-		return fmt.Errorf("git rm failed: %v", err)
+		return errf("git rm failed: %v", err)
 	}
 
 	return nil
@@ -138,6 +135,16 @@ func Remove(repoPath string, paths []string) error {
 
 	// 	return nil
 	// }
+}
+
+// IsGitRepo checks if a directory is a valid git repository
+func IsGitRepo(repoPath string) bool {
+	gitDir := filepath.Join(repoPath, ".git")
+	info, err := os.Stat(gitDir)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }
 
 // hasPendingCommit checks if there's a pending git commit by looking for git processes

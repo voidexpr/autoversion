@@ -148,11 +148,9 @@ func filterCommand(args []string) {
 			return nil
 		}
 
-		// Skip symlinks to directories
+		// Skip all symlinks (both file and directory symlinks)
 		if info.Mode()&os.ModeSymlink != 0 {
-			if targetInfo, err := os.Stat(path); err == nil && targetInfo.IsDir() {
-				return nil
-			}
+			return nil
 		}
 
 		if shouldTrack, _ := ShouldTrack(path, *maxFileSize); shouldTrack {
@@ -251,6 +249,16 @@ func scanCommand(args []string) {
 	absSourcePath, _ := filepath.Abs(sourcePath)
 	absRepoPath, _ := filepath.Abs(*repoPath)
 
+	// Verify repo is initialized
+	if !IsGitRepo(absRepoPath) {
+		if *dryRun {
+			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion init --repo %s' first\n", absRepoPath, absRepoPath)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository. Run 'autoversion init --repo %s' first\n", absRepoPath, absRepoPath)
+			os.Exit(1)
+		}
+	}
+
 	// Verify paths are safe
 	if err := verifyPaths(absSourcePath, absRepoPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -258,7 +266,7 @@ func scanCommand(args []string) {
 	}
 
 	// Scan and copy files
-	scanPaths(absSourcePath, absRepoPath, *maxFileSize, false, *dryRun)
+	scanPaths(absSourcePath, absRepoPath, *maxFileSize, *dryRun)
 }
 
 func watchCommand(args []string) {
@@ -306,6 +314,16 @@ func watchCommand(args []string) {
 	absSourcePath, _ := filepath.Abs(sourcePath)
 	absRepoPath, _ := filepath.Abs(*repoPath)
 
+	// Verify repo is initialized
+	if !IsGitRepo(absRepoPath) {
+		if *dryRun {
+			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion init --repo %s' first\n", absRepoPath, absRepoPath)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository. Run 'autoversion init --repo %s' first\n", absRepoPath, absRepoPath)
+			os.Exit(1)
+		}
+	}
+
 	// Verify paths are safe
 	if err := verifyPaths(absSourcePath, absRepoPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -314,7 +332,7 @@ func watchCommand(args []string) {
 
 	// First, run scan to capture any missed changes
 	fmt.Println("Initial scan...")
-	scanPaths(absSourcePath, absRepoPath, *maxFileSize, true, *dryRun)
+	scanPaths(absSourcePath, absRepoPath, *maxFileSize, *dryRun)
 
 	// Create watcher
 	watcher, err := NewWatcher(absSourcePath, *maxFileSize)
@@ -372,14 +390,12 @@ func watchCommand(args []string) {
 }
 
 // scanPaths scans directories, prints actions, and optionally executes them
-func scanPaths(source, target string, maxFileSize int64, isInitialScan bool, dryRun bool) {
+func scanPaths(source, target string, maxFileSize int64, dryRun bool) {
 	// Create filter function
 	filterFunc := func(path string, info os.FileInfo) bool {
-		// Skip symlinks to directories
+		// Skip all symlinks (both file and directory symlinks)
 		if info.Mode()&os.ModeSymlink != 0 {
-			if targetInfo, err := os.Stat(path); err == nil && targetInfo.IsDir() {
-				return false
-			}
+			return false
 		}
 
 		// Apply ShouldTrack filter
@@ -465,17 +481,9 @@ func scanPaths(source, target string, maxFileSize int64, isInitialScan bool, dry
 
 	// Print summary
 	if changeCount > 0 {
-		if isInitialScan {
-			fmt.Printf("Initial scan: %d changes\n", changeCount)
-		} else {
-			fmt.Printf("Processed %d changes\n", changeCount)
-		}
+		fmt.Printf("Scanned %d changes\n", changeCount)
 	} else {
-		if isInitialScan {
-			fmt.Println("Initial scan: no changes")
-		} else {
-			fmt.Println("No changes detected")
-		}
+		fmt.Println("No changes detected")
 	}
 }
 
