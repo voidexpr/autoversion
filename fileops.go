@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,50 +64,21 @@ func CopyFile(sourcePath, sourceRoot, targetRoot string) error {
 		return err
 	}
 
-	// Use optimized copy on macOS
+	// Choose cp flags based on OS
+	// macOS: use -pc for COW optimization and preserve timestamps
+	// Others: use -p to preserve timestamps/permissions
+	cpFlags := "-p"
 	if runtime.GOOS == "darwin" {
-		return copyFileOptimized(sourcePath, targetPath)
+		cpFlags = "-pc"
 	}
 
-	// Fallback to standard copy
-	return copyFileStandard(sourcePath, targetPath)
-}
-
-// copyFileOptimized uses cp -pc on macOS for better performance
-func copyFileOptimized(src, dst string) error {
-	cmd := exec.Command("cp", "-pc", src, dst)
+	cmd := exec.Command("cp", cpFlags, sourcePath, targetPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("cp failed: %v, output: %s", err, output)
 	}
+
 	return nil
-}
-
-// copyFileStandard is a standard Go file copy
-func copyFileStandard(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	if _, err := io.Copy(destFile, sourceFile); err != nil {
-		return err
-	}
-
-	// Copy permissions
-	sourceInfo, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-
-	return os.Chmod(dst, sourceInfo.Mode())
 }
 
 // DeleteFile removes a file
@@ -119,4 +89,69 @@ func DeleteFile(path string) error {
 // EnsureDir creates a directory and all parent directories if they don't exist
 func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0755)
+}
+
+// FilterFunc is a callback to determine if a file should be copied
+type FilterFunc func(path string, info os.FileInfo) bool
+
+// CopyTree copies all files from source to target, applying optional filter
+// Returns the number of files copied, list of files to delete, and error
+func CopyTree(source, target string, filterFunc FilterFunc) (copied int, filesToDelete []string, err error) {
+	filesToCopy := make(map[string]bool)
+
+	// Walk source directory and copy matching files
+	err = filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
+			return nil
+		}
+
+		// Apply filter if provided
+		if filterFunc != nil && !filterFunc(path, info) {
+			return nil
+		}
+
+		filesToCopy[path] = true
+
+		relPath, _ := filepath.Rel(source, path)
+		targetPath := filepath.Join(target, relPath)
+
+		// Compare and copy if different
+		sourceInfo := GetFileInfo(path)
+		targetInfo := GetFileInfo(targetPath)
+
+		if !FilesEqual(sourceInfo, targetInfo) {
+			if err := CopyFile(path, source, target); err == nil {
+				copied++
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return 0, nil, err
+	}
+
+	// Find deleted files in target
+	filepath.Walk(target, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
+			if info != nil && info.IsDir() && info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		relPath, _ := filepath.Rel(target, path)
+		sourcePath := filepath.Join(source, relPath)
+
+		if _, exists := filesToCopy[sourcePath]; !exists {
+			if sourceInfo := GetFileInfo(sourcePath); !sourceInfo.Exists {
+				filesToDelete = append(filesToDelete, relPath)
+			}
+		}
+
+		return nil
+	})
+
+	return copied, filesToDelete, nil
 }

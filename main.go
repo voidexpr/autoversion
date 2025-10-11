@@ -59,6 +59,47 @@ Use "autoversion <command> -h" for more information about a command.
 `)
 }
 
+// verifyPaths verifies that source and repo paths are safe to use
+func verifyPaths(absSourcePath, absRepoPath string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %v", err)
+	}
+
+	// Check if paths are HOME or /
+	dangerousPaths := []struct {
+		path string
+		name string
+	}{
+		{absSourcePath, "source"},
+		{absRepoPath, "repo"},
+	}
+
+	for _, p := range dangerousPaths {
+		if p.path == homeDir {
+			return fmt.Errorf("%s path cannot be HOME directory (%s)", p.name, homeDir)
+		}
+		if p.path == "/" {
+			return fmt.Errorf("%s path cannot be root directory (/)", p.name)
+		}
+	}
+
+	// Check if one path contains the other
+	if filepath.HasPrefix(absSourcePath, absRepoPath+string(filepath.Separator)) {
+		return fmt.Errorf("source path (%s) cannot be inside repo path (%s)", absSourcePath, absRepoPath)
+	}
+	if filepath.HasPrefix(absRepoPath, absSourcePath+string(filepath.Separator)) {
+		return fmt.Errorf("repo path (%s) cannot be inside source path (%s)", absRepoPath, absSourcePath)
+	}
+
+	// Check exact match
+	if absSourcePath == absRepoPath {
+		return fmt.Errorf("source and repo paths cannot be the same")
+	}
+
+	return nil
+}
+
 func filterCommand(args []string) {
 	fs := flag.NewFlagSet("filter", flag.ExitOnError)
 	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
@@ -169,12 +210,14 @@ func scanCommand(args []string) {
 	fs := flag.NewFlagSet("scan", flag.ExitOnError)
 	repoPath := fs.String("repo", "", "repository path (required)")
 	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+	dryRun := fs.Bool("dry-run", false, "show what would be done without executing")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: autoversion scan --repo <repo> <source>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: autoversion scan [options] <source>\n\n")
 		fmt.Fprintf(os.Stderr, "Scan source directory and copy filtered files to repository.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nNote: Options must come before positional arguments.\n")
 	}
 
 	fs.Parse(args)
@@ -208,86 +251,14 @@ func scanCommand(args []string) {
 	absSourcePath, _ := filepath.Abs(sourcePath)
 	absRepoPath, _ := filepath.Abs(*repoPath)
 
+	// Verify paths are safe
+	if err := verifyPaths(absSourcePath, absRepoPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Scan and copy files
-	filesToCopy := make(map[string]bool)
-	changeCount := 0
-
-	// Walk source directory
-	filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-
-		// Skip symlinks to directories
-		if info.Mode()&os.ModeSymlink != 0 {
-			if targetInfo, err := os.Stat(path); err == nil && targetInfo.IsDir() {
-				return nil
-			}
-		}
-
-		shouldTrack, _ := ShouldTrack(path, *maxFileSize)
-		if !shouldTrack {
-			return nil
-		}
-
-		filesToCopy[path] = true
-
-		relPath, _ := filepath.Rel(absSourcePath, path)
-		targetPath := filepath.Join(absRepoPath, relPath)
-
-		// Compare and copy if different
-		sourceInfo := GetFileInfo(path)
-		targetInfo := GetFileInfo(targetPath)
-
-		if !FilesEqual(sourceInfo, targetInfo) {
-			if err := CopyFile(path, absSourcePath, absRepoPath); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-			} else {
-				changeCount++
-			}
-		}
-
-		return nil
-	})
-
-	// Find deleted files
-	var filesToDelete []string
-
-	filepath.Walk(absRepoPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			if info != nil && info.IsDir() && info.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(absRepoPath, path)
-		sourcePath := filepath.Join(absSourcePath, relPath)
-
-		if _, exists := filesToCopy[sourcePath]; !exists {
-			if sourceInfo := GetFileInfo(sourcePath); !sourceInfo.Exists {
-				filesToDelete = append(filesToDelete, relPath)
-			}
-		}
-
-		return nil
-	})
-
-	// Delete files
-	if len(filesToDelete) > 0 {
-		if err := Remove(absRepoPath, filesToDelete); err == nil {
-			changeCount += len(filesToDelete)
-		}
-	}
-
-	// Commit changes
-	if changeCount > 0 {
-		Add(absRepoPath, []string{"."})
-		Commit(absRepoPath, fmt.Sprintf("detected %d changes", changeCount))
-		fmt.Printf("Scanned and committed %d changes\n", changeCount)
-	} else {
-		fmt.Println("No changes detected")
-	}
+	scanPaths(absSourcePath, absRepoPath, *maxFileSize, false, *dryRun)
 }
 
 func watchCommand(args []string) {
@@ -295,12 +266,14 @@ func watchCommand(args []string) {
 	repoPath := fs.String("repo", "", "repository path (required)")
 	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	bufferTime := fs.Int("buffer-time", defaultBufferTime, "buffer time in seconds")
+	dryRun := fs.Bool("dry-run", false, "show what would be done without executing")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: autoversion watch --repo <repo> <source> [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: autoversion watch [options] <source>\n\n")
 		fmt.Fprintf(os.Stderr, "Watch source directory for changes and copy to repository in real-time.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nNote: Options must come before positional arguments.\n")
 	}
 
 	fs.Parse(args)
@@ -333,9 +306,15 @@ func watchCommand(args []string) {
 	absSourcePath, _ := filepath.Abs(sourcePath)
 	absRepoPath, _ := filepath.Abs(*repoPath)
 
+	// Verify paths are safe
+	if err := verifyPaths(absSourcePath, absRepoPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// First, run scan to capture any missed changes
 	fmt.Println("Initial scan...")
-	scanPaths(absSourcePath, absRepoPath, *maxFileSize)
+	scanPaths(absSourcePath, absRepoPath, *maxFileSize, true, *dryRun)
 
 	// Create watcher
 	watcher, err := NewWatcher(absSourcePath, *maxFileSize)
@@ -375,7 +354,7 @@ func watchCommand(args []string) {
 			// Flush events older than buffer time
 			events := buffer.Flush(flushDuration)
 			if len(events) > 0 {
-				processEvents(events, absSourcePath, absRepoPath)
+				processEvents(events, absSourcePath, absRepoPath, *dryRun)
 			}
 
 		case <-sigChan:
@@ -384,7 +363,7 @@ func watchCommand(args []string) {
 			events := buffer.Flush(0)
 			if len(events) > 0 {
 				fmt.Println("Processing remaining events...")
-				processEvents(events, absSourcePath, absRepoPath)
+				processEvents(events, absSourcePath, absRepoPath, *dryRun)
 			}
 			fmt.Println("Done")
 			return
@@ -392,58 +371,76 @@ func watchCommand(args []string) {
 	}
 }
 
-// scanPaths performs the initial scan (same as scan command)
-func scanPaths(absSourcePath, absRepoPath string, maxFileSize int64) {
-	filesToCopy := make(map[string]bool)
-	changeCount := 0
-
-	filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-
+// scanPaths scans directories, prints actions, and optionally executes them
+func scanPaths(source, target string, maxFileSize int64, isInitialScan bool, dryRun bool) {
+	// Create filter function
+	filterFunc := func(path string, info os.FileInfo) bool {
+		// Skip symlinks to directories
 		if info.Mode()&os.ModeSymlink != 0 {
 			if targetInfo, err := os.Stat(path); err == nil && targetInfo.IsDir() {
-				return nil
+				return false
 			}
 		}
 
+		// Apply ShouldTrack filter
 		shouldTrack, _ := ShouldTrack(path, maxFileSize)
-		if !shouldTrack {
+		return shouldTrack
+	}
+
+	var filesToCopy []string
+	filesToCopyMap := make(map[string]bool)
+
+	// Walk source directory
+	filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
 			return nil
 		}
 
-		filesToCopy[path] = true
+		if filterFunc != nil && !filterFunc(path, info) {
+			return nil
+		}
 
-		relPath, _ := filepath.Rel(absSourcePath, path)
-		targetPath := filepath.Join(absRepoPath, relPath)
+		filesToCopyMap[path] = true
+
+		relPath, _ := filepath.Rel(source, path)
+		targetPath := filepath.Join(target, relPath)
 
 		sourceInfo := GetFileInfo(path)
 		targetInfo := GetFileInfo(targetPath)
 
 		if !FilesEqual(sourceInfo, targetInfo) {
-			if err := CopyFile(path, absSourcePath, absRepoPath); err == nil {
-				changeCount++
+			// Always print the action
+			fmt.Printf("copy: %s\n", relPath)
+			filesToCopy = append(filesToCopy, path)
+
+			// Execute if not dry run
+			if !dryRun {
+				if err := CopyFile(path, source, target); err != nil {
+					fmt.Fprintf(os.Stderr, "Error copying %s: %v\n", relPath, err)
+				}
 			}
 		}
 
 		return nil
 	})
 
+	// Find and process deleted files
 	var filesToDelete []string
-	filepath.Walk(absRepoPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	filepath.Walk(target, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
 			if info != nil && info.IsDir() && info.Name() == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		relPath, _ := filepath.Rel(absRepoPath, path)
-		sourcePath := filepath.Join(absSourcePath, relPath)
+		relPath, _ := filepath.Rel(target, path)
+		sourcePath := filepath.Join(source, relPath)
 
-		if _, exists := filesToCopy[sourcePath]; !exists {
+		if _, exists := filesToCopyMap[sourcePath]; !exists {
 			if sourceInfo := GetFileInfo(sourcePath); !sourceInfo.Exists {
+				// Always print the action
+				fmt.Printf("delete: %s\n", relPath)
 				filesToDelete = append(filesToDelete, relPath)
 			}
 		}
@@ -451,23 +448,39 @@ func scanPaths(absSourcePath, absRepoPath string, maxFileSize int64) {
 		return nil
 	})
 
-	if len(filesToDelete) > 0 {
-		if err := Remove(absRepoPath, filesToDelete); err == nil {
-			changeCount += len(filesToDelete)
+	changeCount := len(filesToCopy) + len(filesToDelete)
+
+	// Execute deletions and commit if not dry run
+	if !dryRun && changeCount > 0 {
+		if len(filesToDelete) > 0 {
+			if err := Remove(target, filesToDelete); err != nil {
+				fmt.Fprintf(os.Stderr, "Error removing files: %v\n", err)
+			}
 		}
+
+		// Commit changes
+		Add(target, []string{"."})
+		Commit(target, fmt.Sprintf("scanned %d changes", changeCount))
 	}
 
+	// Print summary
 	if changeCount > 0 {
-		Add(absRepoPath, []string{"."})
-		Commit(absRepoPath, fmt.Sprintf("detected %d changes", changeCount))
-		fmt.Printf("Initial scan: committed %d changes\n", changeCount)
+		if isInitialScan {
+			fmt.Printf("Initial scan: %d changes\n", changeCount)
+		} else {
+			fmt.Printf("Processed %d changes\n", changeCount)
+		}
 	} else {
-		fmt.Println("Initial scan: no changes")
+		if isInitialScan {
+			fmt.Println("Initial scan: no changes")
+		} else {
+			fmt.Println("No changes detected")
+		}
 	}
 }
 
 // processEvents processes a batch of events
-func processEvents(events []Event, absSourcePath, absRepoPath string) {
+func processEvents(events []Event, absSourcePath, absRepoPath string, dryRun bool) {
 	changeCount := 0
 
 	for _, event := range events {
@@ -476,22 +489,46 @@ func processEvents(events []Event, absSourcePath, absRepoPath string) {
 			continue
 		}
 
+		// Map event type to operation name
+		var opName string
+		switch event.Action {
+		case EventCreated:
+			opName = "created"
+		case EventModified:
+			opName = "modified"
+		case EventDeleted:
+			opName = "deleted"
+		}
+
+		// Always print the detected event
+		fmt.Printf("%s: %s\n", opName, relPath)
+
+		// Always print the action that would be taken
 		if event.Action == EventDeleted {
-			// Delete from repo
-			if err := Remove(absRepoPath, []string{relPath}); err == nil {
-				fmt.Printf("Deleted: %s\n", relPath)
-				changeCount++
+			fmt.Printf("delete: %s\n", relPath)
+		} else {
+			fmt.Printf("copy: %s\n", relPath)
+		}
+
+		// Actually perform the action if not dry run
+		if !dryRun {
+			if event.Action == EventDeleted {
+				// Delete from repo
+				if err := Remove(absRepoPath, []string{relPath}); err == nil {
+					changeCount++
+				}
+			} else {
+				// Copy to repo
+				if err := CopyFile(event.Path, absSourcePath, absRepoPath); err == nil {
+					changeCount++
+				}
 			}
 		} else {
-			// Copy to repo
-			if err := CopyFile(event.Path, absSourcePath, absRepoPath); err == nil {
-				fmt.Printf("Updated: %s\n", relPath)
-				changeCount++
-			}
+			changeCount++
 		}
 	}
 
-	if changeCount > 0 {
+	if changeCount > 0 && !dryRun {
 		Add(absRepoPath, []string{"."})
 		Commit(absRepoPath, fmt.Sprintf("detected %d changes", changeCount))
 	}
