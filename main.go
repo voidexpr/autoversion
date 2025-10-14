@@ -66,16 +66,45 @@ func computeTargetPath(base, sourcePath string) (string, error) {
 }
 
 // validateTargetPath validates that the target is initialized as a git repository
-// In dry-run mode, only prints a warning instead of returning an error
+// If target doesn't exist, creates it and initializes as git repo
+// If target exists but is not a git repo, returns error
+// In dry-run mode, only prints warnings instead of creating/erroring
 func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) error {
-	if !IsGitRepo(targetPath) {
-		if dryRun {
-			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion --base %s init %s' first\n", targetPath, basePath, sourcePath)
-			fmt.Fprintf(os.Stderr, "dry-run: ignore target not initialized\n")
+	// Check if target directory exists
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Target doesn't exist - create and initialize
+			if dryRun {
+				fmt.Fprintf(os.Stderr, "dry-run: would create and initialize %s\n", targetPath)
+				return nil
+			}
+
+			fmt.Printf("Creating target directory: %s\n", targetPath)
+			if err := EnsureDir(targetPath); err != nil {
+				return fmt.Errorf("failed to create target directory: %v", err)
+			}
+
+			fmt.Printf("Initializing git repository at %s\n", targetPath)
+			if err := Init(targetPath); err != nil {
+				return fmt.Errorf("failed to initialize git repository: %v", err)
+			}
+
 			return nil
 		}
-		return fmt.Errorf("%s is not a git repository. Run 'autoversion --base %s init %s' first", targetPath, basePath, sourcePath)
+		return fmt.Errorf("failed to stat target path: %v", err)
 	}
+
+	// Target exists - check if it's a directory
+	if !info.IsDir() {
+		return fmt.Errorf("target path exists but is not a directory: %s", targetPath)
+	}
+
+	// Target directory exists - check if it's a git repo
+	if !IsGitRepo(targetPath) {
+		return fmt.Errorf("%s exists but is not a git repository", targetPath)
+	}
+
 	return nil
 }
 
@@ -328,24 +357,26 @@ var watchCmd = &cobra.Command{
 		for {
 			select {
 			case event := <-watcher.Events():
-				// PB: not great but we need to call watcher.ShouldProcess to set new watch on created dirs
-				doProcess := watcher.ShouldProcess(event)
-				eventType := MapEventType(event.Op)
-				doPassFilter, _ := ShouldTrack(event.Name, maxFileSize, eventType == EventDeleted)
+				doPassFilter, _ := ShouldTrack(event.Path, maxFileSize, event.Type == EventDeleted)
 				// Map event type to operation name
 				var opName string
-				switch eventType {
+				switch event.Type {
 				case EventCreated:
-					opName = "created"
+					opName = "created "
 				case EventModified:
 					opName = "modified"
 				case EventDeleted:
-					opName = "deleted"
+					opName = "deleted "
 				}
-				fmt.Printf("[%s] event: %s %s process=%v passfilter=%v\n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Name, doProcess, doPassFilter)
 
-				if doProcess && doPassFilter {
-					buffer.Add(event.Name, eventType)
+				evStatus :=  "BUFFER"
+				if !doPassFilter {
+					evStatus = "skip  "
+				}
+				fmt.Printf("[%s] event %s %s %s \n", time.Now().Format("2006-01-02 15:04:05"), evStatus, opName, event.Path)
+
+				if doPassFilter {
+					buffer.Add(event.Path, event.Type)
 				}
 
 			case err := <-watcher.Errors():
@@ -409,6 +440,21 @@ func main() {
 	}
 }
 
+// formatSize formats a byte size in human-readable format (MB or GB)
+func formatSize(bytes int64) string {
+	const (
+		MB = 1024 * 1024
+		GB = 1024 * MB
+	)
+
+	if bytes >= GB {
+		gb := float64(bytes) / float64(GB)
+		return fmt.Sprintf("%.2f GB", gb)
+	}
+	mb := float64(bytes) / float64(MB)
+	return fmt.Sprintf("%.2f MB", mb)
+}
+
 // scanPaths scans directories, prints actions, and optionally executes them
 func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 	// Create filter function
@@ -424,7 +470,11 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 	}
 
 	var filesToCopy []string
+	var filesToUpdate []string
 	filesToCopyMap := make(map[string]bool)
+	var totalScannedFiles int
+	var totalScannedSize int64
+	var totalChangedSize int64
 
 	// Walk source directory
 	filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
@@ -437,16 +487,25 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 		}
 
 		filesToCopyMap[path] = true
+		totalScannedFiles++
+
+		sourceInfo := GetFileInfo(path)
+		totalScannedSize += sourceInfo.Size
 
 		relPath, _ := filepath.Rel(source, path)
 		targetPath := filepath.Join(target, relPath)
 
-		sourceInfo := GetFileInfo(path)
 		targetInfo := GetFileInfo(targetPath)
 
 		if !FilesEqual(sourceInfo, targetInfo) {
 			fmt.Printf("copy '%s' to '%s'\n", path, targetPath)
-			filesToCopy = append(filesToCopy, path)
+			totalChangedSize += sourceInfo.Size
+
+			if targetInfo.Exists {
+				filesToUpdate = append(filesToUpdate, path)
+			} else {
+				filesToCopy = append(filesToCopy, path)
+			}
 
 			// Execute if not dry run
 			if !dryRun {
@@ -482,7 +541,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 		return nil
 	})
 
-	changeCount := len(filesToCopy) + len(filesToDelete)
+	changeCount := len(filesToCopy) + len(filesToUpdate) + len(filesToDelete)
 
 	// Execute deletions and commit if not dry run
 	if !dryRun && changeCount > 0 {
@@ -502,8 +561,25 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 	}
 
 	// Print summary
+	fmt.Printf("Scanned %d files (%s)\n", totalScannedFiles, formatSize(totalScannedSize))
 	if changeCount > 0 {
-		fmt.Printf("Scanned %d changes\n", changeCount)
+		var parts []string
+		if len(filesToCopy) > 0 {
+			parts = append(parts, fmt.Sprintf("    added: %d", len(filesToCopy)))
+		}
+		if len(filesToUpdate) > 0 {
+			parts = append(parts, fmt.Sprintf("  updated: %d", len(filesToUpdate)))
+		}
+		if len(filesToDelete) > 0 {
+			parts = append(parts, fmt.Sprintf("  deleted: %d", len(filesToDelete)))
+		}
+
+		changeStr := strings.Join(parts, ", ")
+		if totalChangedSize > 0 {
+			fmt.Printf("%s (%s)\n", changeStr, formatSize(totalChangedSize))
+		} else {
+			fmt.Printf("%s\n", changeStr)
+		}
 	} else {
 		fmt.Println("No changes detected")
 	}
@@ -512,7 +588,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 }
 
 // processEvents processes a batch of events
-func processEvents(events []Event, absSourcePath, absTargetPath string, dryRun bool) error {
+func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath string, dryRun bool) error {
 	changeCount := 0
 
 	for _, event := range events {

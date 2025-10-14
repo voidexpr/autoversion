@@ -4,17 +4,8 @@ import (
 	"time"
 )
 
-// EventType represents the type of file system event
-type EventType int
-
-const (
-	EventCreated EventType = iota
-	EventModified
-	EventDeleted
-)
-
-// Event represents a file system event with first and last timestamps
-type Event struct {
+// PendingFileChanges represents a file system event with first and last timestamps
+type PendingFileChanges struct {
 	Path           string
 	Action         EventType
 	FirstTimestamp time.Time
@@ -23,7 +14,7 @@ type Event struct {
 
 // EventBuffer buffers file system events and collapses them
 type EventBuffer struct {
-	events map[string]Event // filepath -> event with first/last timestamps
+	events map[string]PendingFileChanges // filepath -> event with first/last timestamps
 }
 
 const maxEventAge = 5 * time.Minute
@@ -31,7 +22,7 @@ const maxEventAge = 5 * time.Minute
 // NewEventBuffer creates a new event buffer
 func NewEventBuffer() *EventBuffer {
 	return &EventBuffer{
-		events: make(map[string]Event),
+		events: make(map[string]PendingFileChanges),
 	}
 }
 
@@ -45,7 +36,7 @@ func (b *EventBuffer) Add(path string, eventType EventType) {
 		b.events[path] = existing
 	} else {
 		// New event
-		b.events[path] = Event{
+		b.events[path] = PendingFileChanges{
 			Path:           path,
 			Action:         eventType,
 			FirstTimestamp: now,
@@ -57,10 +48,10 @@ func (b *EventBuffer) Add(path string, eventType EventType) {
 // Flush returns and removes events that should be processed:
 // - Events with no activity for olderThan duration, OR
 // - Events where first timestamp is older than maxEventAge (5 minutes)
-func (b *EventBuffer) Flush(olderThan time.Duration) []Event {
+func (b *EventBuffer) Flush(olderThan time.Duration) []PendingFileChanges {
 	now := time.Now()
 	cutoffRecent := now.Add(-olderThan)
-	var result []Event
+	var result []PendingFileChanges
 
 	for path, event := range b.events {
 		shouldFlush := false

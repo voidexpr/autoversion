@@ -11,6 +11,22 @@ A lightweight Go program that tracks file versions in real-time using git as the
 - **Automatic path mapping** - Preserves directory structure from source to target
 - **Relative paths** - Maintains directory structure relative to watch root
 
+## File System notification Methods
+
+* github.com/fsnotify/fsnotify
+  * cross platform
+  * uses kqueue on MacOS which requires 1 file handle per watched file/dir so is unusable for the current use case
+  * not adding FSEvents soon: https://github.com/fsnotify/fsnotify/issues/11#issuecomment-1279133120
+    * points out to another tool not super happy with FSEvents: https://watchexec.github.io/docs/macos-fsevents.html
+      * but out of order / extra events are probably fine for our use case
+* https://github.com/fsnotify/fsevents
+  * not updated much
+  * Claude is worried: not a lot of code examples, MacOS only
+* CLI from brew on MacOS used by older scripts: fswatch
+  * uses FSEvents and that was fine
+* https://github.com/rjeczalik/notify
+  * found by Claude but not updated in 2 years (as of fall 2025) and build is failing on github
+
 ## Installation
 
 ### Build from source

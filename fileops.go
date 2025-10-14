@@ -83,6 +83,28 @@ func CopyFile(sourcePath, sourceRoot, targetRoot string) error {
 
 // DeleteFile removes a file
 func DeleteFile(path string) error {
+	// Check if file exists
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Skip delete: file doesn't exist: %s\n", path)
+			return nil
+		}
+		return fmt.Errorf("failed to stat file: %v", err)
+	}
+
+	// Check if it's a regular file (not a directory or symlink)
+	if info.IsDir() {
+		fmt.Fprintf(os.Stderr, "Skip delete: path is a directory: %s\n", path)
+		return nil
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		fmt.Fprintf(os.Stderr, "Skip delete: path is a symlink: %s\n", path)
+		return nil
+	}
+
+	// It's a valid file, proceed with deletion
 	return os.Remove(path)
 }
 
