@@ -13,6 +13,7 @@ type Watcher struct {
 	watcher    *fsnotify.Watcher
 	maxSize    int64
 	sourcePath string
+	watched    map[string]bool // Track directories already being watched
 }
 
 // NewWatcher creates a new file system watcher
@@ -26,6 +27,7 @@ func NewWatcher(sourcePath string, maxSize int64) (*Watcher, error) {
 		watcher:    fw,
 		maxSize:    maxSize,
 		sourcePath: sourcePath,
+		watched:    make(map[string]bool),
 	}
 
 	// Add all directories recursively
@@ -50,9 +52,16 @@ func (w *Watcher) addRecursive(path string) error {
 				return filepath.SkipDir
 			}
 
+			// Skip if already watching this directory
+			if w.watched[walkPath] {
+				return nil
+			}
+
 			// Add directory to watcher
 			if err := w.watcher.Add(walkPath); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to watch %s: %v\n", walkPath, err)
+			} else {
+				w.watched[walkPath] = true
 			}
 		}
 
@@ -82,9 +91,9 @@ func (w *Watcher) ShouldProcess(event fsnotify.Event) bool {
 	}
 
 	if info.IsDir() {
-		// If a new directory was created, add it to watch list
+		// If a new directory was created, add it and all subdirectories to watch list
 		if event.Op&fsnotify.Create == fsnotify.Create {
-			w.watcher.Add(event.Name)
+			w.addRecursive(event.Name)
 		}
 		return false
 	}
