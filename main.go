@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,56 +8,24 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 const (
 	defaultMaxFileSizeMB = 10
-	defaultBufferTime    = 5
+	defaultBufferTime    = 3
 )
 
-func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
-	}
+var (
+	// Global flags
+	basePath string
 
-	switch os.Args[1] {
-	case "filter":
-		filterCommand(os.Args[2:])
-	case "init":
-		initCommand(os.Args[2:])
-	case "sync":
-		syncCommand(os.Args[2:])
-	case "watch":
-		watchCommand(os.Args[2:])
-	case "-h", "--help", "help":
-		printUsage()
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", os.Args[1])
-		printUsage()
-		os.Exit(1)
-	}
-}
-
-func printUsage() {
-	fmt.Fprintf(os.Stderr, `autoversion - track file versions in real-time using git
-
-Usage: autoversion <command> [options]
-
-Commands:
-  filter <path>                   List files that would be tracked
-  init --base <base> <source>     Initialize a version repository
-  sync --base <base> <source>     Sync files to target
-  watch --base <base> <source>    Watch for changes in real-time
-
-Examples:
-  autoversion filter ~/projects/myapp
-  autoversion init --base ~/repos ~/projects/myapp
-  autoversion sync --base ~/repos ~/projects/myapp
-
-Use "autoversion <command> -h" for more information about a command.
-`)
-}
+	// Command-specific flags
+	maxFileSize int64
+	bufferTime  int
+	dryRun      bool
+)
 
 // computeTargetPath computes the target path from base and source path
 // For source under $HOME: target = base + (source - $HOME)
@@ -94,8 +61,22 @@ func computeTargetPath(base, sourcePath string) (string, error) {
 
 	target := filepath.Join(absBase, relPath)
 
-	fmt.Println("source: '%s' into target: '%s'", sourcePath, target)
+	fmt.Printf("source: '%s' into target: '%s'\n", sourcePath, target)
 	return target, nil
+}
+
+// validateTargetPath validates that the target is initialized as a git repository
+// In dry-run mode, only prints a warning instead of returning an error
+func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) error {
+	if !IsGitRepo(targetPath) {
+		if dryRun {
+			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion --base %s init %s' first\n", targetPath, basePath, sourcePath)
+			fmt.Fprintf(os.Stderr, "dry-run: ignore target not initialized\n")
+			return nil
+		}
+		return fmt.Errorf("%s is not a git repository. Run 'autoversion --base %s init %s' first", targetPath, basePath, sourcePath)
+	}
+	return nil
 }
 
 // verifyPaths verifies that source and target paths are safe to use
@@ -139,316 +120,297 @@ func verifyPaths(absSourcePath, absTargetPath string) error {
 	return nil
 }
 
-func filterCommand(args []string) {
-	fs := flag.NewFlagSet("filter", flag.ExitOnError)
-	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: autoversion filter <path> [options]\n\n")
-		fmt.Fprintf(os.Stderr, "Scan directory and list files that would be tracked.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		fs.PrintDefaults()
-	}
-
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	sourcePath := fs.Arg(0)
-
-	// Verify path exists and is a directory
+// validateSourcePath checks that source path exists and is a directory
+func validateSourcePath(sourcePath string) error {
 	info, err := os.Stat(sourcePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("source path error: %v", err)
 	}
 	if !info.IsDir() {
-		fmt.Fprintf(os.Stderr, "Error: %s is not a directory\n", sourcePath)
-		os.Exit(1)
+		return fmt.Errorf("source path must be a directory: %s", sourcePath)
+	}
+	return nil
+}
+
+// validatePaths validates source and base paths, computes target, and verifies everything
+// Returns absolute source path and target path, or an error
+func validatePaths(sourcePath, basePath string, dryRun bool) (absSourcePath, targetPath string, err error) {
+	// Validate source path exists and is a directory
+	if err := validateSourcePath(sourcePath); err != nil {
+		return "", "", err
 	}
 
-	absSourcePath, err := filepath.Abs(sourcePath)
+	// Compute target path
+	targetPath, err = computeTargetPath(basePath, sourcePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return "", "", err
 	}
 
-	// Walk and print matching files
-	filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
+	// Get absolute source path
+	absSourcePath, err = filepath.Abs(sourcePath)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Validate target is initialized
+	if err := validateTargetPath(targetPath, basePath, sourcePath, dryRun); err != nil {
+		return "", "", err
+	}
+
+	// Verify paths are safe
+	if err := verifyPaths(absSourcePath, targetPath); err != nil {
+		return "", "", err
+	}
+
+	return absSourcePath, targetPath, nil
+}
+
+var rootCmd = &cobra.Command{
+	Use:   "autoversion",
+	Short: "Track file versions in real-time using git",
+	Long: `autoversion - track file versions in real-time using git
+
+Automatically tracks changes to files and commits them to git repositories,
+making it easy to see what changed and restore files to any point in time.`,
+}
+
+var filterCmd = &cobra.Command{
+	Use:   "filter <source>",
+	Short: "List files that would be tracked",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sourcePath := args[0]
+
+		if err := validateSourcePath(sourcePath); err != nil {
+			return err
+		}
+
+		absSourcePath, err := filepath.Abs(sourcePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-			return nil
+			return err
 		}
 
-		if info.IsDir() {
-			return nil
-		}
-
-		// Skip all symlinks (both file and directory symlinks)
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil
-		}
-
-		if shouldTrack, _ := ShouldTrack(path, *maxFileSize); shouldTrack {
-			if relPath, err := filepath.Rel(absSourcePath, path); err == nil {
-				fmt.Println(relPath)
+		// Walk and print matching files
+		filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+				return nil
 			}
-		}
+
+			if info.IsDir() {
+				return nil
+			}
+
+			// Skip all symlinks (both file and directory symlinks)
+			if info.Mode()&os.ModeSymlink != 0 {
+				return nil
+			}
+
+			if shouldTrack, _ := ShouldTrack(path, maxFileSize, false); shouldTrack {
+				if relPath, err := filepath.Rel(absSourcePath, path); err == nil {
+					fmt.Println(relPath)
+				}
+			}
+
+			return nil
+		})
 
 		return nil
-	})
+	},
 }
 
-func initCommand(args []string) {
-	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	base := fs.String("base", "", "base path (required)")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: autoversion init --base <base> <source>\n\n")
-		fmt.Fprintf(os.Stderr, "Initialize a git repository for version tracking.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		fs.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nNote: Options must come before positional arguments.\n")
-	}
-
-	fs.Parse(args)
-
-	if *base == "" {
-		fmt.Fprintf(os.Stderr, "Error: --base is required\n\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	if fs.NArg() < 1 {
-		fmt.Fprintf(os.Stderr, "Error: source path is required\n\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	sourcePath := fs.Arg(0)
-
-	// Compute target path
-	targetPath, err := computeTargetPath(*base, sourcePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create directory if needed
-	if err := EnsureDir(targetPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Check if already initialized
-	gitDir := filepath.Join(targetPath, ".git")
-	if _, err := os.Stat(gitDir); err == nil {
-		fmt.Fprintf(os.Stderr, "Repository already initialized at %s\n", targetPath)
-		return
-	}
-
-	// Initialize git repository
-	if err := Init(targetPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Initialized git repository at %s\n", targetPath)
-}
-
-func syncCommand(args []string) {
-	fs := flag.NewFlagSet("sync", flag.ExitOnError)
-	base := fs.String("base", "", "base path (required)")
-	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
-	dryRun := fs.Bool("dry-run", false, "show what would be done without executing")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: autoversion sync [options] <source>\n\n")
-		fmt.Fprintf(os.Stderr, "Sync source directory to target.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		fs.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nNote: Options must come before positional arguments.\n")
-	}
-
-	fs.Parse(args)
-
-	if *base == "" {
-		fmt.Fprintf(os.Stderr, "Error: --base is required\n\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	if fs.NArg() < 1 {
-		fmt.Fprintf(os.Stderr, "Error: source path is required\n\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	sourcePath := fs.Arg(0)
-
-	// Verify source path exists and is a directory
-	if info, err := os.Stat(sourcePath); err != nil || !info.IsDir() {
-		fmt.Fprintf(os.Stderr, "Error: source path must be a directory\n")
-		os.Exit(1)
-	}
-
-	// Compute target path
-	targetPath, err := computeTargetPath(*base, sourcePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Get absolute paths for verification
-	absSourcePath, _ := filepath.Abs(sourcePath)
-
-	// Verify target is initialized
-	if !IsGitRepo(targetPath) {
-		if *dryRun {
-			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion init --base %s %s' first\n", targetPath, *base, sourcePath)
-		} else {
-			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository. Run 'autoversion init --base %s %s' first\n", targetPath, *base, sourcePath)
-			os.Exit(1)
+var initCmd = &cobra.Command{
+	Use:   "init <source>",
+	Short: "Initialize a git repository for version tracking",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if basePath == "" {
+			return fmt.Errorf("--base is required")
 		}
-	}
 
-	// Verify paths are safe
-	if err := verifyPaths(absSourcePath, targetPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+		sourcePath := args[0]
 
-	// Sync files
-	scanPaths(absSourcePath, targetPath, *maxFileSize, *dryRun)
+		// Compute target path
+		targetPath, err := computeTargetPath(basePath, sourcePath)
+		if err != nil {
+			return err
+		}
+
+		// Create directory if needed
+		if err := EnsureDir(targetPath); err != nil {
+			return err
+		}
+
+		// Check if already initialized
+		gitDir := filepath.Join(targetPath, ".git")
+		if _, err := os.Stat(gitDir); err == nil {
+			fmt.Fprintf(os.Stderr, "Repository already initialized at %s\n", targetPath)
+			return nil
+		}
+
+		// Initialize git repository
+		if err := Init(targetPath); err != nil {
+			return err
+		}
+
+		fmt.Printf("Initialized git repository at %s\n", targetPath)
+		return nil
+	},
 }
 
-func watchCommand(args []string) {
-	fs := flag.NewFlagSet("watch", flag.ExitOnError)
-	base := fs.String("base", "", "base path (required)")
-	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
-	bufferTime := fs.Int("buffer-time", defaultBufferTime, "buffer time in seconds")
-	dryRun := fs.Bool("dry-run", false, "show what would be done without executing")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: autoversion watch [options] <source>\n\n")
-		fmt.Fprintf(os.Stderr, "Watch source directory for changes and sync to target in real-time.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		fs.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nNote: Options must come before positional arguments.\n")
-	}
-
-	fs.Parse(args)
-
-	if *base == "" {
-		fmt.Fprintf(os.Stderr, "Error: --base is required\n\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	if fs.NArg() < 1 {
-		fmt.Fprintf(os.Stderr, "Error: source path is required\n\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	sourcePath := fs.Arg(0)
-
-	// Verify source path exists and is a directory
-	if info, err := os.Stat(sourcePath); err != nil || !info.IsDir() {
-		fmt.Fprintf(os.Stderr, "Error: source path must be a directory\n")
-		os.Exit(1)
-	}
-
-	// Compute target path
-	targetPath, err := computeTargetPath(*base, sourcePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Get absolute paths
-	absSourcePath, _ := filepath.Abs(sourcePath)
-
-	// Verify target is initialized
-	if !IsGitRepo(targetPath) {
-		if *dryRun {
-			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion init --base %s %s' first\n", targetPath, *base, sourcePath)
-		} else {
-			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository. Run 'autoversion init --base %s %s' first\n", targetPath, *base, sourcePath)
-			os.Exit(1)
+var syncCmd = &cobra.Command{
+	Use:   "sync <source>",
+	Short: "Sync source directory to target",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if basePath == "" {
+			return fmt.Errorf("--base is required")
 		}
-	}
 
-	// Verify paths are safe
-	if err := verifyPaths(absSourcePath, targetPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+		sourcePath := args[0]
 
-	// First, run scan to capture any missed changes
-	fmt.Println("Initial scan...")
-	scanPaths(absSourcePath, targetPath, *maxFileSize, *dryRun)
+		// Validate all paths and get absolute paths
+		absSourcePath, targetPath, err := validatePaths(sourcePath, basePath, dryRun)
+		if err != nil {
+			return err
+		}
 
-	// Create watcher
-	watcher, err := NewWatcher(absSourcePath, *maxFileSize)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	defer watcher.Close()
+		// Sync files
+		return scanPaths(absSourcePath, targetPath, maxFileSize, dryRun)
+	},
+}
 
-	// Create event buffer
-	buffer := NewEventBuffer()
+var watchCmd = &cobra.Command{
+	Use:   "watch <source>",
+	Short: "Watch for changes in real-time",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if basePath == "" {
+			return fmt.Errorf("--base is required")
+		}
 
-	// Setup signal handling for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		sourcePath := args[0]
 
-	// Start flush timer
-	flushDuration := time.Duration(*bufferTime) * time.Second
-	ticker := time.NewTicker(flushDuration)
-	defer ticker.Stop()
+		// Validate all paths and get absolute paths
+		absSourcePath, targetPath, err := validatePaths(sourcePath, basePath, dryRun)
+		if err != nil {
+			return err
+		}
 
-	fmt.Printf("Watching %s for changes (buffer time: %ds)...\n", absSourcePath, *bufferTime)
-	fmt.Println("Press Ctrl+C to stop")
+		// First, run scan to capture any missed changes
+		fmt.Println("Initial scan...")
+		if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
+			return fmt.Errorf("initial scan failed: %w", err)
+		}
 
-	for {
-		select {
-		case event := <-watcher.Events():
-			if watcher.ShouldProcess(event) {
+		// Create watcher
+		watcher, err := NewWatcher(absSourcePath, maxFileSize)
+		if err != nil {
+			return err
+		}
+		defer watcher.Close()
+
+		// Create event buffer
+		buffer := NewEventBuffer()
+
+		// Setup signal handling for graceful shutdown
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+		// Start flush timer
+		flushDuration := time.Duration(bufferTime) * time.Second
+		ticker := time.NewTicker(flushDuration)
+		defer ticker.Stop()
+
+		fmt.Printf("Watching %s for changes (buffer time: %ds)...\n", absSourcePath, bufferTime)
+		fmt.Println("Press Ctrl+C to stop")
+
+		for {
+			select {
+			case event := <-watcher.Events():
+				// PB: not great but we need to call watcher.ShouldProcess to set new watch on created dirs
+				doProcess := watcher.ShouldProcess(event)
 				eventType := MapEventType(event.Op)
-				buffer.Add(event.Name, eventType)
-			}
+				doPassFilter, _ := ShouldTrack(event.Name, maxFileSize, eventType == EventDeleted)
+				// Map event type to operation name
+				var opName string
+				switch eventType {
+				case EventCreated:
+					opName = "created"
+				case EventModified:
+					opName = "modified"
+				case EventDeleted:
+					opName = "deleted"
+				}
+				fmt.Printf("[%s] event: %s %s process=%v passfilter=%v\n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Name, doProcess, doPassFilter)
 
-		case err := <-watcher.Errors():
-			fmt.Fprintf(os.Stderr, "Watch error: %v\n", err)
+				if doProcess && doPassFilter {
+					buffer.Add(event.Name, eventType)
+				}
 
-		case <-ticker.C:
-			// Flush events older than buffer time
-			events := buffer.Flush(flushDuration)
-			if len(events) > 0 {
-				processEvents(events, absSourcePath, targetPath, *dryRun)
-			}
+			case err := <-watcher.Errors():
+				fmt.Fprintf(os.Stderr, "Watch error: %v\n", err)
 
-		case <-sigChan:
-			fmt.Println("\nShutting down...")
-			// Flush all remaining events
-			events := buffer.Flush(0)
-			if len(events) > 0 {
-				fmt.Println("Processing remaining events...")
-				processEvents(events, absSourcePath, targetPath, *dryRun)
+			case <-ticker.C:
+				// Flush events older than buffer time
+				events := buffer.Flush(flushDuration)
+				if len(events) > 0 {
+					if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
+						fmt.Fprintf(os.Stderr, "Error processing events: %v\n", err)
+						// for now let's keep going on errors, maybe they'll go away
+						// return err
+					}
+				}
+
+			case <-sigChan:
+				fmt.Println("\nShutting down...")
+				// Flush all remaining events
+				events := buffer.Flush(0)
+				if len(events) > 0 {
+					fmt.Println("Processing remaining events...")
+					if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
+						fmt.Fprintf(os.Stderr, "Error processing final events: %v\n", err)
+						return err
+					}
+				}
+				fmt.Println("Done")
+				return nil
 			}
-			fmt.Println("Done")
-			return
 		}
+	},
+}
+
+func init() {
+	// Root-level persistent flags
+	rootCmd.PersistentFlags().StringVar(&basePath, "base", "", "base directory path")
+
+	// Filter command flags
+	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+
+	// Sync command flags
+	syncCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+	syncCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
+
+	// Watch command flags
+	watchCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+	watchCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
+	watchCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
+
+	// Add commands to root
+	rootCmd.AddCommand(filterCmd)
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(watchCmd)
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
 	}
 }
 
 // scanPaths scans directories, prints actions, and optionally executes them
-func scanPaths(source, target string, maxFileSize int64, dryRun bool) {
+func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 	// Create filter function
 	filterFunc := func(path string, info os.FileInfo) bool {
 		// Skip all symlinks (both file and directory symlinks)
@@ -457,7 +419,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) {
 		}
 
 		// Apply ShouldTrack filter
-		shouldTrack, _ := ShouldTrack(path, maxFileSize)
+		shouldTrack, _ := ShouldTrack(path, maxFileSize, false)
 		return shouldTrack
 	}
 
@@ -483,8 +445,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) {
 		targetInfo := GetFileInfo(targetPath)
 
 		if !FilesEqual(sourceInfo, targetInfo) {
-			// Always print the action
-			fmt.Printf("copy: %s\n", relPath)
+			fmt.Printf("copy '%s' to '%s'\n", path, targetPath)
 			filesToCopy = append(filesToCopy, path)
 
 			// Execute if not dry run
@@ -513,8 +474,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) {
 
 		if _, exists := filesToCopyMap[sourcePath]; !exists {
 			if sourceInfo := GetFileInfo(sourcePath); !sourceInfo.Exists {
-				// Always print the action
-				fmt.Printf("delete: %s\n", relPath)
+				fmt.Printf("remove '%s'\n", path)
 				filesToDelete = append(filesToDelete, relPath)
 			}
 		}
@@ -528,13 +488,17 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) {
 	if !dryRun && changeCount > 0 {
 		if len(filesToDelete) > 0 {
 			if err := Remove(target, filesToDelete); err != nil {
-				fmt.Fprintf(os.Stderr, "Error removing files: %v\n", err)
+				return fmt.Errorf("failed to remove files: %w", err)
 			}
 		}
 
 		// Commit changes
-		Add(target, []string{"."})
-		Commit(target, fmt.Sprintf("scanned %d changes", changeCount))
+		if err := Add(target, []string{"."}); err != nil {
+			return fmt.Errorf("failed to add files to git: %w", err)
+		}
+		if err := Commit(target, fmt.Sprintf("scanned %d changes", changeCount)); err != nil {
+			return fmt.Errorf("failed to commit changes: %w", err)
+		}
 	}
 
 	// Print summary
@@ -543,10 +507,12 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) {
 	} else {
 		fmt.Println("No changes detected")
 	}
+
+	return nil
 }
 
 // processEvents processes a batch of events
-func processEvents(events []Event, absSourcePath, absRepoPath string, dryRun bool) {
+func processEvents(events []Event, absSourcePath, absTargetPath string, dryRun bool) error {
 	changeCount := 0
 
 	for _, event := range events {
@@ -555,47 +521,41 @@ func processEvents(events []Event, absSourcePath, absRepoPath string, dryRun boo
 			continue
 		}
 
-		// Map event type to operation name
-		var opName string
-		switch event.Action {
-		case EventCreated:
-			opName = "created"
-		case EventModified:
-			opName = "modified"
-		case EventDeleted:
-			opName = "deleted"
-		}
+		targetPath := filepath.Join(absTargetPath, relPath)
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
 
-		// Always print the detected event
-		fmt.Printf("%s: %s\n", opName, relPath)
-
-		// Always print the action that would be taken
+		// Process the event based on type
 		if event.Action == EventDeleted {
-			fmt.Printf("delete: %s\n", relPath)
-		} else {
-			fmt.Printf("copy: %s\n", relPath)
-		}
-
-		// Actually perform the action if not dry run
-		if !dryRun {
-			if event.Action == EventDeleted {
-				// Delete from repo
-				if err := Remove(absRepoPath, []string{relPath}); err == nil {
+			fmt.Printf("[%s] remove '%s'\n", timestamp, targetPath)
+			if !dryRun {
+				if err := Remove(absTargetPath, []string{relPath}); err == nil {
 					changeCount++
 				}
 			} else {
-				// Copy to repo
-				if err := CopyFile(event.Path, absSourcePath, absRepoPath); err == nil {
-					changeCount++
-				}
+				changeCount++
 			}
 		} else {
-			changeCount++
+			fmt.Printf("[%s] copy '%s' to '%s'\n", timestamp, event.Path, targetPath)
+			if !dryRun {
+				if err := CopyFile(event.Path, absSourcePath, absTargetPath); err == nil {
+					changeCount++
+				}
+			} else {
+				changeCount++
+			}
 		}
 	}
 
-	if changeCount > 0 && !dryRun {
-		Add(absRepoPath, []string{"."})
-		Commit(absRepoPath, fmt.Sprintf("detected %d changes", changeCount))
+	if changeCount > 0 {
+		if !dryRun {
+			if err := Add(absTargetPath, []string{"."}); err != nil {
+				return fmt.Errorf("failed to add files to git: %w", err)
+			}
+			if err := Commit(absTargetPath, fmt.Sprintf("detected %d changes", changeCount)); err != nil {
+				return fmt.Errorf("failed to commit changes: %w", err)
+			}
+		}
 	}
+
+	return nil
 }

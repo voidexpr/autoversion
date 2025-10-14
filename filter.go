@@ -27,29 +27,33 @@ var excludePatterns = []*regexp.Regexp{
 
 // ShouldTrack returns true if the file should be tracked based on filters.
 // maxSizeMB is the maximum file size in megabytes (0 = no limit)
-func ShouldTrack(path string, maxSizeMB int64) (bool, error) {
-	// Get file info
-	info, err := os.Lstat(path)
-	if err != nil {
-		return false, err
-	}
+// isDelete should be true if checking a deleted file (skips file existence checks)
+func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
+	if !isDelete {
+		// Get file info
+		info, err := os.Lstat(path)
+		if err != nil {
+			return false, err
+		}
 
-	// Exclude directories
-	if info.Mode().IsDir() {
-		return false, nil
-	}
-
-	// Check file size
-	if maxSizeMB > 0 {
-		maxBytes := maxSizeMB * 1024 * 1024
-		if info.Size() > maxBytes {
-			fmt.Fprintf(os.Stderr, "skipping large file: %s (%d MB > %d MB)\n",
-				path, info.Size() / 1024 / 1024, maxSizeMB)
+		// Exclude directories
+		if info.Mode().IsDir() {
 			return false, nil
 		}
-	}
 
-	// Check exclusion patterns
+		// Check file size
+		if maxSizeMB > 0 {
+			maxBytes := maxSizeMB * 1024 * 1024
+			if info.Size() > maxBytes {
+				fmt.Fprintf(os.Stderr, "skipping large file: %s (%d MB > %d MB)\n",
+					path, info.Size() / 1024 / 1024, maxSizeMB)
+				return false, nil
+			}
+		}
+	}
+	// For delete events, rely on pattern matching only
+
+	// Check exclusion patterns first (works even if file doesn't exist)
 	for _, pattern := range excludePatterns {
 		if pattern.MatchString(path) {
 			return false, nil

@@ -75,6 +75,9 @@ func (w *Watcher) ShouldProcess(event fsnotify.Event) bool {
 	// Check if it's a directory
 	info, err := os.Lstat(event.Name)
 	if err != nil {
+		if MapEventType(event.Op) == EventDeleted {
+			return true
+		}
 		return false
 	}
 
@@ -92,10 +95,7 @@ func (w *Watcher) ShouldProcess(event fsnotify.Event) bool {
 			return false
 		}
 	}
-
-	// Apply file filters
-	shouldTrack, _ := ShouldTrack(event.Name, w.maxSize)
-	return shouldTrack
+	return true
 }
 
 // MapEventType converts fsnotify operations to our EventType

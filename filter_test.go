@@ -72,7 +72,7 @@ func TestShouldTrack(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			got, err := ShouldTrack(testPath, tt.maxSizeMB)
+			got, err := ShouldTrack(testPath, tt.maxSizeMB, false)
 			if err != nil {
 				t.Fatalf("ShouldTrack() error = %v", err)
 			}
@@ -98,7 +98,7 @@ func TestShouldTrack_FileSize(t *testing.T) {
 	}
 
 	// Should be excluded with 1MB limit
-	got, err := ShouldTrack(largePath, 1)
+	got, err := ShouldTrack(largePath, 1, false)
 	if err != nil {
 		t.Fatalf("ShouldTrack() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestShouldTrack_FileSize(t *testing.T) {
 	}
 
 	// Should be allowed with 3MB limit
-	got, err = ShouldTrack(largePath, 3)
+	got, err = ShouldTrack(largePath, 3, false)
 	if err != nil {
 		t.Fatalf("ShouldTrack() error = %v", err)
 	}
@@ -124,7 +124,7 @@ func TestShouldTrack_Directory(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Directories should not be tracked
-	got, err := ShouldTrack(tmpDir, 0)
+	got, err := ShouldTrack(tmpDir, 0, false)
 	if err != nil {
 		t.Fatalf("ShouldTrack() error = %v", err)
 	}
@@ -149,7 +149,7 @@ func TestShouldTrack_NumericVimTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := ShouldTrack(vimTempPath, 0)
+	got, err := ShouldTrack(vimTempPath, 0, false)
 	if err != nil {
 		t.Fatalf("ShouldTrack() error = %v", err)
 	}
