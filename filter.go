@@ -43,8 +43,8 @@ func ShouldTrack(path string, maxSizeMB int64) (bool, error) {
 	if maxSizeMB > 0 {
 		maxBytes := maxSizeMB * 1024 * 1024
 		if info.Size() > maxBytes {
-			fmt.Fprintf(os.Stderr, "skipping large file: %s (%d bytes > %d MB)\n",
-				path, info.Size(), maxSizeMB)
+			fmt.Fprintf(os.Stderr, "skipping large file: %s (%d MB > %d MB)\n",
+				path, info.Size() / 1024 / 1024, maxSizeMB)
 			return false, nil
 		}
 	}

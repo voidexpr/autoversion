@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -26,8 +27,8 @@ func main() {
 		filterCommand(os.Args[2:])
 	case "init":
 		initCommand(os.Args[2:])
-	case "scan":
-		scanCommand(os.Args[2:])
+	case "sync":
+		syncCommand(os.Args[2:])
 	case "watch":
 		watchCommand(os.Args[2:])
 	case "-h", "--help", "help":
@@ -45,22 +46,60 @@ func printUsage() {
 Usage: autoversion <command> [options]
 
 Commands:
-  filter <path>              List files that would be tracked
-  init --repo <path>         Initialize a version repository
-  scan --repo <repo> <src>   Scan and copy files to repository
-  watch --repo <repo> <src>  Watch for changes in real-time
+  filter <path>                   List files that would be tracked
+  init --base <base> <source>     Initialize a version repository
+  sync --base <base> <source>     Sync files to target
+  watch --base <base> <source>    Watch for changes in real-time
 
 Examples:
   autoversion filter ~/projects/myapp
-  autoversion init --repo ~/repos/myapp
-  autoversion scan --repo ~/repos/myapp ~/projects/myapp
+  autoversion init --base ~/repos ~/projects/myapp
+  autoversion sync --base ~/repos ~/projects/myapp
 
 Use "autoversion <command> -h" for more information about a command.
 `)
 }
 
-// verifyPaths verifies that source and repo paths are safe to use
-func verifyPaths(absSourcePath, absRepoPath string) error {
+// computeTargetPath computes the target path from base and source path
+// For source under $HOME: target = base + (source - $HOME)
+// For source outside $HOME: target = base + source
+func computeTargetPath(base, sourcePath string) (string, error) {
+	absSource, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute source path: %v", err)
+	}
+
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute base path: %v", err)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %v", err)
+	}
+
+	// Check if source is under home directory
+	relPath := absSource
+	if filepath.HasPrefix(absSource, homeDir+string(filepath.Separator)) || absSource == homeDir {
+		// Remove home directory prefix
+		relPath, err = filepath.Rel(homeDir, absSource)
+		if err != nil {
+			return "", fmt.Errorf("failed to compute relative path: %v", err)
+		}
+	} else {
+		// Use absolute path without leading /
+		relPath = strings.TrimPrefix(absSource, string(filepath.Separator))
+	}
+
+	target := filepath.Join(absBase, relPath)
+
+	fmt.Println("source: '%s' into target: '%s'", sourcePath, target)
+	return target, nil
+}
+
+// verifyPaths verifies that source and target paths are safe to use
+func verifyPaths(absSourcePath, absTargetPath string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %v", err)
@@ -72,7 +111,7 @@ func verifyPaths(absSourcePath, absRepoPath string) error {
 		name string
 	}{
 		{absSourcePath, "source"},
-		{absRepoPath, "repo"},
+		{absTargetPath, "target"},
 	}
 
 	for _, p := range dangerousPaths {
@@ -85,16 +124,16 @@ func verifyPaths(absSourcePath, absRepoPath string) error {
 	}
 
 	// Check if one path contains the other
-	if filepath.HasPrefix(absSourcePath, absRepoPath+string(filepath.Separator)) {
-		return fmt.Errorf("source path (%s) cannot be inside repo path (%s)", absSourcePath, absRepoPath)
+	if filepath.HasPrefix(absSourcePath, absTargetPath+string(filepath.Separator)) {
+		return fmt.Errorf("source path (%s) cannot be inside target path (%s)", absSourcePath, absTargetPath)
 	}
-	if filepath.HasPrefix(absRepoPath, absSourcePath+string(filepath.Separator)) {
-		return fmt.Errorf("repo path (%s) cannot be inside source path (%s)", absRepoPath, absSourcePath)
+	if filepath.HasPrefix(absTargetPath, absSourcePath+string(filepath.Separator)) {
+		return fmt.Errorf("target path (%s) cannot be inside source path (%s)", absTargetPath, absSourcePath)
 	}
 
 	// Check exact match
-	if absSourcePath == absRepoPath {
-		return fmt.Errorf("source and repo paths cannot be the same")
+	if absSourcePath == absTargetPath {
+		return fmt.Errorf("source and target paths cannot be the same")
 	}
 
 	return nil
@@ -165,54 +204,11 @@ func filterCommand(args []string) {
 
 func initCommand(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	repoPath := fs.String("repo", "", "repository path (required)")
+	base := fs.String("base", "", "base path (required)")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: autoversion init --repo <path>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: autoversion init --base <base> <source>\n\n")
 		fmt.Fprintf(os.Stderr, "Initialize a git repository for version tracking.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		fs.PrintDefaults()
-	}
-
-	fs.Parse(args)
-
-	if *repoPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: --repo is required\n\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	// Create directory if needed
-	if err := EnsureDir(*repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Check if already initialized
-	gitDir := filepath.Join(*repoPath, ".git")
-	if _, err := os.Stat(gitDir); err == nil {
-		fmt.Fprintf(os.Stderr, "Repository already initialized at %s\n", *repoPath)
-		return
-	}
-
-	// Initialize git repository
-	if err := Init(*repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Initialized git repository at %s\n", *repoPath)
-}
-
-func scanCommand(args []string) {
-	fs := flag.NewFlagSet("scan", flag.ExitOnError)
-	repoPath := fs.String("repo", "", "repository path (required)")
-	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
-	dryRun := fs.Bool("dry-run", false, "show what would be done without executing")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: autoversion scan [options] <source>\n\n")
-		fmt.Fprintf(os.Stderr, "Scan source directory and copy filtered files to repository.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nNote: Options must come before positional arguments.\n")
@@ -220,8 +216,8 @@ func scanCommand(args []string) {
 
 	fs.Parse(args)
 
-	if *repoPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: --repo is required\n\n")
+	if *base == "" {
+		fmt.Fprintf(os.Stderr, "Error: --base is required\n\n")
 		fs.Usage()
 		os.Exit(1)
 	}
@@ -234,51 +230,111 @@ func scanCommand(args []string) {
 
 	sourcePath := fs.Arg(0)
 
-	// Verify paths
+	// Compute target path
+	targetPath, err := computeTargetPath(*base, sourcePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create directory if needed
+	if err := EnsureDir(targetPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check if already initialized
+	gitDir := filepath.Join(targetPath, ".git")
+	if _, err := os.Stat(gitDir); err == nil {
+		fmt.Fprintf(os.Stderr, "Repository already initialized at %s\n", targetPath)
+		return
+	}
+
+	// Initialize git repository
+	if err := Init(targetPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Initialized git repository at %s\n", targetPath)
+}
+
+func syncCommand(args []string) {
+	fs := flag.NewFlagSet("sync", flag.ExitOnError)
+	base := fs.String("base", "", "base path (required)")
+	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+	dryRun := fs.Bool("dry-run", false, "show what would be done without executing")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: autoversion sync [options] <source>\n\n")
+		fmt.Fprintf(os.Stderr, "Sync source directory to target.\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nNote: Options must come before positional arguments.\n")
+	}
+
+	fs.Parse(args)
+
+	if *base == "" {
+		fmt.Fprintf(os.Stderr, "Error: --base is required\n\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 1 {
+		fmt.Fprintf(os.Stderr, "Error: source path is required\n\n")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	sourcePath := fs.Arg(0)
+
+	// Verify source path exists and is a directory
 	if info, err := os.Stat(sourcePath); err != nil || !info.IsDir() {
 		fmt.Fprintf(os.Stderr, "Error: source path must be a directory\n")
 		os.Exit(1)
 	}
 
-	if _, err := os.Stat(*repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: repo path does not exist: %v\n", err)
+	// Compute target path
+	targetPath, err := computeTargetPath(*base, sourcePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Get absolute paths
+	// Get absolute paths for verification
 	absSourcePath, _ := filepath.Abs(sourcePath)
-	absRepoPath, _ := filepath.Abs(*repoPath)
 
-	// Verify repo is initialized
-	if !IsGitRepo(absRepoPath) {
+	// Verify target is initialized
+	if !IsGitRepo(targetPath) {
 		if *dryRun {
-			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion init --repo %s' first\n", absRepoPath, absRepoPath)
+			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion init --base %s %s' first\n", targetPath, *base, sourcePath)
 		} else {
-			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository. Run 'autoversion init --repo %s' first\n", absRepoPath, absRepoPath)
+			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository. Run 'autoversion init --base %s %s' first\n", targetPath, *base, sourcePath)
 			os.Exit(1)
 		}
 	}
 
 	// Verify paths are safe
-	if err := verifyPaths(absSourcePath, absRepoPath); err != nil {
+	if err := verifyPaths(absSourcePath, targetPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Scan and copy files
-	scanPaths(absSourcePath, absRepoPath, *maxFileSize, *dryRun)
+	// Sync files
+	scanPaths(absSourcePath, targetPath, *maxFileSize, *dryRun)
 }
 
 func watchCommand(args []string) {
 	fs := flag.NewFlagSet("watch", flag.ExitOnError)
-	repoPath := fs.String("repo", "", "repository path (required)")
+	base := fs.String("base", "", "base path (required)")
 	maxFileSize := fs.Int64("max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	bufferTime := fs.Int("buffer-time", defaultBufferTime, "buffer time in seconds")
 	dryRun := fs.Bool("dry-run", false, "show what would be done without executing")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: autoversion watch [options] <source>\n\n")
-		fmt.Fprintf(os.Stderr, "Watch source directory for changes and copy to repository in real-time.\n\n")
+		fmt.Fprintf(os.Stderr, "Watch source directory for changes and sync to target in real-time.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nNote: Options must come before positional arguments.\n")
@@ -286,8 +342,8 @@ func watchCommand(args []string) {
 
 	fs.Parse(args)
 
-	if *repoPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: --repo is required\n\n")
+	if *base == "" {
+		fmt.Fprintf(os.Stderr, "Error: --base is required\n\n")
 		fs.Usage()
 		os.Exit(1)
 	}
@@ -300,39 +356,41 @@ func watchCommand(args []string) {
 
 	sourcePath := fs.Arg(0)
 
-	// Verify paths
+	// Verify source path exists and is a directory
 	if info, err := os.Stat(sourcePath); err != nil || !info.IsDir() {
 		fmt.Fprintf(os.Stderr, "Error: source path must be a directory\n")
 		os.Exit(1)
 	}
 
-	if _, err := os.Stat(*repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: repo path does not exist: %v\n", err)
+	// Compute target path
+	targetPath, err := computeTargetPath(*base, sourcePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
+	// Get absolute paths
 	absSourcePath, _ := filepath.Abs(sourcePath)
-	absRepoPath, _ := filepath.Abs(*repoPath)
 
-	// Verify repo is initialized
-	if !IsGitRepo(absRepoPath) {
+	// Verify target is initialized
+	if !IsGitRepo(targetPath) {
 		if *dryRun {
-			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion init --repo %s' first\n", absRepoPath, absRepoPath)
+			fmt.Fprintf(os.Stderr, "Warning: %s is not a git repository. Run 'autoversion init --base %s %s' first\n", targetPath, *base, sourcePath)
 		} else {
-			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository. Run 'autoversion init --repo %s' first\n", absRepoPath, absRepoPath)
+			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository. Run 'autoversion init --base %s %s' first\n", targetPath, *base, sourcePath)
 			os.Exit(1)
 		}
 	}
 
 	// Verify paths are safe
-	if err := verifyPaths(absSourcePath, absRepoPath); err != nil {
+	if err := verifyPaths(absSourcePath, targetPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
 	// First, run scan to capture any missed changes
 	fmt.Println("Initial scan...")
-	scanPaths(absSourcePath, absRepoPath, *maxFileSize, *dryRun)
+	scanPaths(absSourcePath, targetPath, *maxFileSize, *dryRun)
 
 	// Create watcher
 	watcher, err := NewWatcher(absSourcePath, *maxFileSize)
@@ -372,7 +430,7 @@ func watchCommand(args []string) {
 			// Flush events older than buffer time
 			events := buffer.Flush(flushDuration)
 			if len(events) > 0 {
-				processEvents(events, absSourcePath, absRepoPath, *dryRun)
+				processEvents(events, absSourcePath, targetPath, *dryRun)
 			}
 
 		case <-sigChan:
@@ -381,7 +439,7 @@ func watchCommand(args []string) {
 			events := buffer.Flush(0)
 			if len(events) > 0 {
 				fmt.Println("Processing remaining events...")
-				processEvents(events, absSourcePath, absRepoPath, *dryRun)
+				processEvents(events, absSourcePath, targetPath, *dryRun)
 			}
 			fmt.Println("Done")
 			return

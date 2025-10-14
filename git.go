@@ -11,9 +11,9 @@ import (
 
 const retryDelay = 5 * time.Second
 
-func errf(format string, args ...interface{}) error {
+func log_and_err(format string, args ...interface{}) error {
     err := fmt.Errorf(format, args...)
-    fmt.Fprintln(os.Stderr, "Error:", err)
+    fmt.Fprintln(os.Stderr, "Error: ", err)
     return err
 }
 
@@ -35,7 +35,7 @@ func runGit(repoPath string, args ...string) (string, error) {
 func Init(repoPath string) error {
 	_, err := runGit(repoPath, "init", ".")
 	if err != nil {
-		return errf("git init failed: %v", err)
+		return log_and_err("git init failed: %v", err)
 	}
 	return nil
 }
@@ -52,7 +52,7 @@ func Add(repoPath string, paths []string) error {
 	// If some files are in .gitignore, git add will fail for those
 	// but we want to continue with the others
 	if err != nil {
-		return errf("git add failed: %v", err)
+		return log_and_err("git add failed: %v", err)
 	}
 
 	return nil
@@ -68,7 +68,7 @@ func Commit(repoPath string, message string) error {
 			return nil
 		}
 
-		return errf("git commit failed: %v", err)
+		return log_and_err("git commit failed: %v", err)
 	}
 
 	return nil
@@ -113,7 +113,7 @@ func Remove(repoPath string, paths []string) error {
 	_, err := runGit(repoPath, args...)
 
 	if err != nil {
-		return errf("git rm failed: %v", err)
+		return log_and_err("git rm failed: %v", err)
 	}
 
 	return nil
