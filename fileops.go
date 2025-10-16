@@ -41,24 +41,25 @@ func FilesEqual(info1, info2 FileInfo) bool {
 // sourcePath: the original file path
 // sourceRoot: the root directory being watched
 // targetRoot: the target repository root
-func CopyFile(sourcePath, sourceRoot, targetRoot string, debug bool) error {
+// Returns (metadataChanged, error) where metadataChanged indicates if any metadata actually changed
+func CopyFile(sourcePath, sourceRoot, targetRoot string, debug bool) (bool, error) {
 	if debug {
 		fmt.Fprintf(os.Stderr, "DEBUG CopyFile: sourcePath=%s, sourceRoot=%s, targetRoot=%s\n", sourcePath, sourceRoot, targetRoot)
 	}
 
 	// Check if source is a directory - never copy directories
-	info, err := os.Stat(sourcePath)
+	sourceInfo, err := os.Stat(sourcePath)
 	if err != nil {
 		if debug {
 			fmt.Fprintf(os.Stderr, "DEBUG CopyFile: failed to stat source: %v\n", err)
 		}
-		return fmt.Errorf("failed to stat source: %v", err)
+		return false, fmt.Errorf("failed to stat source: %v", err)
 	}
-	if info.IsDir() {
+	if sourceInfo.IsDir() {
 		if debug {
 			fmt.Fprintf(os.Stderr, "DEBUG CopyFile: source is a directory, cannot copy\n")
 		}
-		return fmt.Errorf("cannot copy directory: %s", sourcePath)
+		return false, fmt.Errorf("cannot copy directory: %s", sourcePath)
 	}
 
 	// Calculate relative path
@@ -67,53 +68,52 @@ func CopyFile(sourcePath, sourceRoot, targetRoot string, debug bool) error {
 		if debug {
 			fmt.Fprintf(os.Stderr, "DEBUG CopyFile: failed to calculate relative path: %v\n", err)
 		}
-		return fmt.Errorf("failed to calculate relative path: %v", err)
+		return false, fmt.Errorf("failed to calculate relative path: %v", err)
 	}
 
 	targetPath := filepath.Join(targetRoot, relPath)
+
+	// Get target file info before copying
+	targetInfoBefore, err := os.Stat(targetPath)
+	targetExistsBefore := (err == nil)
+
 	if debug {
 		fmt.Fprintf(os.Stderr, "DEBUG CopyFile: targetPath=%s, relPath=%s\n", targetPath, relPath)
 
 		// Compare source and target file attributes
-		targetInfo, targetErr := os.Stat(targetPath)
-		if targetErr != nil {
-			if os.IsNotExist(targetErr) {
+		if err != nil {
+			if os.IsNotExist(err) {
 				fmt.Fprintf(os.Stderr, "DEBUG CopyFile: target file does not exist (new file)\n")
 			} else {
-				fmt.Fprintf(os.Stderr, "DEBUG CopyFile: error stating target: %v\n", targetErr)
+				fmt.Fprintf(os.Stderr, "DEBUG CopyFile: error stating target: %v\n", err)
 			}
 		} else {
 			// Both files exist, compare attributes
 			fmt.Fprintf(os.Stderr, "DEBUG CopyFile: comparing source vs target:\n")
 
 			// Size
-			if info.Size() != targetInfo.Size() {
+			if sourceInfo.Size() != targetInfoBefore.Size() {
 				fmt.Fprintf(os.Stderr, "  - Size differs: source=%d, target=%d (diff=%d bytes)\n",
-					info.Size(), targetInfo.Size(), info.Size()-targetInfo.Size())
+					sourceInfo.Size(), targetInfoBefore.Size(), sourceInfo.Size()-targetInfoBefore.Size())
 			} else {
-				fmt.Fprintf(os.Stderr, "  - Size: %d bytes (same)\n", info.Size())
+				fmt.Fprintf(os.Stderr, "  - Size: %d bytes (same)\n", sourceInfo.Size())
 			}
 
 			// ModTime
-			if info.ModTime() != targetInfo.ModTime() {
+			if sourceInfo.ModTime() != targetInfoBefore.ModTime() {
 				fmt.Fprintf(os.Stderr, "  - ModTime differs: source=%s, target=%s\n",
-					info.ModTime().Format("2006-01-02 15:04:05.000"),
-					targetInfo.ModTime().Format("2006-01-02 15:04:05.000"))
+					sourceInfo.ModTime().Format("2006-01-02 15:04:05.000"),
+					targetInfoBefore.ModTime().Format("2006-01-02 15:04:05.000"))
 			} else {
-				fmt.Fprintf(os.Stderr, "  - ModTime: %s (same)\n", info.ModTime().Format("2006-01-02 15:04:05.000"))
+				fmt.Fprintf(os.Stderr, "  - ModTime: %s (same)\n", sourceInfo.ModTime().Format("2006-01-02 15:04:05.000"))
 			}
 
 			// Permissions
-			if info.Mode().Perm() != targetInfo.Mode().Perm() {
+			if sourceInfo.Mode().Perm() != targetInfoBefore.Mode().Perm() {
 				fmt.Fprintf(os.Stderr, "  - Permissions differ: source=%s, target=%s\n",
-					info.Mode().Perm(), targetInfo.Mode().Perm())
+					sourceInfo.Mode().Perm(), targetInfoBefore.Mode().Perm())
 			} else {
-				fmt.Fprintf(os.Stderr, "  - Permissions: %s (same)\n", info.Mode().Perm())
-			}
-
-			// Get syscall.Stat_t for more details (Unix-specific)
-			if sysInfo, ok := info.Sys().(*os.FileInfo); ok {
-				fmt.Fprintf(os.Stderr, "  - Source sys info available: %v\n", sysInfo)
+				fmt.Fprintf(os.Stderr, "  - Permissions: %s (same)\n", sourceInfo.Mode().Perm())
 			}
 		}
 	}
@@ -123,7 +123,7 @@ func CopyFile(sourcePath, sourceRoot, targetRoot string, debug bool) error {
 		if debug {
 			fmt.Fprintf(os.Stderr, "DEBUG CopyFile: failed to ensure parent directory: %v\n", err)
 		}
-		return err
+		return false, err
 	}
 
 	// Choose cp flags based on OS
@@ -148,14 +148,39 @@ func CopyFile(sourcePath, sourceRoot, targetRoot string, debug bool) error {
 		if debug {
 			fmt.Fprintf(os.Stderr, "DEBUG CopyFile: cp failed: %v, output: %s\n", err, output)
 		}
-		return fmt.Errorf("cp failed: %v, output: %s", err, output)
+		return false, fmt.Errorf("cp failed: %v, output: %s", err, output)
 	}
 
 	if debug {
 		fmt.Fprintf(os.Stderr, "DEBUG CopyFile: successfully copied file\n")
 	}
 
-	return nil
+	// Get target file info after copying
+	targetInfoAfter, err := os.Stat(targetPath)
+	if err != nil {
+		// Copy succeeded but can't stat - assume changed
+		return true, nil
+	}
+
+	// Determine if metadata actually changed
+	metadataChanged := false
+	if !targetExistsBefore {
+		// New file created
+		metadataChanged = true
+	} else {
+		// Check if any metadata changed
+		if targetInfoBefore.Size() != targetInfoAfter.Size() ||
+			targetInfoBefore.ModTime() != targetInfoAfter.ModTime() ||
+			targetInfoBefore.Mode().Perm() != targetInfoAfter.Mode().Perm() {
+			metadataChanged = true
+		}
+	}
+
+	if !metadataChanged {
+		fmt.Printf("Info: no metadata change detected after copy for %s\n", relPath)
+	}
+
+	return metadataChanged, nil
 }
 
 // DeleteFile removes a file
@@ -250,7 +275,7 @@ func CopyTree(source, target string, filterFunc FilterFunc) (copied int, filesTo
 		targetInfo := GetFileInfo(targetPath)
 
 		if !FilesEqual(sourceInfo, targetInfo) {
-			if err := CopyFile(path, source, target, false); err == nil {
+			if changed, err := CopyFile(path, source, target, false); err == nil && changed {
 				copied++
 			}
 		}
