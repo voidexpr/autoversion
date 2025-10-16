@@ -20,6 +20,7 @@ const (
 var (
 	// Global flags
 	basePath string
+	debug    bool
 
 	// Command-specific flags
 	maxFileSize int64
@@ -86,7 +87,7 @@ func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) er
 			}
 
 			fmt.Printf("Initializing git repository at %s\n", targetPath)
-			if err := Init(targetPath); err != nil {
+			if err := Init(targetPath, debug); err != nil {
 				return fmt.Errorf("failed to initialize git repository: %v", err)
 			}
 
@@ -161,28 +162,58 @@ func validateSourcePath(sourcePath string) error {
 	return nil
 }
 
+// resolvePath resolves symlinks and returns the absolute real path
+// If the path doesn't exist, returns the absolute path without resolving symlinks
+func resolvePath(path string) (string, error) {
+	// First get absolute path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path: %v", err)
+	}
+
+	// Check if path exists
+	if _, err := os.Lstat(absPath); os.IsNotExist(err) {
+		// Path doesn't exist - return absolute path without resolving
+		return absPath, nil
+	}
+
+	// Path exists - resolve any symlinks
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve symlinks: %v", err)
+	}
+
+	return realPath, nil
+}
+
 // validatePaths validates source and base paths, computes target, and verifies everything
-// Returns absolute source path and target path, or an error
+// Returns absolute source path (with symlinks resolved) and target path, or an error
 func validatePaths(sourcePath, basePath string, dryRun bool) (absSourcePath, targetPath string, err error) {
 	// Validate source path exists and is a directory
 	if err := validateSourcePath(sourcePath); err != nil {
 		return "", "", err
 	}
 
-	// Compute target path
-	targetPath, err = computeTargetPath(basePath, sourcePath)
+	// Resolve source path symlinks
+	absSourcePath, err = resolvePath(sourcePath)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("failed to resolve source path: %v", err)
 	}
 
-	// Get absolute source path
-	absSourcePath, err = filepath.Abs(sourcePath)
+	// Resolve base path symlinks
+	resolvedBasePath, err := resolvePath(basePath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve base path: %v", err)
+	}
+
+	// Compute target path using resolved source path
+	targetPath, err = computeTargetPath(resolvedBasePath, absSourcePath)
 	if err != nil {
 		return "", "", err
 	}
 
 	// Validate target is initialized
-	if err := validateTargetPath(targetPath, basePath, sourcePath, dryRun); err != nil {
+	if err := validateTargetPath(targetPath, resolvedBasePath, absSourcePath, dryRun); err != nil {
 		return "", "", err
 	}
 
@@ -214,9 +245,10 @@ var filterCmd = &cobra.Command{
 			return err
 		}
 
-		absSourcePath, err := filepath.Abs(sourcePath)
+		// Resolve symlinks in source path
+		absSourcePath, err := resolvePath(sourcePath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to resolve source path: %v", err)
 		}
 
 		// Walk and print matching files
@@ -259,8 +291,20 @@ var initCmd = &cobra.Command{
 
 		sourcePath := args[0]
 
+		// Resolve source path symlinks
+		absSourcePath, err := resolvePath(sourcePath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve source path: %v", err)
+		}
+
+		// Resolve base path symlinks
+		resolvedBasePath, err := resolvePath(basePath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve base path: %v", err)
+		}
+
 		// Compute target path
-		targetPath, err := computeTargetPath(basePath, sourcePath)
+		targetPath, err := computeTargetPath(resolvedBasePath, absSourcePath)
 		if err != nil {
 			return err
 		}
@@ -278,7 +322,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Initialize git repository
-		if err := Init(targetPath); err != nil {
+		if err := Init(targetPath, debug); err != nil {
 			return err
 		}
 
@@ -333,7 +377,7 @@ var watchCmd = &cobra.Command{
 		}
 
 		// Create watcher
-		watcher, err := NewWatcher(absSourcePath, maxFileSize)
+		watcher, err := NewWatcher(absSourcePath, maxFileSize, debug)
 		if err != nil {
 			return err
 		}
@@ -357,6 +401,15 @@ var watchCmd = &cobra.Command{
 		for {
 			select {
 			case event := <-watcher.Events():
+				// Handle MustResyncAll specially
+				if event.Type == EventMustResyncAll {
+					fmt.Printf("[%s] File system resync required - performing full scan\n", time.Now().Format("2006-01-02 15:04:05"))
+					if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
+						fmt.Fprintf(os.Stderr, "Error during resync: %v\n", err)
+					}
+					continue
+				}
+
 				doPassFilter, _ := ShouldTrack(event.Path, maxFileSize, event.Type == EventDeleted)
 				// Map event type to operation name
 				var opName string
@@ -414,6 +467,7 @@ var watchCmd = &cobra.Command{
 func init() {
 	// Root-level persistent flags
 	rootCmd.PersistentFlags().StringVar(&basePath, "base", "", "base directory path")
+	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
@@ -509,7 +563,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 
 			// Execute if not dry run
 			if !dryRun {
-				if err := CopyFile(path, source, target); err != nil {
+				if err := CopyFile(path, source, target, debug); err != nil {
 					fmt.Fprintf(os.Stderr, "Error copying %s: %v\n", relPath, err)
 				}
 			}
@@ -546,13 +600,13 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 	// Execute deletions and commit if not dry run
 	if !dryRun && changeCount > 0 {
 		if len(filesToDelete) > 0 {
-			if err := Remove(target, filesToDelete); err != nil {
+			if err := Remove(target, filesToDelete, debug); err != nil {
 				return fmt.Errorf("failed to remove files: %w", err)
 			}
 		}
 
 		// Commit changes
-		if err := Add(target, []string{"."}); err != nil {
+		if err := Add(target, []string{"."}, debug); err != nil {
 			return fmt.Errorf("failed to add files to git: %w", err)
 		}
 		if err := Commit(target, fmt.Sprintf("scanned %d changes", changeCount)); err != nil {
@@ -604,7 +658,7 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 		if event.Action == EventDeleted {
 			fmt.Printf("[%s] remove '%s'\n", timestamp, targetPath)
 			if !dryRun {
-				if err := Remove(absTargetPath, []string{relPath}); err == nil {
+				if err := Remove(absTargetPath, []string{relPath}, debug); err == nil {
 					changeCount++
 				}
 			} else {
@@ -613,7 +667,7 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 		} else {
 			fmt.Printf("[%s] copy '%s' to '%s'\n", timestamp, event.Path, targetPath)
 			if !dryRun {
-				if err := CopyFile(event.Path, absSourcePath, absTargetPath); err == nil {
+				if err := CopyFile(event.Path, absSourcePath, absTargetPath, debug); err == nil {
 					changeCount++
 				}
 			} else {
@@ -624,7 +678,7 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 
 	if changeCount > 0 {
 		if !dryRun {
-			if err := Add(absTargetPath, []string{"."}); err != nil {
+			if err := Add(absTargetPath, []string{"."}, debug); err != nil {
 				return fmt.Errorf("failed to add files to git: %w", err)
 			}
 			if err := Commit(absTargetPath, fmt.Sprintf("detected %d changes", changeCount)); err != nil {

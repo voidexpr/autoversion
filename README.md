@@ -27,6 +27,55 @@ A lightweight Go program that tracks file versions in real-time using git as the
 * https://github.com/rjeczalik/notify
   * found by Claude but not updated in 2 years (as of fall 2025) and build is failing on github
 
+### FS Events
+
+File Content/State Change Flags
+
+- ItemCreated (0x100): File or directory was created
+- ItemModified (0x1000): File content was modified
+- ItemRemoved (0x200): File or directory was removed
+- ItemRenamed (0x800): File or directory was renamed
+
+Metadata Change Flags (Don't change file content)
+
+- ItemInodeMetaMod (0x400): Inode metadata was modified (permissions, ownership, etc.)
+- ItemFinderInfoMod (0x2000): macOS Finder information was modified (label, comments, etc.)
+- ItemChangeOwner (0x4000): File ownership changed
+- ItemXattrMod (0x8000): Extended attributes (xattrs) were modified
+- ItemCloned (0x400000): The file was cloned (macOS copy-on-write operation)
+
+Item Type Identification Flags
+
+- ItemIsFile (0x10000): The item is a file
+- ItemIsDir (0x20000): The item is a directory
+- ItemIsSymlink (0x40000): The item is a symbolic link
+
+Special System Flags
+
+- MustScanSubDirs (0x1): Events were coalesced - requires full directory rescan
+- UserDropped (0x2): Client-side buffer overflow - events were lost
+- KernelDropped (0x4): Kernel-side buffer overflow - events were lost
+- EventIDsWrapped (0x8): Event ID counter wrapped (very rare)
+- HistoryDone (0x10): End of historical events marker
+- RootChanged (0x20): Root directory being watched changed
+- Mount (0x40): Volume was mounted
+- Unmount (0x80): Volume was unmounted
+
+Your Specific Issue: flags=0x410000
+
+Your event has:
+- 0x410000 = 0x400000 (bit 22) + 0x10000 (ItemIsFile)
+
+Looking at the hex value 0x410000:
+- 0x010000 = ItemIsFile
+- 0x400000 = This is an undocumented flag bit
+
+The flag 0x400000 is NOT in the standard fsevents documentation. This could be:
+1. An internal macOS flag for Dropbox/iCloud sync operations
+2. A flag related to APFS features (cloning, snapshots)
+3. A flag for system metadata operations
+
+
 ## Installation
 
 ### Build from source

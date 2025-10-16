@@ -19,6 +19,7 @@ func log_and_err(format string, args ...interface{}) error {
 
 // runGit runs a git command and prints its output
 func runGit(repoPath string, args ...string) (string, error) {
+	fmt.Fprintf(os.Stdout, "git commad in %s args: %v\n", repoPath, args)
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
@@ -32,21 +33,31 @@ func runGit(repoPath string, args ...string) (string, error) {
 }
 
 // Init initializes a git repository at the given path
-func Init(repoPath string) error {
+func Init(repoPath string, debug bool) error {
 	_, err := runGit(repoPath, "init", ".")
 	if err != nil {
+		if debug {
+			fmt.Fprintf(os.Stderr, "DEBUG Init: git init failed: %v\n", err)
+		}
 		return log_and_err("git init failed: %v", err)
+	}
+	if debug {
+		fmt.Fprintf(os.Stderr, "DEBUG Init: successfully initialized git repository\n")
 	}
 	return nil
 }
 
 // Add adds files to the git index, handling .gitignore errors gracefully
-func Add(repoPath string, paths []string) error {
+func Add(repoPath string, paths []string, debug bool) error {
 	if len(paths) == 0 {
+		if debug {
+			fmt.Fprintf(os.Stderr, "DEBUG Add: no paths to add\n")
+		}
 		return nil
 	}
 
-	args := append([]string{"add"}, paths...)
+	// Add -- to separate paths from options, protecting special file names
+	args := append([]string{"add", "--"}, paths...)
 	_, err := runGit(repoPath, args...)
 
 	// If some files are in .gitignore, git add will fail for those
@@ -54,14 +65,12 @@ func Add(repoPath string, paths []string) error {
 	if err != nil {
 		return log_and_err("git add failed: %v", err)
 	}
-
 	return nil
 }
 
 // Commit creates a commit with the given message, with retry logic
 func Commit(repoPath string, message string) error {
-	output, err := runGit(repoPath, "commit", "-m", message)
-
+	output, err := runGit(repoPath, "commit", ".", "-m", message)
 	if err != nil {
 		// Check if it's because there's nothing to commit
 		if strings.Contains(output, "nothing to commit") {
@@ -72,50 +81,34 @@ func Commit(repoPath string, message string) error {
 	}
 
 	return nil
-
-	// for {
-	// 	// // Check if there's a pending commit
-	// 	// if hasPendingCommit(repoPath) {
-	// 	// 	fmt.Fprintf(os.Stderr, "Pending git commit detected, waiting %v...\n", retryDelay)
-	// 	// 	time.Sleep(retryDelay)
-	// 	// 	continue
-	// 	// }
-
-	// 	// Check if there are changes to commit
-	// 	if !hasChanges(repoPath) {
-	// 		return nil
-	// 	}
-
-	// 	output, err := runGit(repoPath, "commit", "-m", message)
-
-	// 	if err != nil {
-	// 		// Check if it's because there's nothing to commit
-	// 		if strings.Contains(output, "nothing to commit") {
-	// 			return nil
-	// 		}
-
-	// 		fmt.Fprintf(os.Stderr, "git commit failed: %v, retrying in %v...\n", err, retryDelay)
-	// 		time.Sleep(retryDelay)
-	// 		continue
-	// 	}
-
-	// 	return nil
-	// }
 }
 
 // Remove removes files from git
-func Remove(repoPath string, paths []string) error {
+func Remove(repoPath string, paths []string, debug bool) error {
 	if len(paths) == 0 {
+		if debug {
+			fmt.Fprintf(os.Stderr, "DEBUG Remove: no paths to remove\n")
+		}
 		return nil
 	}
 
-	args := append([]string{"rm"}, paths...)
-	_, err := runGit(repoPath, args...)
+	// // Delete files from filesystem first
+	// for _, relPath := range paths {
+	// 	fullPath := filepath.Join(repoPath, relPath)
+	// 	if err := DeleteFile(fullPath, debug); err != nil {
+	// 		if debug {
+	// 			fmt.Fprintf(os.Stderr, "DEBUG Remove: DeleteFile failed: %v\n", err)
+	// 		}
+	// 		// Continue even if deletion fails
+	// 	}
+	// }
 
+	// Add -- to separate paths from options, protecting special file names
+	args := append([]string{"rm", "--"}, paths...)
+	_, err := runGit(repoPath, args...)
 	if err != nil {
 		return log_and_err("git rm failed: %v", err)
 	}
-
 	return nil
 
 	// for {
