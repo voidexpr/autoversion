@@ -19,7 +19,7 @@ func log_and_err(format string, args ...interface{}) error {
 
 // runGit runs a git command and prints its output
 func runGit(repoPath string, args ...string) (string, error) {
-	fmt.Fprintf(os.Stdout, "git commad in %s args: %v\n", repoPath, args)
+	fmt.Fprintf(os.Stdout, "git command in %s args: %v\n", repoPath, args)
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
