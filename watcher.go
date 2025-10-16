@@ -18,9 +18,30 @@ const (
 	EventCreated EventType = iota
 	EventModified
 	EventDeleted
+	EventRenamed // Special marker for rename events, resolved to Created/Deleted based on file existence
 	EventMustResyncAll
 	EventCanIgnore
 )
+
+// String returns a human-readable string representation of the EventType
+func (e EventType) String() string {
+	switch e {
+	case EventCreated:
+		return "EventCreated"
+	case EventModified:
+		return "EventModified"
+	case EventDeleted:
+		return "EventDeleted"
+	case EventRenamed:
+		return "EventRenamed"
+	case EventMustResyncAll:
+		return "EventMustResyncAll"
+	case EventCanIgnore:
+		return "EventCanIgnore"
+	default:
+		return fmt.Sprintf("EventType(%d)", e)
+	}
+}
 
 // FileEvent represents a file system event
 type FileEvent struct {
@@ -222,8 +243,14 @@ func mapFSEventFlagsWithDetails(flags fsevents.EventFlags) (EventType, string) {
 	}
 
 	// Map to regular event types based on action flags
-	if flags&fsevents.ItemRemoved != 0 || flags&fsevents.ItemRenamed != 0 {
+	if flags&fsevents.ItemRemoved != 0 {
 		return EventDeleted, details
+	}
+
+	// ItemRenamed can be either source (deleted) or target (created) of rename
+	// Return EventRenamed and let the caller check file existence to determine which
+	if flags&fsevents.ItemRenamed != 0 {
+		return EventRenamed, details
 	}
 
 	if flags&fsevents.ItemCreated != 0 {
@@ -285,8 +312,18 @@ func (w *Watcher) processFSEvents() {
 					continue
 				}
 
-				// For deleted files, err will be IsNotExist which is expected
-				// w.printDebug("fsevents: classified as %v", eventType)
+				// For EventRenamed, determine if it's a deletion or creation based on file existence
+				if eventType == EventRenamed {
+					if err == nil {
+						// File exists, so this is the target of the rename (new name)
+						eventType = EventCreated
+						w.printDebug("fsevents: EventRenamed with file exists -> EventCreated")
+					} else {
+						// File doesn't exist, so this is the source of the rename (old name)
+						eventType = EventDeleted
+						w.printDebug("fsevents: EventRenamed with file missing -> EventDeleted")
+					}
+				}
 
 				// Send the event
 				select {

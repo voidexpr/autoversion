@@ -333,6 +333,36 @@ Autoversion uses explicit filter rules rather than parsing .gitignore because:
 - Editors typically update mtime on save
 - Size change almost always means content change
 
+## Implementation issues
+
+### File rename
+
+Given this trace:
+
+DEBUG: fsevents: raw event path=/Users/nicolas/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md.tmp.18812.1760578375713, flags=0x19900, ID=235348040, mapped type: %!s(main.EventType=2), flags decoded: [ItemCreated ItemRenamed ItemModified ItemXattrMod ItemIsFile]
+DEBUG: fsevents: event sent to channel
+DEBUG: fsevents: raw event path=/Users/nicolas/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md, flags=0x10800, ID=235348041, mapped type: %!s(main.EventType=2), flags decoded: [ItemRenamed ItemIsFile]
+DEBUG: fsevents: event sent to channel
+[2025-10-15 18:32:55] event skip   deleted  /Users/nicolas/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md.tmp.18812.1760578375713
+[2025-10-15 18:32:55] event BUFFER deleted  /Users/nicolas/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md
+DEBUG: fsevents: raw event path=/Users/nicolas/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md, flags=0x410400, ID=235348192, mapped type: %!s(main.EventType=4), flags decoded: [ItemInodeMetaMod ItemIsFile ItemCloned]
+DEBUG: fsevents: event can be ignored (only type flags)
+DEBUG: fsevents: raw event path=/Users/nicolas/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md, flags=0x418400, ID=235348524, mapped type: %!s(main.EventType=4), flags decoded: [ItemInodeMetaMod ItemXattrMod ItemIsFile ItemCloned]
+DEBUG: fsevents: event can be ignored (only type flags)
+[2025-10-15 18:33:01] remove '/private/tmp/autoversion_test_new/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md'
+git commad in /private/tmp/autoversion_test_new/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor args: [rm -- PLAN_PAGINATION.md]
+fatal: pathspec 'PLAN_PAGINATION.md' did not match any files
+Error:  git rm failed: exit status 128
+
+Here is an example of a file rename:
+
+EBUG: fsevents: raw event path=/Users/nicolas/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md.tmp.18812.1760578375713, flags=0x19900, ID=235348040, mapped type: %!s(main.EventType=2), flags decoded: [ItemCreated ItemRenamed ItemModified ItemXattrMod ItemIsFile]
+DEBUG: fsevents: event sent to channel
+DEBUG: fsevents: raw event path=/Users/nicolas/Library/CloudStorage/Dropbox/nicmac/projects/duckdb-editor/PLAN_PAGINATION.md, flags=0x10800, ID=235348041, mapped type: %!s(main.EventType=2), flags decoded: [ItemRenamed ItemIsFile]
+DEBUG: fsevents: event sent to channel
+
+To figure out source/target or rename it's required to check which file exists or not and make a guess (race conditions always possible)
+
 ## License
 
 See project documentation for licensing information.
