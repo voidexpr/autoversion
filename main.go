@@ -563,7 +563,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 
 			// Execute if not dry run
 			if !dryRun {
-				if err := CopyFile(path, source, target, debug); err != nil {
+				if _, err := CopyFile(path, source, target, debug); err != nil {
 					fmt.Fprintf(os.Stderr, "Error copying %s: %v\n", relPath, err)
 				}
 			}
@@ -667,7 +667,10 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 		} else {
 			fmt.Printf("[%s] copy '%s' to '%s'\n", timestamp, event.Path, targetPath)
 			if !dryRun {
-				if err := CopyFile(event.Path, absSourcePath, absTargetPath, debug); err == nil {
+				if metaChanged, err := CopyFile(event.Path, absSourcePath, absTargetPath, debug); err == nil {
+					if !metaChanged {
+						fmt.Printf("    no metadata change\n")
+					}
 					changeCount++
 				}
 			} else {
