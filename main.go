@@ -665,7 +665,28 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 				changeCount++
 			}
 		} else {
-			fmt.Printf("[%s] copy '%s' to '%s'\n", timestamp, event.Path, targetPath)
+			// Get source and target file info for logging
+			sourceInfo, err := os.Stat(event.Path)
+			targetInfo, targetErr := os.Stat(targetPath)
+
+			if err == nil {
+				sourceDetails := fmt.Sprintf(" (mtime=%s, size=%d)",
+					sourceInfo.ModTime().Format("2006-01-02 15:04:05"),
+					sourceInfo.Size())
+
+				targetDetails := ""
+				if targetErr == nil {
+					targetDetails = fmt.Sprintf(" (mtime=%s, size=%d)",
+						targetInfo.ModTime().Format("2006-01-02 15:04:05"),
+						targetInfo.Size())
+				}
+
+				fmt.Printf("[%s] copy '%s'%s to '%s'%s\n",
+					timestamp, event.Path, sourceDetails, targetPath, targetDetails)
+			} else {
+				fmt.Printf("[%s] copy '%s' to '%s'\n", timestamp, event.Path, targetPath)
+			}
+
 			if !dryRun {
 				if metaChanged, err := CopyFile(event.Path, absSourcePath, absTargetPath, debug); err == nil {
 					if !metaChanged {
