@@ -196,7 +196,7 @@ func DeleteFile(path string, debug bool) error {
 			if debug {
 				fmt.Fprintf(os.Stderr, "DEBUG DeleteFile: file doesn't exist\n")
 			}
-			fmt.Fprintf(os.Stderr, "Skip delete: file doesn't exist: %s\n", path)
+			logSkip("Skip delete: file doesn't exist: %s\n", path)
 			return nil
 		}
 		if debug {
@@ -210,7 +210,7 @@ func DeleteFile(path string, debug bool) error {
 		if debug {
 			fmt.Fprintf(os.Stderr, "DEBUG DeleteFile: path is a directory\n")
 		}
-		fmt.Fprintf(os.Stderr, "Skip delete: path is a directory: %s\n", path)
+		logSkip("Skip delete: path is a directory: %s\n", path)
 		return nil
 	}
 
@@ -218,7 +218,7 @@ func DeleteFile(path string, debug bool) error {
 		if debug {
 			fmt.Fprintf(os.Stderr, "DEBUG DeleteFile: path is a symlink\n")
 		}
-		fmt.Fprintf(os.Stderr, "Skip delete: path is a symlink: %s\n", path)
+		logSkip("Skip delete: path is a symlink: %s\n", path)
 		return nil
 	}
 

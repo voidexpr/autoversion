@@ -19,10 +19,11 @@ const (
 
 var (
 	// Global flags
-	basePath  string
-	debug     bool
-	noGit     bool
-	useRestic bool
+	basePath   string
+	debug      bool
+	noGit      bool
+	useRestic  bool
+	errLogFlag string
 
 	// Command-specific flags
 	maxFileSize int64
@@ -434,7 +435,7 @@ var watchCmd = &cobra.Command{
 				if event.Type == EventMustResyncAll {
 					fmt.Printf("[%s] File system resync required - performing full scan\n", time.Now().Format("2006-01-02 15:04:05"))
 					if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
-						fmt.Fprintf(os.Stderr, "Error during resync: %v\n", err)
+						logError("Error during resync: %v", err)
 					return err
 					}
 					continue
@@ -452,25 +453,25 @@ var watchCmd = &cobra.Command{
 					opName = "deleted "
 				}
 
-				evStatus :=  "BUFFER"
-				if !doPassFilter {
-					evStatus = "skip  "
+				if doPassFilter {
+					fmt.Printf("[%s] event BUFFER %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
+				} else {
+					logSkip("[%s] event skip   %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
 				}
-				fmt.Printf("[%s] event %s %s %s \n", time.Now().Format("2006-01-02 15:04:05"), evStatus, opName, event.Path)
 
 				if doPassFilter {
 					buffer.Add(event.Path, event.Type)
 				}
 
 			case err := <-watcher.Errors():
-				fmt.Fprintf(os.Stderr, "Watch error: %v\n", err)
+				logError("Watch error: %v", err)
 
 			case <-ticker.C:
 				// Flush events older than buffer time
 				events := buffer.Flush(flushDuration)
 				if len(events) > 0 {
 					if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
-						fmt.Fprintf(os.Stderr, "Error processing events: %v\n", err)
+						logError("Error processing events: %v", err)
 						return err
 					}
 					hasEventsForRestic = true
@@ -480,7 +481,7 @@ var watchCmd = &cobra.Command{
 				// Apply restic retention policy if conditions are met
 				if useRestic && !dryRun && hasEventsForRestic && time.Since(lastResticForget) >= 12*time.Hour {
 					if err := ForgetRestic(targetPath, debug); err != nil {
-						fmt.Fprintf(os.Stderr, "Error applying restic retention policy: %v\n", err)
+						logError("Error applying restic retention policy: %v", err)
 					} else {
 						lastResticForget = time.Now()
 						hasEventsForRestic = false
@@ -495,7 +496,7 @@ var watchCmd = &cobra.Command{
 				if len(events) > 0 {
 					fmt.Println("Processing remaining events...")
 					if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
-						fmt.Fprintf(os.Stderr, "Error processing final events: %v\n", err)
+						logError("Error processing final events: %v", err)
 						return err
 					}
 				}
@@ -512,6 +513,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&noGit, "no-git", false, "disable git versioning")
 	rootCmd.PersistentFlags().BoolVar(&useRestic, "restic", false, "enable restic backup")
+	rootCmd.PersistentFlags().StringVar(&errLogFlag, "err-log", "", "error log file path")
 
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
@@ -533,6 +535,13 @@ func init() {
 }
 
 func main() {
+	// Use PersistentPreRunE to init error log before any command runs
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		return initErrLog(errLogFlag)
+	}
+
+	defer closeErrLog()
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -608,7 +617,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 			// Execute if not dry run
 			if !dryRun {
 				if _, err := CopyFile(path, source, target, debug); err != nil {
-					fmt.Fprintf(os.Stderr, "Error copying %s: %v\n", relPath, err)
+					logError("Error copying %s: %v", relPath, err)
 				}
 			}
 		}

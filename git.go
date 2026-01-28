@@ -13,20 +13,20 @@ const retryDelay = 5 * time.Second
 
 func log_and_err(format string, args ...interface{}) error {
     err := fmt.Errorf(format, args...)
-    fmt.Fprintln(os.Stderr, "Error: ", err)
+    logError("Error: %v", err)
     return err
 }
 
 // runGit runs a git command and prints its output
 func runGit(repoPath string, args ...string) (string, error) {
-	fmt.Fprintf(os.Stdout, "git command in %s args: %v\n", repoPath, args)
+	logGit("git command in %s args: %v\n", repoPath, args)
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 
 	outputStr := string(output)
 	if outputStr != "" {
-		fmt.Print(outputStr)
+		logGit("%s", outputStr)
 	}
 
 	return outputStr, err
