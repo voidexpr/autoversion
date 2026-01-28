@@ -19,8 +19,10 @@ const (
 
 var (
 	// Global flags
-	basePath string
-	debug    bool
+	basePath  string
+	debug     bool
+	noGit     bool
+	useRestic bool
 
 	// Command-specific flags
 	maxFileSize int64
@@ -86,9 +88,19 @@ func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) er
 				return fmt.Errorf("failed to create target directory: %v", err)
 			}
 
-			fmt.Printf("Initializing git repository at %s\n", targetPath)
-			if err := Init(targetPath, debug); err != nil {
-				return fmt.Errorf("failed to initialize git repository: %v", err)
+			// Initialize git if enabled (not disabled with --no-git)
+			if !noGit {
+				fmt.Printf("Initializing git repository at %s\n", targetPath)
+				if err := Init(targetPath, debug); err != nil {
+					return fmt.Errorf("failed to initialize git repository: %v", err)
+				}
+			}
+
+			// Initialize restic if enabled
+			if useRestic {
+				if err := InitRestic(targetPath, debug); err != nil {
+					return fmt.Errorf("failed to initialize restic: %v", err)
+				}
 			}
 
 			return nil
@@ -101,9 +113,20 @@ func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) er
 		return fmt.Errorf("target path exists but is not a directory: %s", targetPath)
 	}
 
-	// Target directory exists - check if it's a git repo
-	if !IsGitRepo(targetPath) {
+	// Target directory exists - check if it's a git repo (if git is not disabled)
+	if !noGit && !IsGitRepo(targetPath) {
 		return fmt.Errorf("%s exists but is not a git repository", targetPath)
+	}
+
+	// Initialize restic if enabled and not already initialized
+	if useRestic && !IsResticRepo(targetPath) {
+		if dryRun {
+			fmt.Fprintf(os.Stderr, "dry-run: would initialize restic for %s\n", targetPath)
+		} else {
+			if err := InitRestic(targetPath, debug); err != nil {
+				return fmt.Errorf("failed to initialize restic: %v", err)
+			}
+		}
 	}
 
 	return nil
@@ -395,6 +418,12 @@ var watchCmd = &cobra.Command{
 		ticker := time.NewTicker(flushDuration)
 		defer ticker.Stop()
 
+		// Restic forget tracking (12 hour interval)
+		var lastResticForget time.Time
+		var hasEventsForRestic bool
+		resticForgetTicker := time.NewTicker(12 * time.Hour)
+		defer resticForgetTicker.Stop()
+
 		fmt.Printf("Watching %s for changes (buffer time: %ds)...\n", absSourcePath, bufferTime)
 		fmt.Println("Press Ctrl+C to stop")
 
@@ -406,6 +435,7 @@ var watchCmd = &cobra.Command{
 					fmt.Printf("[%s] File system resync required - performing full scan\n", time.Now().Format("2006-01-02 15:04:05"))
 					if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
 						fmt.Fprintf(os.Stderr, "Error during resync: %v\n", err)
+					return err
 					}
 					continue
 				}
@@ -441,10 +471,22 @@ var watchCmd = &cobra.Command{
 				if len(events) > 0 {
 					if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
 						fmt.Fprintf(os.Stderr, "Error processing events: %v\n", err)
-						// for now let's keep going on errors, maybe they'll go away
-						// return err
+						return err
+					}
+					hasEventsForRestic = true
+				}
+
+			case <-resticForgetTicker.C:
+				// Apply restic retention policy if conditions are met
+				if useRestic && !dryRun && hasEventsForRestic && time.Since(lastResticForget) >= 12*time.Hour {
+					if err := ForgetRestic(targetPath, debug); err != nil {
+						fmt.Fprintf(os.Stderr, "Error applying restic retention policy: %v\n", err)
+					} else {
+						lastResticForget = time.Now()
+						hasEventsForRestic = false
 					}
 				}
+
 
 			case <-sigChan:
 				fmt.Println("\nShutting down...")
@@ -468,6 +510,8 @@ func init() {
 	// Root-level persistent flags
 	rootCmd.PersistentFlags().StringVar(&basePath, "base", "", "base directory path")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
+	rootCmd.PersistentFlags().BoolVar(&noGit, "no-git", false, "disable git versioning")
+	rootCmd.PersistentFlags().BoolVar(&useRestic, "restic", false, "enable restic backup")
 
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
@@ -605,12 +649,24 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 			}
 		}
 
-		// Commit changes
-		if err := Add(target, []string{"."}, debug); err != nil {
-			return fmt.Errorf("failed to add files to git: %w", err)
+		// Commit changes to git
+		if !noGit {
+			if err := Add(target, []string{"."}, debug); err != nil {
+				return fmt.Errorf("failed to add files to git: %w", err)
+			}
+			if err := Commit(target, fmt.Sprintf("scanned %d changes", changeCount)); err != nil {
+				return fmt.Errorf("failed to commit changes: %w", err)
+			}
 		}
-		if err := Commit(target, fmt.Sprintf("scanned %d changes", changeCount)); err != nil {
-			return fmt.Errorf("failed to commit changes: %w", err)
+
+		// Create restic snapshot
+		if useRestic {
+			if err := BackupRestic(target, debug); err != nil {
+				return fmt.Errorf("failed to backup with restic: %w", err)
+			}
+			if err := ForgetRestic(target, debug); err != nil {
+				return fmt.Errorf("failed to apply restic retention policy: %w", err)
+			}
 		}
 	}
 
@@ -702,11 +758,21 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 
 	if changeCount > 0 {
 		if !dryRun {
-			if err := Add(absTargetPath, []string{"."}, debug); err != nil {
-				return fmt.Errorf("failed to add files to git: %w", err)
+			// Commit changes to git
+			if !noGit {
+				if err := Add(absTargetPath, []string{"."}, debug); err != nil {
+					return fmt.Errorf("failed to add files to git: %w", err)
+				}
+				if err := Commit(absTargetPath, fmt.Sprintf("detected %d changes", changeCount)); err != nil {
+					return fmt.Errorf("failed to commit changes: %w", err)
+				}
 			}
-			if err := Commit(absTargetPath, fmt.Sprintf("detected %d changes", changeCount)); err != nil {
-				return fmt.Errorf("failed to commit changes: %w", err)
+
+			// Create restic snapshot 
+			if useRestic {
+				if err := BackupRestic(absTargetPath, debug); err != nil {
+					return fmt.Errorf("failed to backup with restic: %w", err)
+				}
 			}
 		}
 	}
