@@ -1,0 +1,14 @@
+#!/bin/bash
+# Autoversion wrapper for Full Disk Access
+# This script executes the autoversion binary with all arguments passed through.
+# The app bundle is granted FDA, which is inherited by the executed binary.
+
+AUTOVERSION_BIN="/Users/nicolas/SyncDatabox/nicmac/projects/autoversion/autoversion"
+
+if [ ! -x "$AUTOVERSION_BIN" ]; then
+    echo "Error: autoversion binary not found at $AUTOVERSION_BIN" >&2
+    echo "Please rebuild autoversion and run 'autoversion bundle' again." >&2
+    exit 1
+fi
+
+exec "$AUTOVERSION_BIN" "$@"

@@ -27,6 +27,8 @@ var excludePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`__pycache__`),
 	regexp.MustCompile(`/venv/`),
 	regexp.MustCompile(`\.(pyc|wal)$`),
+	regexp.MustCompile(`pgdata/`),
+	regexp.MustCompile(`\.pgdb/`),
 }
 
 // ShouldTrack returns true if the file should be tracked based on filters.
