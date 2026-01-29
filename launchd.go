@@ -97,18 +97,17 @@ func promptPath(prompt string, mustExist bool) (string, error) {
 }
 
 // generatePlist creates the launchd plist content
-func generatePlist(jobID, execPath, sourcePath, targetPath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug bool) string {
+// basePath is the original --base value (not the computed target), so watch can re-compute the target correctly
+func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool) string {
 	stdoutLog := filepath.Join(logDir, "stdout.log")
 	stderrLog := filepath.Join(logDir, "stderr.log")
-	errLog := filepath.Join(logDir, "errors.log")
 
 	args := []string{
 		execPath,
 		"watch",
-		"--base", targetPath,
+		"--base", basePath,
 		"--max-file-size", fmt.Sprintf("%d", maxFileSize),
 		"--buffer-time", fmt.Sprintf("%d", bufferTime),
-		"--err-log", errLog,
 	}
 	if noGit {
 		args = append(args, "--no-git")
@@ -127,6 +126,11 @@ func generatePlist(jobID, execPath, sourcePath, targetPath, logDir string, maxFi
 		argsXML.WriteString(fmt.Sprintf("\t\t<string>%s</string>\n", escapeXML(arg)))
 	}
 
+	runAtLoad := "true"
+	if noLogin {
+		runAtLoad = "false"
+	}
+
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -137,7 +141,7 @@ func generatePlist(jobID, execPath, sourcePath, targetPath, logDir string, maxFi
 	<array>
 %s	</array>
 	<key>RunAtLoad</key>
-	<true/>
+	<%s/>
 	<key>KeepAlive</key>
 	<true/>
 	<key>StandardOutPath</key>
@@ -148,7 +152,7 @@ func generatePlist(jobID, execPath, sourcePath, targetPath, logDir string, maxFi
 	<string>%s</string>
 </dict>
 </plist>
-`, jobID, argsXML.String(), stdoutLog, stderrLog, sourcePath)
+`, jobID, argsXML.String(), runAtLoad, stdoutLog, stderrLog, sourcePath)
 
 	return plist
 }
@@ -637,8 +641,18 @@ var installCmd = &cobra.Command{
 		maxSize, _ := cmd.Flags().GetInt64("max-file-size")
 		bufTime, _ := cmd.Flags().GetInt("buffer-time")
 
-		// Generate and write plist
-		plistContent := generatePlist(jobID, execPath, sourcePath, targetPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug)
+		// Generate plist - pass original base path so watch can correctly compute target
+		plistContent := generatePlist(jobID, execPath, sourcePath, result.BaseResolved, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin)
+
+		if dryRun {
+			fmt.Println("=== Generated plist (dry-run) ===")
+			fmt.Print(plistContent)
+			fmt.Println("=== End plist ===")
+			fmt.Printf("\nWould install to: %s\n", plist)
+			fmt.Printf("Would create log dir: %s\n", logDirPath)
+			return nil
+		}
+
 		if err := os.WriteFile(plist, []byte(plistContent), 0644); err != nil {
 			return fmt.Errorf("failed to write plist: %v", err)
 		}
@@ -668,25 +682,18 @@ var uninstallCmd = &cobra.Command{
 			return fmt.Errorf("uninstall command is only supported on macOS")
 		}
 
-		sourcePath, err := filepath.Abs(args[0])
-		if err != nil {
-			return fmt.Errorf("invalid source path: %v", err)
-		}
-		sourcePath, err = resolvePath(sourcePath)
-		if err != nil {
-			return err
-		}
-
-		// Need base path to find the job
 		if basePath == "" {
 			return fmt.Errorf("--base flag is required to identify the job to uninstall")
 		}
 
-		targetPath, err := computeTargetPath(basePath, sourcePath)
+		// Use ValidateSourceAndBase to get properly resolved paths
+		result, err := ValidateSourceAndBase(args[0], basePath)
 		if err != nil {
 			return err
 		}
 
+		sourcePath := result.SourceResolved
+		targetPath := result.TargetComputed
 		jobID := jobIdentifier(sourcePath, targetPath)
 		plist, err := plistPath(jobID)
 		if err != nil {
@@ -728,25 +735,18 @@ var statusCmd = &cobra.Command{
 			return fmt.Errorf("status command is only supported on macOS")
 		}
 
-		sourcePath, err := filepath.Abs(args[0])
-		if err != nil {
-			return fmt.Errorf("invalid source path: %v", err)
-		}
-		sourcePath, err = resolvePath(sourcePath)
-		if err != nil {
-			return err
-		}
-
-		// Need base path to find the job
 		if basePath == "" {
 			return fmt.Errorf("--base flag is required to identify the job")
 		}
 
-		targetPath, err := computeTargetPath(basePath, sourcePath)
+		// Use ValidateSourceAndBase to get properly resolved paths
+		result, err := ValidateSourceAndBase(args[0], basePath)
 		if err != nil {
 			return err
 		}
 
+		sourcePath := result.SourceResolved
+		targetPath := result.TargetComputed
 		jobID := jobIdentifier(sourcePath, targetPath)
 		plist, err := plistPath(jobID)
 		if err != nil {
@@ -829,18 +829,71 @@ func printLogFile(label, path string, showTail bool) {
 	}
 }
 
+// getJobInfo runs launchctl list for a job and returns PID and status
+func getJobInfo(jobID string) (pid string, status string, running bool) {
+	cmd := exec.Command("launchctl", "list", jobID)
+	output, err := cmd.Output()
+	if err != nil {
+		return "-", "-", false
+	}
+
+	// Parse dictionary output format:
+	//   "PID" = 5229;
+	//   "LastExitStatus" = 0;
+	content := string(output)
+	pid = "-"
+	status = "-"
+
+	// Extract PID
+	if pidIdx := strings.Index(content, "\"PID\""); pidIdx != -1 {
+		line := content[pidIdx:]
+		if eqIdx := strings.Index(line, "="); eqIdx != -1 {
+			rest := strings.TrimSpace(line[eqIdx+1:])
+			if semiIdx := strings.Index(rest, ";"); semiIdx != -1 {
+				pid = strings.TrimSpace(rest[:semiIdx])
+				running = true
+			}
+		}
+	}
+
+	// Extract LastExitStatus
+	if statusIdx := strings.Index(content, "\"LastExitStatus\""); statusIdx != -1 {
+		line := content[statusIdx:]
+		if eqIdx := strings.Index(line, "="); eqIdx != -1 {
+			rest := strings.TrimSpace(line[eqIdx+1:])
+			if semiIdx := strings.Index(rest, ";"); semiIdx != -1 {
+				status = strings.TrimSpace(rest[:semiIdx])
+			}
+		}
+	}
+
+	return pid, status, running
+}
+
 // printStatusInfo prints log locations and control commands
 func printStatusInfo(jobID, sourcePath, targetPath string) {
 	logDirPath, _ := logDir(jobID)
 	plist, _ := plistPath(jobID)
 
+	// Get and show process info
+	pid, status, running := getJobInfo(jobID)
+	fmt.Printf("Process:\n")
+	if running {
+		fmt.Printf("  PID:     %s\n", pid)
+		fmt.Printf("  Status:  %s (running)\n", status)
+	} else {
+		fmt.Printf("  PID:     - (not running)\n")
+		fmt.Printf("  Status:  %s\n", status)
+	}
+	fmt.Println()
+
 	fmt.Printf("Logs:\n")
 	printLogFile("stdout", filepath.Join(logDirPath, "stdout.log"), false)
 	printLogFile("stderr", filepath.Join(logDirPath, "stderr.log"), true)
-	printLogFile("errors", filepath.Join(logDirPath, "errors.log"), true)
 	fmt.Println()
 
-	fmt.Printf("Control commands:\n")
+	fmt.Printf("Commands:\n")
+	fmt.Printf("  Status:  launchctl list %s\n", jobID)
 	fmt.Printf("  Stop:    launchctl unload %s\n", plist)
 	fmt.Printf("  Start:   launchctl load %s\n", plist)
 	fmt.Printf("  Remove:  autoversion uninstall --base <BASE> %s\n", sourcePath)
@@ -936,14 +989,168 @@ var unbundleCmd = &cobra.Command{
 	},
 }
 
+// getProcessUptime returns how long a process has been running
+func getProcessUptime(pid string) string {
+	if pid == "-" || pid == "" {
+		return "-"
+	}
+	// ps -o etime= gives elapsed time in [[DD-]HH:]MM:SS format
+	cmd := exec.Command("ps", "-o", "etime=", "-p", pid)
+	output, err := cmd.Output()
+	if err != nil {
+		return "-"
+	}
+	etime := strings.TrimSpace(string(output))
+	if etime == "" {
+		return "-"
+	}
+	return etime
+}
+
+// formatUptime converts ps etime format to human readable
+func formatUptime(etime string) string {
+	if etime == "-" {
+		return "-"
+	}
+	// Format: [[DD-]HH:]MM:SS
+	// Examples: "05:23", "01:05:23", "2-01:05:23"
+	parts := strings.Split(etime, "-")
+	var days, timepart string
+	if len(parts) == 2 {
+		days = parts[0]
+		timepart = parts[1]
+	} else {
+		timepart = parts[0]
+	}
+
+	timeParts := strings.Split(timepart, ":")
+	var hours, mins, secs string
+	switch len(timeParts) {
+	case 3:
+		hours = timeParts[0]
+		mins = timeParts[1]
+		secs = timeParts[2]
+	case 2:
+		mins = timeParts[0]
+		secs = timeParts[1]
+	default:
+		return etime
+	}
+
+	var result []string
+	if days != "" && days != "0" {
+		result = append(result, days+"d")
+	}
+	if hours != "" && hours != "00" {
+		result = append(result, strings.TrimLeft(hours, "0")+"h")
+	}
+	if mins != "" && mins != "00" {
+		result = append(result, strings.TrimLeft(mins, "0")+"m")
+	}
+	if len(result) == 0 {
+		// Less than a minute
+		s := strings.TrimLeft(secs, "0")
+		if s == "" {
+			s = "0"
+		}
+		return s + "s"
+	}
+	return strings.Join(result, " ")
+}
+
+var installCheckCmd = &cobra.Command{
+	Use:   "install-check <source-path>",
+	Short: "Check installed service status and show recent logs",
+	Long:  "Shows detailed status of an installed service including PID, uptime, and recent log output.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if runtime.GOOS != "darwin" {
+			return fmt.Errorf("install-check command is only supported on macOS")
+		}
+
+		if basePath == "" {
+			return fmt.Errorf("--base flag is required to identify the job")
+		}
+
+		// Use ValidateSourceAndBase to get properly resolved paths
+		result, err := ValidateSourceAndBase(args[0], basePath)
+		if err != nil {
+			return err
+		}
+
+		sourcePath := result.SourceResolved
+		targetPath := result.TargetComputed
+		jobID := jobIdentifier(sourcePath, targetPath)
+		plist, err := plistPath(jobID)
+		if err != nil {
+			return err
+		}
+
+		// Check if installed
+		if _, err := os.Stat(plist); os.IsNotExist(err) {
+			return fmt.Errorf("not installed: %s", jobID)
+		}
+
+		// Get process info
+		pid, status, running := getJobInfo(jobID)
+
+		fmt.Printf("Job:    %s\n", jobID)
+		fmt.Printf("Source: %s\n", sourcePath)
+		fmt.Printf("Target: %s\n\n", targetPath)
+
+		if running {
+			uptime := getProcessUptime(pid)
+			fmt.Printf("PID:    %s\n", pid)
+			fmt.Printf("Status: running (exit code %s)\n", status)
+			fmt.Printf("Uptime: %s\n", formatUptime(uptime))
+		} else {
+			fmt.Printf("PID:    - (not running)\n")
+			fmt.Printf("Status: stopped (exit code %s)\n", status)
+		}
+		fmt.Println()
+
+		// Show log files with last 10 lines
+		logDirPath, _ := logDir(jobID)
+
+		stdoutPath := filepath.Join(logDirPath, "stdout.log")
+		stderrPath := filepath.Join(logDirPath, "stderr.log")
+
+		fmt.Printf("=== stdout: %s ===\n", stdoutPath)
+		lines := lastLines(stdoutPath, 10)
+		if len(lines) == 0 {
+			fmt.Println("(empty)")
+		} else {
+			for _, line := range lines {
+				fmt.Println(line)
+			}
+		}
+		fmt.Println()
+
+		fmt.Printf("=== stderr: %s ===\n", stderrPath)
+		lines = lastLines(stderrPath, 10)
+		if len(lines) == 0 {
+			fmt.Println("(empty)")
+		} else {
+			for _, line := range lines {
+				fmt.Println(line)
+			}
+		}
+
+		return nil
+	},
+}
+
 func init() {
 	// Install command flags (same as watch)
 	installCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	installCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
+	installCmd.Flags().BoolVar(&noLogin, "no-login", false, "don't start service at login")
+	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show generated plist without installing")
 
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(bundleCmd)
 	rootCmd.AddCommand(unbundleCmd)
+	rootCmd.AddCommand(installCheckCmd)
 }

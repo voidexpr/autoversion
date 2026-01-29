@@ -78,7 +78,7 @@ Install as a launchd background service (requires `--base`):
 ./autoversion install --base BASE_PATH SOURCE_PATH [flags]
 ```
 
-Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--debug`
+Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--no-login`, `--dry-run`, `--debug`
 
 The command is idempotent - run it again after rebuilding to reload the service.
 
@@ -172,6 +172,7 @@ Autoversion excludes:
 | `--buffer-time` | 5 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--no-git` | false | Skip git commits |
+| `--no-login` | false | Don't start service at login (install only) |
 | `--debug` | false | Enable debug logging |
 
 ---

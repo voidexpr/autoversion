@@ -29,6 +29,7 @@ var (
 	maxFileSize int64
 	bufferTime  int
 	dryRun      bool
+	noLogin     bool
 )
 
 // computeTargetPath computes the target path from base and source path
