@@ -65,7 +65,16 @@ func computeTargetPath(base, sourcePath string) (string, error) {
 
 	target := filepath.Join(absBase, relPath)
 
-	fmt.Printf("source: '%s' into target: '%s'\n", sourcePath, target)
+	if debug {
+		fmt.Printf("computeTargetPath:\n")
+		fmt.Printf("  base:      '%s'\n", base)
+		fmt.Printf("  absBase:   '%s'\n", absBase)
+		fmt.Printf("  source:    '%s'\n", sourcePath)
+		fmt.Printf("  absSource: '%s'\n", absSource)
+		fmt.Printf("  homeDir:   '%s'\n", homeDir)
+		fmt.Printf("  relPath:   '%s'\n", relPath)
+		fmt.Printf("  target:    '%s'\n", target)
+	}
 	return target, nil
 }
 
@@ -210,38 +219,149 @@ func resolvePath(path string) (string, error) {
 	return realPath, nil
 }
 
+// hasGitInParents checks if any parent directory of path contains a .git directory
+func hasGitInParents(path string) (string, bool) {
+	current := filepath.Dir(path) // start from parent, not the path itself
+	for current != "/" && current != "." {
+		gitPath := filepath.Join(current, ".git")
+		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+			return current, true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	return "", false
+}
+
+// PathValidationResult contains the results of path validation
+type PathValidationResult struct {
+	SourceInput    string
+	SourceResolved string
+	BaseInput      string
+	BaseResolved   string
+	TargetComputed string
+	Errors         []string
+}
+
+// ValidateSourceAndBase validates that source and base paths are compatible
+// Returns resolved paths and any validation errors
+func ValidateSourceAndBase(sourcePath, basePath string) (*PathValidationResult, error) {
+	result := &PathValidationResult{
+		SourceInput: sourcePath,
+		BaseInput:   basePath,
+	}
+
+	// Resolve source path
+	absSource, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return result, fmt.Errorf("failed to get absolute source path: %v", err)
+	}
+
+	// Check source exists and is a directory
+	sourceInfo, err := os.Stat(absSource)
+	if err != nil {
+		if os.IsNotExist(err) {
+			result.Errors = append(result.Errors, fmt.Sprintf("source path does not exist: %s", absSource))
+		} else {
+			return result, fmt.Errorf("failed to stat source path: %v", err)
+		}
+	} else if !sourceInfo.IsDir() {
+		result.Errors = append(result.Errors, fmt.Sprintf("source path is not a directory: %s", absSource))
+	}
+
+	resolvedSource, err := resolvePath(absSource)
+	if err != nil {
+		return result, fmt.Errorf("failed to resolve source path: %v", err)
+	}
+	result.SourceResolved = resolvedSource
+
+	// Resolve base path
+	absBase, err := filepath.Abs(basePath)
+	if err != nil {
+		return result, fmt.Errorf("failed to get absolute base path: %v", err)
+	}
+
+	// Check base exists and is a directory
+	baseInfo, err := os.Stat(absBase)
+	if err != nil {
+		if os.IsNotExist(err) {
+			result.Errors = append(result.Errors, fmt.Sprintf("base path does not exist: %s", absBase))
+		} else {
+			return result, fmt.Errorf("failed to stat base path: %v", err)
+		}
+	} else if !baseInfo.IsDir() {
+		result.Errors = append(result.Errors, fmt.Sprintf("base path is not a directory: %s", absBase))
+	}
+
+	resolvedBase, err := resolvePath(absBase)
+	if err != nil {
+		return result, fmt.Errorf("failed to resolve base path: %v", err)
+	}
+	result.BaseResolved = resolvedBase
+
+	// If either path doesn't exist, skip further validation that depends on resolved paths
+	if len(result.Errors) > 0 {
+		return result, nil
+	}
+
+	// Compute target path
+	target, err := computeTargetPath(resolvedBase, resolvedSource)
+	if err != nil {
+		return result, fmt.Errorf("failed to compute target path: %v", err)
+	}
+	result.TargetComputed = target
+
+	// Validation checks
+	sep := string(filepath.Separator)
+
+	// Check 1: base and source can't be the same
+	if resolvedSource == resolvedBase {
+		result.Errors = append(result.Errors, fmt.Sprintf("source and base paths cannot be the same (%s)", resolvedSource))
+	}
+
+	// Check 2: source can't be within base
+	if filepath.HasPrefix(resolvedSource, resolvedBase+sep) {
+		result.Errors = append(result.Errors, fmt.Sprintf("source path (%s) cannot be inside base path (%s)", resolvedSource, resolvedBase))
+	}
+
+	// Check 3: base can't be within source
+	if filepath.HasPrefix(resolvedBase, resolvedSource+sep) {
+		result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) cannot be inside source path (%s)", resolvedBase, resolvedSource))
+	}
+
+	// Check 4: no parent of base can have a .git repository
+	if gitParent, found := hasGitInParents(resolvedBase); found {
+		result.Errors = append(result.Errors, fmt.Sprintf("base path has a parent with .git repository (%s) - this would create nested git repos", gitParent))
+	}
+
+	return result, nil
+}
+
 // validatePaths validates source and base paths, computes target, and verifies everything
 // Returns absolute source path (with symlinks resolved) and target path, or an error
 func validatePaths(sourcePath, basePath string, dryRun bool) (absSourcePath, targetPath string, err error) {
-	// Validate source path exists and is a directory
-	if err := validateSourcePath(sourcePath); err != nil {
-		return "", "", err
-	}
-
-	// Resolve source path symlinks
-	absSourcePath, err = resolvePath(sourcePath)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to resolve source path: %v", err)
-	}
-
-	// Resolve base path symlinks
-	resolvedBasePath, err := resolvePath(basePath)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to resolve base path: %v", err)
-	}
-
-	// Compute target path using resolved source path
-	targetPath, err = computeTargetPath(resolvedBasePath, absSourcePath)
+	// Run comprehensive source/base validation
+	result, err := ValidateSourceAndBase(sourcePath, basePath)
 	if err != nil {
 		return "", "", err
 	}
+
+	if len(result.Errors) > 0 {
+		return "", "", fmt.Errorf("path validation failed: %s", result.Errors[0])
+	}
+
+	absSourcePath = result.SourceResolved
+	targetPath = result.TargetComputed
 
 	// Validate target is initialized
-	if err := validateTargetPath(targetPath, resolvedBasePath, absSourcePath, dryRun); err != nil {
+	if err := validateTargetPath(targetPath, result.BaseResolved, absSourcePath, dryRun); err != nil {
 		return "", "", err
 	}
 
-	// Verify paths are safe
+	// Verify additional path safety (HOME, root, etc.)
 	if err := verifyPaths(absSourcePath, targetPath); err != nil {
 		return "", "", err
 	}
@@ -507,6 +627,60 @@ var watchCmd = &cobra.Command{
 	},
 }
 
+var checkPathsCmd = &cobra.Command{
+	Use:   "check-paths <source-path>",
+	Short: "Validate source and base paths",
+	Long: `Validates that source and base paths are compatible for autoversion.
+
+Checks performed:
+- Source and base paths can't be the same
+- Source path can't be inside base path
+- Base path can't be inside source path
+- No parent directory of base can have a .git repository
+
+Also shows how symlinks are resolved and what target path would be computed.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sourcePath := args[0]
+
+		if basePath == "" {
+			return fmt.Errorf("--base flag is required")
+		}
+
+		result, err := ValidateSourceAndBase(sourcePath, basePath)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("Path Resolution:")
+		fmt.Printf("  source (input):    %s\n", result.SourceInput)
+		if result.SourceInput != result.SourceResolved {
+			fmt.Printf("  source (resolved): %s\n", result.SourceResolved)
+		} else {
+			fmt.Printf("  source (resolved): (no symlinks)\n")
+		}
+		fmt.Printf("  base (input):      %s\n", result.BaseInput)
+		if result.BaseInput != result.BaseResolved {
+			fmt.Printf("  base (resolved):   %s\n", result.BaseResolved)
+		} else {
+			fmt.Printf("  base (resolved):   (no symlinks)\n")
+		}
+		fmt.Printf("  target (computed): %s\n", result.TargetComputed)
+		fmt.Println()
+
+		if len(result.Errors) > 0 {
+			fmt.Println("Validation Errors:")
+			for _, e := range result.Errors {
+				fmt.Printf("  ✗ %s\n", e)
+			}
+			return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
+		}
+
+		fmt.Println("Validation: ✓ All checks passed")
+		return nil
+	},
+}
+
 func init() {
 	// Root-level persistent flags
 	rootCmd.PersistentFlags().StringVar(&basePath, "base", "", "base directory path")
@@ -532,6 +706,7 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(watchCmd)
+	rootCmd.AddCommand(checkPathsCmd)
 }
 
 func main() {

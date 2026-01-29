@@ -72,13 +72,15 @@ go test -v
 
 ### install
 
-Install as a launchd background service:
+Install as a launchd background service (requires `--base`):
 
 ```bash
 ./autoversion install --base BASE_PATH SOURCE_PATH [flags]
 ```
 
 Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--debug`
+
+The command is idempotent - run it again after rebuilding to reload the service.
 
 ### uninstall
 
@@ -127,6 +129,20 @@ List files that would be tracked:
 ```bash
 ./autoversion filter PATH [--max-file-size MB]
 ```
+
+### check-paths
+
+Validate source and base paths before installing:
+
+```bash
+./autoversion check-paths --base BASE_PATH SOURCE_PATH
+```
+
+Shows symlink resolution and validates:
+- Source and base paths can't be the same
+- Source path can't be inside base path
+- Base path can't be inside source path
+- No parent of base can have a .git repository (prevents nested repos)
 
 ## Path Computation
 

@@ -480,58 +480,33 @@ func installAppBundle() error {
 }
 
 var installCmd = &cobra.Command{
-	Use:   "install [source-path]",
+	Use:   "install <source-path>",
 	Short: "Install autoversion as a launchd service (macOS only)",
-	Long:  "Configures launchd to run autoversion in watch mode. Prompts for paths if not provided.",
-	Args:  cobra.MaximumNArgs(1),
+	Long:  "Configures launchd to run autoversion in watch mode. Requires --base flag.",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("install command is only supported on macOS (launchd). Linux systemd support coming later")
 		}
 
-		// Get source path
-		var sourcePath string
-		var err error
-		if len(args) > 0 {
-			sourcePath, err = filepath.Abs(args[0])
-			if err != nil {
-				return fmt.Errorf("invalid source path: %v", err)
-			}
-			if err := validateSourcePath(sourcePath); err != nil {
-				return err
-			}
-		} else {
-			sourcePath, err = promptPath("Which path to watch", true)
-			if err != nil {
-				return err
-			}
+		if basePath == "" {
+			return fmt.Errorf("--base flag is required")
 		}
 
-		// Resolve symlinks in source path
-		sourcePath, err = resolvePath(sourcePath)
+		// Run comprehensive source/base validation
+		result, err := ValidateSourceAndBase(args[0], basePath)
 		if err != nil {
 			return err
 		}
 
-		// Get base/target path
-		var targetPath string
-		if basePath != "" {
-			targetPath, err = computeTargetPath(basePath, sourcePath)
-			if err != nil {
-				return err
-			}
-		} else {
-			baseInput, err := promptPath("Where should the versioned files be stored", false)
-			if err != nil {
-				return err
-			}
-			targetPath, err = computeTargetPath(baseInput, sourcePath)
-			if err != nil {
-				return err
-			}
+		if len(result.Errors) > 0 {
+			return fmt.Errorf("path validation failed: %s", result.Errors[0])
 		}
 
-		// Validate paths don't overlap
+		sourcePath := result.SourceResolved
+		targetPath := result.TargetComputed
+
+		// Verify additional path safety (HOME, root, etc.)
 		if err := verifyPaths(sourcePath, targetPath); err != nil {
 			return err
 		}
@@ -803,15 +778,67 @@ var statusCmd = &cobra.Command{
 	},
 }
 
+// countLines returns the number of lines in a file, or -1 if the file doesn't exist
+func countLines(path string) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return -1
+	}
+	defer file.Close()
+
+	count := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		count++
+	}
+	return count
+}
+
+// lastLines returns the last n lines of a file
+func lastLines(path string, n int) []string {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+		if len(lines) > n {
+			lines = lines[1:]
+		}
+	}
+	return lines
+}
+
+// printLogFile prints a log file path with line count, and optionally the last n lines
+func printLogFile(label, path string, showTail bool) {
+	count := countLines(path)
+	if count < 0 {
+		fmt.Printf("  %s: %s (not found)\n", label, path)
+		return
+	}
+	fmt.Printf("  %s: %s (%d lines)\n", label, path, count)
+	if showTail && count > 0 {
+		lines := lastLines(path, 10)
+		for _, line := range lines {
+			fmt.Printf("      %s\n", line)
+		}
+	}
+}
+
 // printStatusInfo prints log locations and control commands
 func printStatusInfo(jobID, sourcePath, targetPath string) {
 	logDirPath, _ := logDir(jobID)
 	plist, _ := plistPath(jobID)
 
 	fmt.Printf("Logs:\n")
-	fmt.Printf("  stdout: %s/stdout.log\n", logDirPath)
-	fmt.Printf("  stderr: %s/stderr.log\n", logDirPath)
-	fmt.Printf("  errors: %s/errors.log\n\n", logDirPath)
+	printLogFile("stdout", filepath.Join(logDirPath, "stdout.log"), false)
+	printLogFile("stderr", filepath.Join(logDirPath, "stderr.log"), true)
+	printLogFile("errors", filepath.Join(logDirPath, "errors.log"), true)
+	fmt.Println()
 
 	fmt.Printf("Control commands:\n")
 	fmt.Printf("  Stop:    launchctl unload %s\n", plist)
