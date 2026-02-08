@@ -32,9 +32,30 @@ var (
 	noLogin     bool
 )
 
+// longestCommonDir returns the longest common directory path between two absolute paths
+func longestCommonDir(a, b string) string {
+	aParts := strings.Split(filepath.Clean(a), string(filepath.Separator))
+	bParts := strings.Split(filepath.Clean(b), string(filepath.Separator))
+
+	var common []string
+	for i := 0; i < len(aParts) && i < len(bParts); i++ {
+		if aParts[i] == bParts[i] {
+			common = append(common, aParts[i])
+		} else {
+			break
+		}
+	}
+
+	if len(common) <= 1 {
+		return string(filepath.Separator)
+	}
+	return strings.Join(common, string(filepath.Separator))
+}
+
 // computeTargetPath computes the target path from base and source path
 // For source under $HOME: target = base + (source - $HOME)
-// For source outside $HOME: target = base + source
+// For source outside $HOME with common ancestor: target = base + (source - commonAncestor)
+// For source outside $HOME with no common ancestor: target = base + source
 func computeTargetPath(base, sourcePath string) (string, error) {
 	absSource, err := filepath.Abs(sourcePath)
 	if err != nil {
@@ -51,17 +72,30 @@ func computeTargetPath(base, sourcePath string) (string, error) {
 		return "", fmt.Errorf("failed to get home directory: %v", err)
 	}
 
-	// Check if source is under home directory
-	relPath := absSource
-	if filepath.HasPrefix(absSource, homeDir+string(filepath.Separator)) || absSource == homeDir {
-		// Remove home directory prefix
+	var relPath string
+
+	// Case 1: Source is under home directory
+	if strings.HasPrefix(absSource, homeDir+string(filepath.Separator)) || absSource == homeDir {
 		relPath, err = filepath.Rel(homeDir, absSource)
 		if err != nil {
 			return "", fmt.Errorf("failed to compute relative path: %v", err)
 		}
 	} else {
-		// Use absolute path without leading /
-		relPath = strings.TrimPrefix(absSource, string(filepath.Separator))
+		// Case 2: Source is outside HOME
+		// Check if base and source share a common ancestor
+		commonDir := longestCommonDir(absBase, absSource)
+
+		if commonDir != string(filepath.Separator) {
+			// They share a common ancestor - use relative path from there
+			relPath, err = filepath.Rel(commonDir, absSource)
+			if err != nil {
+				// Fallback to full path
+				relPath = strings.TrimPrefix(absSource, string(filepath.Separator))
+			}
+		} else {
+			// No common ancestor - use full path structure
+			relPath = strings.TrimPrefix(absSource, string(filepath.Separator))
+		}
 	}
 
 	target := filepath.Join(absBase, relPath)
@@ -333,7 +367,13 @@ func ValidateSourceAndBase(sourcePath, basePath string) (*PathValidationResult, 
 		result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) cannot be inside source path (%s)", resolvedBase, resolvedSource))
 	}
 
-	// Check 4: no parent of base can have a .git repository
+	// Check 4: base directory itself can't be a git repository
+	gitDir := filepath.Join(resolvedBase, ".git")
+	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+		result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) is a git repository - autoversion creates subdirectories with their own git repos", resolvedBase))
+	}
+
+	// Check 5: no parent of base can have a .git repository
 	if gitParent, found := hasGitInParents(resolvedBase); found {
 		result.Errors = append(result.Errors, fmt.Sprintf("base path has a parent with .git repository (%s) - this would create nested git repos", gitParent))
 	}

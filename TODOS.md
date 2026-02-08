@@ -8,3 +8,9 @@
 
 investigate as I think we tried in the past and that didn't work. Develop test suites
 
+## Configuration
+
+~/projects
+~/notes
+~/Dropbox/Sync
+~/dotfiles
