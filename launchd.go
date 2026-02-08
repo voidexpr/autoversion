@@ -932,8 +932,10 @@ func printStatusInfo(jobID, sourcePath, targetPath string) {
 	pid, status, running := getJobInfo(jobID)
 	fmt.Printf("Process:\n")
 	if running {
+		uptime := formatUptime(getProcessUptime(pid))
 		fmt.Printf("  PID:     %s\n", pid)
 		fmt.Printf("  Status:  %s (running)\n", status)
+		fmt.Printf("  Uptime:  %s\n", uptime)
 	} else {
 		fmt.Printf("  PID:     - (not running)\n")
 		fmt.Printf("  Status:  %s\n", status)
