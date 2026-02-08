@@ -157,6 +157,53 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 	return plist
 }
 
+// unescapeXML reverses escapeXML. Process &amp; last to avoid double-unescaping.
+func unescapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&quot;", "\"")
+	s = strings.ReplaceAll(s, "&apos;", "'")
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	return s
+}
+
+// parsePlistPaths reads an existing plist file and extracts the source path
+// (last <string> in ProgramArguments) and base path (value after --base).
+func parsePlistPaths(path string) (source, base string, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", err
+	}
+	content := string(data)
+
+	// Extract all <string>...</string> values inside <array>...</array>
+	arrayStart := strings.Index(content, "<array>")
+	arrayEnd := strings.Index(content, "</array>")
+	if arrayStart == -1 || arrayEnd == -1 {
+		return "", "", fmt.Errorf("no ProgramArguments array found in %s", path)
+	}
+	arrayContent := content[arrayStart:arrayEnd]
+
+	re := regexp.MustCompile(`<string>(.*?)</string>`)
+	matches := re.FindAllStringSubmatch(arrayContent, -1)
+	if len(matches) == 0 {
+		return "", "", fmt.Errorf("no string values in ProgramArguments in %s", path)
+	}
+
+	// Source path is the last argument
+	source = unescapeXML(matches[len(matches)-1][1])
+
+	// Base path is the value after --base
+	for i, m := range matches {
+		if unescapeXML(m[1]) == "--base" && i+1 < len(matches) {
+			base = unescapeXML(matches[i+1][1])
+			break
+		}
+	}
+
+	return source, base, nil
+}
+
 // escapeXML escapes special XML characters
 func escapeXML(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
@@ -539,6 +586,12 @@ var installCmd = &cobra.Command{
 		}
 
 		if _, err := os.Stat(plist); err == nil {
+			// Check for job ID collision: different paths producing the same sanitized ID
+			existingSource, existingBase, parseErr := parsePlistPaths(plist)
+			if parseErr == nil && (existingSource != sourcePath || existingBase != result.BaseResolved) {
+				return fmt.Errorf("job ID collision: %s\n  Existing install:\n    source: %s\n    base:   %s\n  New install:\n    source: %s\n    base:   %s\nThese paths produce the same sanitized job ID.\nRename one of the source directories to avoid the collision.", jobID, existingSource, existingBase, sourcePath, result.BaseResolved)
+			}
+
 			// Service is already installed
 			isRunning := isJobLoaded(jobID)
 			needsReload := isRunning && needsServiceReload(plist)
