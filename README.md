@@ -8,7 +8,7 @@ A lightweight Go tool that tracks file versions in real-time using git as the ba
 
 ```bash
 # Build
-go build
+make build
 
 # Install and start watching a directory
 ./autoversion install --base ~/repos ~/projects/myapp
@@ -40,7 +40,7 @@ When modifying autoversion with running services:
 
 ```bash
 # Rebuild and reinstall (auto-reloads if service is running)
-go build && ./autoversion install --base ~/repos ~/projects/myapp
+make build && ./autoversion install --base ~/repos ~/projects/myapp
 ```
 
 The install command detects when the binary has changed and automatically reloads running services.
@@ -48,14 +48,11 @@ The install command detects when the binary has changed and automatically reload
 ### Build and test
 
 ```bash
-# Build
-go build
-
-# Run tests
-go test
-
-# Run tests with verbose output
-go test -v
+make build
+make test
+make clean
+make install    # copies binary to /usr/local/bin
+make uninstall  # removes from /usr/local/bin
 ```
 
 ### Manual commands (for debugging)
@@ -78,7 +75,7 @@ Install as a launchd background service (requires `--base`):
 ./autoversion install --base BASE_PATH SOURCE_PATH [flags]
 ```
 
-Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--no-login`, `--dry-run`, `--debug`
+Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `--no-login`, `--dry-run`, `--debug`
 
 The command is idempotent - run it again after rebuilding to reload the service.
 
@@ -92,10 +89,18 @@ Stop and remove the launchd service:
 
 ### status
 
-Show service status and log locations:
+Show service status, uptime, and log locations:
 
 ```bash
 ./autoversion status --base BASE_PATH SOURCE_PATH
+```
+
+### install-check
+
+Show detailed service status including PID, uptime, and recent log output:
+
+```bash
+./autoversion install-check --base BASE_PATH SOURCE_PATH
 ```
 
 ### watch
@@ -142,6 +147,7 @@ Shows symlink resolution and validates:
 - Source and base paths can't be the same
 - Source path can't be inside base path
 - Base path can't be inside source path
+- Base directory itself can't be a git repository
 - No parent of base can have a .git repository (prevents nested repos)
 
 ## Path Computation
@@ -151,7 +157,10 @@ Autoversion computes the target path automatically:
 - **Paths under $HOME**: `target = base + (source - $HOME)`
   - `~/projects/myapp` with base `~/repos` → `~/repos/projects/myapp`
 
-- **Paths outside $HOME**: `target = base + source`
+- **Paths outside $HOME with common ancestor**: `target = base + (source - commonAncestor)`
+  - `/tmp/myapp` with base `/tmp/backups` → `/tmp/backups/myapp` (common ancestor: `/tmp`)
+
+- **Paths outside $HOME with no common ancestor**: `target = base + source`
   - `/var/log` with base `~/repos` → `~/repos/var/log`
 
 ## File Filtering
@@ -169,9 +178,10 @@ Autoversion excludes:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--max-file-size` | 10 MB | Maximum file size to track |
-| `--buffer-time` | 5 seconds | Event buffer duration (watch/install) |
+| `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--no-git` | false | Skip git commits |
+| `--restic` | false | Enable restic backup |
 | `--no-login` | false | Don't start service at login (install only) |
 | `--debug` | false | Enable debug logging |
 
@@ -236,8 +246,10 @@ autoversion/
 ├── watcher.go        # File system watcher wrapper
 ├── fileops.go        # File operations (copy, delete)
 ├── git.go            # Git wrapper
+├── restic.go         # Restic backup integration
 ├── launchd.go        # macOS launchd integration
-└── log.go            # Logging helpers
+├── log.go            # Logging helpers
+└── Makefile          # Build targets
 ```
 
 ### FSEvents on macOS
