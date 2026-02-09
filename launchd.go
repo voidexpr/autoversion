@@ -550,8 +550,29 @@ var installCmd = &cobra.Command{
 			return err
 		}
 
+		// Print path resolution (same as check-paths)
+		fmt.Println("Path Resolution:")
+		fmt.Printf("  source (input):    %s\n", result.SourceInput)
+		if result.SourceInput != result.SourceResolved {
+			fmt.Printf("  source (resolved): %s\n", result.SourceResolved)
+		} else {
+			fmt.Printf("  source (resolved): (no symlinks)\n")
+		}
+		fmt.Printf("  base (input):      %s\n", result.BaseInput)
+		if result.BaseInput != result.BaseResolved {
+			fmt.Printf("  base (resolved):   %s\n", result.BaseResolved)
+		} else {
+			fmt.Printf("  base (resolved):   (no symlinks)\n")
+		}
+		fmt.Printf("  target (computed): %s\n", result.TargetComputed)
+		fmt.Println()
+
 		if len(result.Errors) > 0 {
-			return fmt.Errorf("path validation failed: %s", result.Errors[0])
+			fmt.Println("Validation Errors:")
+			for _, e := range result.Errors {
+				fmt.Printf("  ✗ %s\n", e)
+			}
+			return fmt.Errorf("path validation failed with %d error(s)", len(result.Errors))
 		}
 
 		sourcePath := result.SourceResolved
@@ -609,6 +630,13 @@ var installCmd = &cobra.Command{
 				unloadCmd := exec.Command("launchctl", "unload", plist)
 				if output, err := unloadCmd.CombinedOutput(); err != nil {
 					return fmt.Errorf("failed to unload launchd job: %v\n%s", err, output)
+				}
+
+				// Clear stderr log so stale errors don't persist across reloads
+				logDirPath, _ := logDir(jobID)
+				stderrPath := filepath.Join(logDirPath, "stderr.log")
+				if err := os.Remove(stderrPath); err != nil && !os.IsNotExist(err) {
+					logError("failed to remove stderr log: %v", err)
 				}
 
 				// Touch the plist to update its mtime
@@ -676,9 +704,19 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("failed to create log directory: %v", err)
 		}
 
-		// Create target directory if needed
-		if err := os.MkdirAll(targetPath, 0755); err != nil {
-			return fmt.Errorf("failed to create target directory: %v", err)
+		// Create target, initialize git, and run initial sync
+		if err := validateTargetPath(targetPath, result.BaseResolved, sourcePath, dryRun); err != nil {
+			return err
+		}
+
+		// Get flag values from command
+		maxSize, _ := cmd.Flags().GetInt64("max-file-size")
+
+		if !dryRun {
+			fmt.Println("Initial sync...")
+			if err := scanPaths(sourcePath, targetPath, maxSize, dryRun); err != nil {
+				return fmt.Errorf("initial sync failed: %v", err)
+			}
 		}
 
 		// Create LaunchAgents directory if needed
@@ -689,9 +727,6 @@ var installCmd = &cobra.Command{
 		if err := os.MkdirAll(agentDir, 0755); err != nil {
 			return fmt.Errorf("failed to create LaunchAgents directory: %v", err)
 		}
-
-		// Get flag values from command
-		maxSize, _ := cmd.Flags().GetInt64("max-file-size")
 		bufTime, _ := cmd.Flags().GetInt("buffer-time")
 
 		// Generate plist - pass original base path so watch can correctly compute target

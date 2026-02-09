@@ -113,6 +113,15 @@ func computeTargetPath(base, sourcePath string) (string, error) {
 	return target, nil
 }
 
+// isDirEmpty returns true if the directory exists and contains no entries
+func isDirEmpty(path string) bool {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	return len(entries) == 0
+}
+
 // validateTargetPath validates that the target is initialized as a git repository
 // If target doesn't exist, creates it and initializes as git repo
 // If target exists but is not a git repo, returns error
@@ -158,9 +167,9 @@ func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) er
 		return fmt.Errorf("target path exists but is not a directory: %s", targetPath)
 	}
 
-	// Target directory exists - check if it's a git repo (if git is not disabled)
-	if !noGit && !IsGitRepo(targetPath) {
-		return fmt.Errorf("%s exists but is not a git repository", targetPath)
+	// Target directory exists - if non-empty, must be a git repo (if git is not disabled)
+	if !noGit && !IsGitRepo(targetPath) && !isDirEmpty(targetPath) {
+		return fmt.Errorf("%s exists with files but is not a git repository", targetPath)
 	}
 
 	// Initialize restic if enabled and not already initialized
@@ -378,6 +387,13 @@ func ValidateSourceAndBase(sourcePath, basePath string) (*PathValidationResult, 
 		result.Errors = append(result.Errors, fmt.Sprintf("base path has a parent with .git repository (%s) - this would create nested git repos", gitParent))
 	}
 
+	// Check 6: if target exists and is non-empty, it must be a git repo
+	if targetInfo, err := os.Stat(target); err == nil && targetInfo.IsDir() {
+		if !IsGitRepo(target) && !isDirEmpty(target) {
+			result.Errors = append(result.Errors, fmt.Sprintf("target path (%s) exists with files but is not a git repository", target))
+		}
+	}
+
 	return result, nil
 }
 
@@ -411,8 +427,9 @@ func validatePaths(sourcePath, basePath string, dryRun bool) (absSourcePath, tar
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "autoversion",
-	Short: "Track file versions in real-time using git",
+	Use:          "autoversion",
+	Short:        "Track file versions in real-time using git",
+	SilenceUsage: true,
 	Long: `autoversion - track file versions in real-time using git
 
 Automatically tracks changes to files and commits them to git repositories,
