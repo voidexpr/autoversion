@@ -52,6 +52,35 @@ func TestShouldTrack(t *testing.T) {
 		{"pycache", "__pycache__/module.pyc", "bytecode", 0, false},
 		{"venv", ".venv/lib/python", "py", 0, false},
 
+		// C/C++ / Windows build artifacts
+		{"Windows object file", "code.obj", "obj", 0, false},
+		{"Windows lib", "math.lib", "lib", 0, false},
+		{"Windows DLL", "runtime.dll", "dll", 0, false},
+		{"Windows exe", "app.exe", "exe", 0, false},
+		{"PDB debug", "app.pdb", "pdb", 0, false},
+		{"precompiled header", "stdafx.gch", "gch", 0, false},
+		{"dependency file", "main.d", "dep", 0, false},
+
+		// Java
+		{"class file", "Main.class", "bytecode", 0, false},
+		{"jar file", "lib.jar", "jar", 0, false},
+
+		// Directories
+		{"gradle cache", ".gradle/caches/file.bin", "data", 0, false},
+		{"build dir", "build/output.js", "js", 0, false},
+		{"dist dir", "dist/bundle.js", "js", 0, false},
+		{"next dir", ".next/cache/file", "data", 0, false},
+		{"idea dir", ".idea/workspace.xml", "xml", 0, false},
+		{"vscode dir", ".vscode/settings.json", "json", 0, false},
+		{"DerivedData", "DerivedData/Build/obj", "data", 0, false},
+
+		// OS files
+		{"Thumbs.db", "Thumbs.db", "thumb", 0, false},
+		{"desktop.ini", "desktop.ini", "ini", 0, false},
+
+		// IntelliJ
+		{"iml file", "project.iml", "iml", 0, false},
+
 		// File size limits
 		{"small file under limit", "small.txt", "x", 1, true},
 	}
