@@ -813,14 +813,71 @@ var uninstallCmd = &cobra.Command{
 	},
 }
 
+// listAllAutoversionJobs finds all autoversion plist files and prints a summary
+func listAllAutoversionJobs() error {
+	agentDir, err := launchAgentDir()
+	if err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(agentDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("No autoversion services installed")
+			return nil
+		}
+		return err
+	}
+
+	var plists []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "projects.autoversion.") && strings.HasSuffix(e.Name(), ".plist") {
+			plists = append(plists, e.Name())
+		}
+	}
+
+	if len(plists) == 0 {
+		fmt.Println("No autoversion services installed")
+		return nil
+	}
+
+	for i, plistName := range plists {
+		if i > 0 {
+			fmt.Println()
+		}
+		jobID := strings.TrimSuffix(plistName, ".plist")
+		plistFile := filepath.Join(agentDir, plistName)
+
+		source, _, parseErr := parsePlistPaths(plistFile)
+
+		pid, exitStatus, running := getJobInfo(jobID)
+
+		if running {
+			uptime := formatUptime(getProcessUptime(pid))
+			fmt.Printf("%-10s %s (pid %s, uptime %s)\n", "RUNNING", jobID, pid, uptime)
+		} else {
+			fmt.Printf("%-10s %s (exit %s)\n", "STOPPED", jobID, exitStatus)
+		}
+		if parseErr == nil {
+			fmt.Printf("           source: %s\n", source)
+		}
+	}
+
+	return nil
+}
+
 var statusCmd = &cobra.Command{
-	Use:   "status <source-path>",
-	Short: "Show status of autoversion launchd service",
-	Long:  "Shows whether the service is installed and running, log locations, and control commands.",
-	Args:  cobra.ExactArgs(1),
+	Use:   "status [source-path]",
+	Short: "Show status of autoversion launchd service(s)",
+	Long:  "With no arguments, lists all autoversion services. With a source path and --base, shows detailed status.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("status command is only supported on macOS")
+		}
+
+		if len(args) == 0 {
+			return listAllAutoversionJobs()
 		}
 
 		if basePath == "" {
