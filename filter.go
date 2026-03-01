@@ -16,7 +16,7 @@ var excludePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\.(DS_Store|nfs)$`),
 	regexp.MustCompile(`\.(o|obj|so|a|lib|sym|dylib|rlib|rmeta|dll|exe|pdb|ilk|exp|gch|pch|d)$`),
 	regexp.MustCompile(`\.(class|jar|war|ear)$`),
-	regexp.MustCompile(`\.(git|hg|svn|cvs)/`),
+	regexp.MustCompile(`\.(git|hg|svn|cvs)(/|$)`),
 	regexp.MustCompile(`\.tmp$`),
 	regexp.MustCompile(`\.tmp\.\d+$`),
 	regexp.MustCompile(`\.tmp\.\d+\.\d+$`),

@@ -25,6 +25,8 @@ func TestShouldTrack(t *testing.T) {
 		{"normal go file", "main.go", "package main", 0, true},
 		{"normal txt file", "README.txt", "hello", 0, true},
 		{"normal py file", "script.py", "print('hi')", 0, true},
+		{"gitignore", ".gitignore", "*.log", 0, true},
+		{"gitmodules", ".gitmodules", "[submodule]", 0, true},
 
 		// Should exclude - file extensions
 		{"log file", "app.log", "log data", 0, false},
@@ -48,6 +50,7 @@ func TestShouldTrack(t *testing.T) {
 
 		// Should exclude - paths
 		{"git dir file", ".git/config", "git", 0, false},
+		{"git worktree file", "subdir/.git", "gitdir: ../.git/worktrees/x", 0, false},
 		{"node_modules", "node_modules/pkg/index.js", "code", 0, false},
 		{"pycache", "__pycache__/module.pyc", "bytecode", 0, false},
 		{"venv", ".venv/lib/python", "py", 0, false},
