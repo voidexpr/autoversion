@@ -1,0 +1,141 @@
+//go:build !darwin
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/fsnotify/fsnotify"
+)
+
+type watcherPlatform struct {
+	fsnotifyWatcher *fsnotify.Watcher
+	watched         map[string]bool
+}
+
+// NewWatcher creates a new file system watcher (non-macOS: uses fsnotify)
+func NewWatcher(sourcePath string, maxSize int64, debug bool) (*Watcher, error) {
+	w := &Watcher{
+		events:     make(chan FileEvent, 100),
+		errors:     make(chan error, 10),
+		done:       make(chan struct{}),
+		maxSize:    maxSize,
+		sourcePath: sourcePath,
+		debug:      debug,
+	}
+
+	fw, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create watcher: %v", err)
+	}
+
+	w.fsnotifyWatcher = fw
+	w.watched = make(map[string]bool)
+
+	if err := w.addRecursive(sourcePath); err != nil {
+		fw.Close()
+		return nil, err
+	}
+
+	go w.processFSNotifyEvents()
+	return w, nil
+}
+
+// Close closes the watcher
+func (w *Watcher) Close() error {
+	close(w.done)
+	if w.fsnotifyWatcher != nil {
+		return w.fsnotifyWatcher.Close()
+	}
+	return nil
+}
+
+// processFSNotifyEvents processes events from fsnotify and sends them as FileEvent
+func (w *Watcher) processFSNotifyEvents() {
+	for {
+		select {
+		case <-w.done:
+			return
+		case event := <-w.fsnotifyWatcher.Events:
+			// Check if it's a directory and handle accordingly
+			info, err := os.Lstat(event.Name)
+			isDelete := (event.Op&fsnotify.Remove != 0) || (event.Op&fsnotify.Rename != 0)
+
+			if err == nil && info.IsDir() {
+				// If a new directory was created, add it and all subdirectories to watch list
+				if event.Op&fsnotify.Create == fsnotify.Create {
+					w.addRecursive(event.Name)
+				}
+				// Don't send directory events
+				continue
+			}
+
+			// Skip symlinks to directories
+			if err == nil && info.Mode()&os.ModeSymlink != 0 {
+				if targetInfo, err := os.Stat(event.Name); err == nil && targetInfo.IsDir() {
+					continue
+				}
+			}
+
+			// Map to EventType and create details
+			var eventType EventType
+			var details string
+			if event.Op&fsnotify.Create == fsnotify.Create {
+				eventType = EventCreated
+				details = "fsnotify: Create"
+			} else if isDelete {
+				eventType = EventDeleted
+				details = "fsnotify: Remove/Rename"
+			} else {
+				eventType = EventModified
+				details = fmt.Sprintf("fsnotify: %v", event.Op)
+			}
+
+			// Send the event
+			select {
+			case w.events <- FileEvent{Path: event.Name, Type: eventType, Details: details}:
+			case <-w.done:
+				return
+			}
+
+		case err := <-w.fsnotifyWatcher.Errors:
+			select {
+			case w.errors <- err:
+			case <-w.done:
+				return
+			}
+		}
+	}
+}
+
+// addRecursive adds a directory and all subdirectories to the watcher (fsnotify only)
+func (w *Watcher) addRecursive(path string) error {
+	return filepath.Walk(path, func(walkPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors, continue walking
+		}
+
+		if info.IsDir() {
+			// Skip .git directories
+			if info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+
+			// Skip if already watching this directory
+			if w.watched[walkPath] {
+				return nil
+			}
+
+			// Add directory to watcher
+			if err := w.fsnotifyWatcher.Add(walkPath); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to watch %s: %v\n", walkPath, err)
+			} else {
+				w.watched[walkPath] = true
+			}
+		}
+
+		return nil
+	})
+}
