@@ -300,9 +300,7 @@ func CopyTree(source, target string, filterFunc FilterFunc) (copied int, filesTo
 		sourcePath := filepath.Join(source, relPath)
 
 		if _, exists := filesToCopy[sourcePath]; !exists {
-			if sourceInfo := GetFileInfo(sourcePath); !sourceInfo.Exists {
-				filesToDelete = append(filesToDelete, relPath)
-			}
+			filesToDelete = append(filesToDelete, relPath)
 		}
 
 		return nil

@@ -6,10 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
-
-const retryDelay = 5 * time.Second
 
 func log_and_err(format string, args ...interface{}) error {
     err := fmt.Errorf(format, args...)
@@ -92,44 +89,27 @@ func Remove(repoPath string, paths []string, debug bool) error {
 		return nil
 	}
 
-	// // Delete files from filesystem first
-	// for _, relPath := range paths {
-	// 	fullPath := filepath.Join(repoPath, relPath)
-	// 	if err := DeleteFile(fullPath, debug); err != nil {
-	// 		if debug {
-	// 			fmt.Fprintf(os.Stderr, "DEBUG Remove: DeleteFile failed: %v\n", err)
-	// 		}
-	// 		// Continue even if deletion fails
-	// 	}
-	// }
-
-	// Add -- to separate paths from options, protecting special file names
-	// Use --ignore-unmatch so git rm succeeds even if file isn't tracked (e.g., in .gitignore)
-	// Use -f to force removal even when files have staged changes in the index
 	args := append([]string{"rm", "--ignore-unmatch", "-f", "--"}, paths...)
 	_, err := runGit(repoPath, args...)
 	if err != nil {
 		return log_and_err("git rm failed: %v", err)
 	}
+
+	// Delete any remaining files that git rm couldn't handle (e.g. .git worktree files
+	// which git treats as submodule pointers rather than tracked files)
+	for _, relPath := range paths {
+		fullPath := filepath.Join(repoPath, relPath)
+		if _, statErr := os.Lstat(fullPath); statErr == nil {
+			if debug {
+				fmt.Fprintf(os.Stderr, "DEBUG Remove: file still exists after git rm, deleting: %s\n", relPath)
+			}
+			if rmErr := os.Remove(fullPath); rmErr != nil {
+				logError("Remove: failed to delete %s: %v", relPath, rmErr)
+			}
+		}
+	}
+
 	return nil
-
-	// for {
-	// 	args := append([]string{"rm"}, paths...)
-	// 	output, err := runGit(repoPath, args...)
-
-	// 	if err != nil {
-	// 		// File might not exist in git - that's ok
-	// 		if strings.Contains(output, "did not match any files") {
-	// 			return nil
-	// 		}
-
-	// 		fmt.Fprintf(os.Stderr, "git rm failed: %v, retrying in %v...\n", err, retryDelay)
-	// 		time.Sleep(retryDelay)
-	// 		continue
-	// 	}
-
-	// 	return nil
-	// }
 }
 
 // IsGitRepo checks if a directory is a valid git repository

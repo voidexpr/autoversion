@@ -872,10 +872,8 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 		sourcePath := filepath.Join(source, relPath)
 
 		if _, exists := filesToCopyMap[sourcePath]; !exists {
-			if sourceInfo := GetFileInfo(sourcePath); !sourceInfo.Exists {
-				fmt.Printf("remove '%s'\n", path)
-				filesToDelete = append(filesToDelete, relPath)
-			}
+			fmt.Printf("remove '%s'\n", path)
+			filesToDelete = append(filesToDelete, relPath)
 		}
 
 		return nil
