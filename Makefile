@@ -1,6 +1,6 @@
 BINARY = autoversion
 
-.PHONY: build build-all test clean install uninstall
+.PHONY: build build-all test clean install uninstall docker-build docker-shell docker-test
 
 build:
 	go build -o $(BINARY) .
@@ -23,3 +23,23 @@ install: build
 
 uninstall:
 	rm -f /usr/local/bin/$(BINARY)
+
+docker-build:
+	docker build -t autoversion .
+
+docker-shell:
+	docker build --target dev -t autoversion-dev .
+	docker run -it --rm \
+		$(if $(INPUT),-v $(abspath $(INPUT)):/input:ro) \
+		$(if $(OUTPUT),-v $(abspath $(OUTPUT)):/output:rw) \
+		autoversion-dev
+
+docker-test:
+ifndef INPUT
+	$(error INPUT is required. Usage: make docker-test INPUT=/path/to/repo)
+endif
+	$(eval OUTPUT ?= /tmp/autoversion_docker_test/$(shell date +%Y%m%d%H%M%S)-$(shell head -c 4 /dev/urandom | xxd -p))
+	@mkdir -p $(OUTPUT)
+	@echo "Input:  $(INPUT)"
+	@echo "Output: $(OUTPUT)"
+	docker run --rm -v $(abspath $(INPUT)):/input:ro -v $(abspath $(OUTPUT)):/output:rw autoversion watch /input --base /output --buffer-time 1

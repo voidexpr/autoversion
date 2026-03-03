@@ -105,7 +105,8 @@ func Remove(repoPath string, paths []string, debug bool) error {
 
 	// Add -- to separate paths from options, protecting special file names
 	// Use --ignore-unmatch so git rm succeeds even if file isn't tracked (e.g., in .gitignore)
-	args := append([]string{"rm", "--ignore-unmatch", "--"}, paths...)
+	// Use -f to force removal even when files have staged changes in the index
+	args := append([]string{"rm", "--ignore-unmatch", "-f", "--"}, paths...)
 	_, err := runGit(repoPath, args...)
 	if err != nil {
 		return log_and_err("git rm failed: %v", err)

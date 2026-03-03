@@ -1,0 +1,8 @@
+build/
+.git/
+autoversion
+*.app
+test_watch/
+test_watch_filter/
+fsw-archive/
+watch.err
