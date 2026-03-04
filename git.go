@@ -99,13 +99,10 @@ func Remove(repoPath string, paths []string, debug bool) error {
 	// which git treats as submodule pointers rather than tracked files)
 	for _, relPath := range paths {
 		fullPath := filepath.Join(repoPath, relPath)
-		if _, statErr := os.Lstat(fullPath); statErr == nil {
-			if debug {
-				fmt.Fprintf(os.Stderr, "DEBUG Remove: file still exists after git rm, deleting: %s\n", relPath)
-			}
-			if rmErr := os.Remove(fullPath); rmErr != nil {
-				logError("Remove: failed to delete %s: %v", relPath, rmErr)
-			}
+		if rmErr := os.Remove(fullPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logError("Remove: failed to delete %s: %v", relPath, rmErr)
+		} else if rmErr == nil && debug {
+			fmt.Fprintf(os.Stderr, "DEBUG Remove: file still exists after git rm, deleting: %s\n", relPath)
 		}
 	}
 
