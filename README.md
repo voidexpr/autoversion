@@ -65,6 +65,23 @@ make uninstall  # removes from /usr/local/bin
 ./autoversion unbundle
 ```
 
+## Directory Mirroring (without git)
+
+Use `--no-git` to maintain a filtered copy of a directory without any git versioning. This is useful when you just want a clean mirror that excludes build artifacts, temp files, and other noise.
+
+```bash
+# One-time mirror
+./autoversion sync --base /tmp/mirror --no-git ~/projects/myapp
+
+# Real-time mirror (watches for changes)
+./autoversion watch --base /tmp/mirror --no-git ~/projects/myapp
+
+# Install as a background service
+./autoversion install --base /tmp/mirror --no-git ~/projects/myapp
+```
+
+The same file filtering rules apply — symlinks, large files, `node_modules/`, `.git/`, etc. are all excluded.
+
 ## Commands
 
 ### install
@@ -180,7 +197,7 @@ Autoversion excludes:
 | `--max-file-size` | 10 MB | Maximum file size to track |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
-| `--no-git` | false | Skip git commits |
+| `--no-git` | false | Disable git entirely (plain directory mirror) |
 | `--restic` | false | Enable restic backup |
 | `--no-login` | false | Don't start service at login (install only) |
 | `--debug` | false | Enable debug logging |

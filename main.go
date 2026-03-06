@@ -376,21 +376,24 @@ func ValidateSourceAndBase(sourcePath, basePath string) (*PathValidationResult, 
 		result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) cannot be inside source path (%s)", resolvedBase, resolvedSource))
 	}
 
-	// Check 4: base directory itself can't be a git repository
-	gitDir := filepath.Join(resolvedBase, ".git")
-	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-		result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) is a git repository - autoversion creates subdirectories with their own git repos", resolvedBase))
-	}
+	// Checks 4-6 only apply when git is enabled
+	if !noGit {
+		// Check 4: base directory itself can't be a git repository
+		gitDir := filepath.Join(resolvedBase, ".git")
+		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+			result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) is a git repository - autoversion creates subdirectories with their own git repos", resolvedBase))
+		}
 
-	// Check 5: no parent of base can have a .git repository
-	if gitParent, found := hasGitInParents(resolvedBase); found {
-		result.Errors = append(result.Errors, fmt.Sprintf("base path has a parent with .git repository (%s) - this would create nested git repos", gitParent))
-	}
+		// Check 5: no parent of base can have a .git repository
+		if gitParent, found := hasGitInParents(resolvedBase); found {
+			result.Errors = append(result.Errors, fmt.Sprintf("base path has a parent with .git repository (%s) - this would create nested git repos", gitParent))
+		}
 
-	// Check 6: if target exists and is non-empty, it must be a git repo
-	if targetInfo, err := os.Stat(target); err == nil && targetInfo.IsDir() {
-		if !IsGitRepo(target) && !isDirEmpty(target) {
-			result.Errors = append(result.Errors, fmt.Sprintf("target path (%s) exists with files but is not a git repository", target))
+		// Check 6: if target exists and is non-empty, it must be a git repo
+		if targetInfo, err := os.Stat(target); err == nil && targetInfo.IsDir() {
+			if !IsGitRepo(target) && !isDirEmpty(target) {
+				result.Errors = append(result.Errors, fmt.Sprintf("target path (%s) exists with files but is not a git repository", target))
+			}
 		}
 	}
 

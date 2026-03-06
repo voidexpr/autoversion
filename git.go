@@ -80,7 +80,7 @@ func Commit(repoPath string, message string) error {
 	return nil
 }
 
-// Remove removes files from git
+// Remove removes files from the target directory (and from git if enabled)
 func Remove(repoPath string, paths []string, debug bool) error {
 	if len(paths) == 0 {
 		if debug {
@@ -89,20 +89,22 @@ func Remove(repoPath string, paths []string, debug bool) error {
 		return nil
 	}
 
-	args := append([]string{"rm", "--ignore-unmatch", "-f", "--"}, paths...)
-	_, err := runGit(repoPath, args...)
-	if err != nil {
-		return log_and_err("git rm failed: %v", err)
+	if !noGit {
+		args := append([]string{"rm", "--ignore-unmatch", "-f", "--"}, paths...)
+		_, err := runGit(repoPath, args...)
+		if err != nil {
+			return log_and_err("git rm failed: %v", err)
+		}
 	}
 
-	// Delete any remaining files that git rm couldn't handle (e.g. .git worktree files
-	// which git treats as submodule pointers rather than tracked files)
+	// Delete any remaining files (handles files git rm couldn't touch,
+	// e.g. .git worktree files, or all files when --no-git is set)
 	for _, relPath := range paths {
 		fullPath := filepath.Join(repoPath, relPath)
 		if rmErr := os.Remove(fullPath); rmErr != nil && !os.IsNotExist(rmErr) {
 			logError("Remove: failed to delete %s: %v", relPath, rmErr)
 		} else if rmErr == nil && debug {
-			fmt.Fprintf(os.Stderr, "DEBUG Remove: file still exists after git rm, deleting: %s\n", relPath)
+			fmt.Fprintf(os.Stderr, "DEBUG Remove: deleted %s\n", relPath)
 		}
 	}
 
