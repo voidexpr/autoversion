@@ -82,6 +82,13 @@ Use `--no-git` to maintain a filtered copy of a directory without any git versio
 
 The same file filtering rules apply — symlinks, large files, `node_modules/`, `.git/`, etc. are all excluded.
 
+Combine with `--only-include-extensions` to mirror only specific file types:
+
+```bash
+# Mirror only documentation and data files
+./autoversion sync --base /tmp/mirror --no-git --only-include-extensions md,csv,txt ~/projects/myapp
+```
+
 ## Commands
 
 ### install
@@ -197,6 +204,7 @@ Autoversion excludes:
 | `--max-file-size` | 10 MB | Maximum file size to track |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
+| `--only-include-extensions` | (none) | Only include files with these extensions (comma-separated, e.g. `md,csv,txt`) |
 | `--no-git` | false | Disable git entirely (plain directory mirror) |
 | `--restic` | false | Enable restic backup |
 | `--no-login` | false | Don't start service at login (install only) |

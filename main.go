@@ -26,10 +26,11 @@ var (
 	errLogFlag string
 
 	// Command-specific flags
-	maxFileSize int64
-	bufferTime  int
-	dryRun      bool
-	noLogin     bool
+	maxFileSize    int64
+	bufferTime     int
+	dryRun         bool
+	noLogin        bool
+	includeExtsFlag string
 )
 
 // longestCommonDir returns the longest common directory path between two absolute paths
@@ -752,15 +753,18 @@ func init() {
 
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+	filterCmd.Flags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	// Sync command flags
 	syncCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	syncCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
+	syncCmd.Flags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	// Watch command flags
 	watchCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	watchCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	watchCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
+	watchCmd.Flags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	// Add commands to root
 	rootCmd.AddCommand(filterCmd)
@@ -773,6 +777,7 @@ func init() {
 func main() {
 	// Use PersistentPreRunE to init error log before any command runs
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		SetIncludeExtensions(includeExtsFlag)
 		return initErrLog(errLogFlag)
 	}
 

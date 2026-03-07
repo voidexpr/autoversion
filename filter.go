@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // Compiled regex patterns for file exclusions
@@ -55,6 +57,22 @@ var excludePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\.pgdb/`),
 }
 
+var includeExtensions map[string]bool
+
+func SetIncludeExtensions(exts string) {
+	if exts == "" {
+		return
+	}
+	includeExtensions = make(map[string]bool)
+	for _, ext := range strings.Split(exts, ",") {
+		ext = strings.TrimSpace(ext)
+		ext = strings.TrimLeft(ext, ".")
+		if ext != "" {
+			includeExtensions["."+ext] = true
+		}
+	}
+}
+
 // ShouldTrack returns true if the file should be tracked based on filters.
 // maxSizeMB is the maximum file size in megabytes (0 = no limit)
 // isDelete should be true if checking a deleted file (skips file existence checks)
@@ -83,7 +101,10 @@ func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
 	}
 	// For delete events, rely on pattern matching only
 
-	// Check exclusion patterns first (works even if file doesn't exist)
+	if len(includeExtensions) > 0 {
+		return includeExtensions[filepath.Ext(path)], nil
+	}
+
 	for _, pattern := range excludePatterns {
 		if pattern.MatchString(path) {
 			return false, nil

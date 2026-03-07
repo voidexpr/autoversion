@@ -115,6 +115,86 @@ func TestShouldTrack(t *testing.T) {
 	}
 }
 
+func TestShouldTrack_IncludeExtensions(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "filter_include_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	files := map[string]string{
+		"doc.md":     "markdown",
+		"script.py":  "print('hi')",
+		"app.log":    "log data",
+		"data.csv":   "a,b,c",
+		"README.txt": "hello",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		name       string
+		includeExt string
+		filename   string
+		want       bool
+	}{
+		{"md included when in list", "md,csv", "doc.md", true},
+		{"csv included when in list", "md,csv", "data.csv", true},
+		{"py excluded when not in list", "md,csv", "script.py", false},
+		{"txt excluded when not in list", "md,csv", "README.txt", false},
+		{"log included when in list (overrides default exclude)", "log", "app.log", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			includeExtensions = nil
+			SetIncludeExtensions(tt.includeExt)
+			defer func() { includeExtensions = nil }()
+
+			got, err := ShouldTrack(filepath.Join(tmpDir, tt.filename), 0, false)
+			if err != nil {
+				t.Fatalf("ShouldTrack() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("ShouldTrack(%q) with include=%q = %v, want %v", tt.filename, tt.includeExt, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldTrack_EmptyIncludeExtensions(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "filter_empty_include_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	includeExtensions = nil
+	SetIncludeExtensions("")
+
+	goFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(goFile, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	logFile := filepath.Join(tmpDir, "app.log")
+	if err := os.WriteFile(logFile, []byte("log"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := ShouldTrack(goFile, 0, false)
+	if !got {
+		t.Error("ShouldTrack(main.go) with empty include = false, want true")
+	}
+
+	got, _ = ShouldTrack(logFile, 0, false)
+	if got {
+		t.Error("ShouldTrack(app.log) with empty include = true, want false (default exclude)")
+	}
+}
+
 func TestShouldTrack_FileSize(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "filter_size_test")
 	if err != nil {

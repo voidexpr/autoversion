@@ -98,7 +98,7 @@ func promptPath(prompt string, mustExist bool) (string, error) {
 
 // generatePlist creates the launchd plist content
 // basePath is the original --base value (not the computed target), so watch can re-compute the target correctly
-func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool) string {
+func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts string) string {
 	stdoutLog := filepath.Join(logDir, "stdout.log")
 	stderrLog := filepath.Join(logDir, "stderr.log")
 
@@ -117,6 +117,9 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 	}
 	if debug {
 		args = append(args, "--debug")
+	}
+	if includeExts != "" {
+		args = append(args, "--only-include-extensions", includeExts)
 	}
 	args = append(args, sourcePath)
 
@@ -730,7 +733,7 @@ var installCmd = &cobra.Command{
 		bufTime, _ := cmd.Flags().GetInt("buffer-time")
 
 		// Generate plist - pass original base path so watch can correctly compute target
-		plistContent := generatePlist(jobID, execPath, sourcePath, result.BaseResolved, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin)
+		plistContent := generatePlist(jobID, execPath, sourcePath, result.BaseResolved, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag)
 
 		if dryRun {
 			fmt.Println("=== Generated plist (dry-run) ===")
@@ -1293,6 +1296,7 @@ func init() {
 	installCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	installCmd.Flags().BoolVar(&noLogin, "no-login", false, "don't start service at login")
 	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show generated plist without installing")
+	installCmd.Flags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
