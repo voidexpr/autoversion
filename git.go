@@ -121,24 +121,3 @@ func IsGitRepo(repoPath string) bool {
 	return info.IsDir()
 }
 
-// hasPendingCommit checks if there's a pending git commit by looking for git processes
-func hasPendingCommit(repoPath string) bool {
-	// Check for .git/index.lock which indicates a pending git operation
-	lockFile := repoPath + "/.git/index.lock"
-	if _, err := os.Stat(lockFile); err == nil {
-		return true
-	}
-	return false
-}
-
-// hasChanges checks if there are uncommitted changes
-func hasChanges(repoPath string) bool {
-	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false
-	}
-
-	return len(strings.TrimSpace(string(output))) > 0
-}

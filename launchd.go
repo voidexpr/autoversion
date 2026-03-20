@@ -1296,7 +1296,6 @@ func init() {
 	installCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	installCmd.Flags().BoolVar(&noLogin, "no-login", false, "don't start service at login")
 	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show generated plist without installing")
-	installCmd.Flags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)

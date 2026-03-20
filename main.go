@@ -750,21 +750,19 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&noGit, "no-git", false, "disable git versioning")
 	rootCmd.PersistentFlags().BoolVar(&useRestic, "restic", false, "enable restic backup")
 	rootCmd.PersistentFlags().StringVar(&errLogFlag, "err-log", "", "error log file path")
+	rootCmd.PersistentFlags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
-	filterCmd.Flags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	// Sync command flags
 	syncCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	syncCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
-	syncCmd.Flags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	// Watch command flags
 	watchCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	watchCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	watchCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
-	watchCmd.Flags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 
 	// Add commands to root
 	rootCmd.AddCommand(filterCmd)
