@@ -31,6 +31,7 @@ var (
 	dryRun         bool
 	noLogin        bool
 	includeExtsFlag string
+	excludeDirsFlag string
 )
 
 // longestCommonDir returns the longest common directory path between two absolute paths
@@ -457,6 +458,8 @@ var filterCmd = &cobra.Command{
 			return fmt.Errorf("failed to resolve source path: %v", err)
 		}
 
+		SetSourceRoot(absSourcePath)
+
 		// Walk and print matching files
 		filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -465,6 +468,9 @@ var filterCmd = &cobra.Command{
 			}
 
 			if info.IsDir() {
+				if IsExcludedPath(path) {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 
@@ -554,6 +560,8 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
+		SetSourceRoot(absSourcePath)
+
 		// Sync files
 		return scanPaths(absSourcePath, targetPath, maxFileSize, dryRun)
 	},
@@ -575,6 +583,8 @@ var watchCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
+		SetSourceRoot(absSourcePath)
 
 		// First, run scan to capture any missed changes
 		fmt.Println("Initial scan...")
@@ -751,6 +761,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&useRestic, "restic", false, "enable restic backup")
 	rootCmd.PersistentFlags().StringVar(&errLogFlag, "err-log", "", "error log file path")
 	rootCmd.PersistentFlags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
+	rootCmd.PersistentFlags().StringVar(&excludeDirsFlag, "exclude-dirs", "", "exclude directories relative to source (comma-separated, e.g. Backup,tmp)")
 
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
@@ -776,6 +787,7 @@ func main() {
 	// Use PersistentPreRunE to init error log before any command runs
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		SetIncludeExtensions(includeExtsFlag)
+		SetExcludeDirs(excludeDirsFlag)
 		return initErrLog(errLogFlag)
 	}
 
@@ -824,7 +836,13 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 
 	// Walk source directory
 	filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info.IsDir() {
+		if walkErr != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if IsExcludedPath(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 

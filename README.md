@@ -89,6 +89,13 @@ Combine with `--only-include-extensions` to mirror only specific file types:
 ./autoversion sync --base /tmp/mirror --no-git --only-include-extensions md,csv,txt ~/projects/myapp
 ```
 
+Use `--exclude-dirs` to skip specific subdirectories (paths relative to source):
+
+```bash
+# Watch ~/SyncDatabox but skip Backup and archives subdirectories
+./autoversion watch --base /tmp/mirror --exclude-dirs Backup,archives ~/SyncDatabox
+```
+
 ## Commands
 
 ### install
@@ -205,6 +212,7 @@ Autoversion excludes:
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--only-include-extensions` | (none) | Only include files with these extensions (comma-separated, e.g. `md,csv,txt`) |
+| `--exclude-dirs` | (none) | Exclude directories relative to source (comma-separated, e.g. `Backup,tmp`) |
 | `--no-git` | false | Disable git entirely (plain directory mirror) |
 | `--restic` | false | Enable restic backup |
 | `--no-login` | false | Don't start service at login (install only) |

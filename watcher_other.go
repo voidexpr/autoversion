@@ -123,6 +123,10 @@ func (w *Watcher) addRecursive(path string) error {
 				return filepath.SkipDir
 			}
 
+			if IsExcludedPath(walkPath) {
+				return filepath.SkipDir
+			}
+
 			// Skip if already watching this directory
 			if w.watched[walkPath] {
 				return nil

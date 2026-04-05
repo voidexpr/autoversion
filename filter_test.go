@@ -245,6 +245,109 @@ func TestShouldTrack_Directory(t *testing.T) {
 	}
 }
 
+func TestShouldTrack_ExcludeDirs(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "filter_exclude_dirs_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create files in various subdirs
+	dirs := []string{"Backup", "Backup/sub", "dotfiles", "nicmac/projects"}
+	for _, d := range dirs {
+		if err := os.MkdirAll(filepath.Join(tmpDir, d), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"Backup/data.txt":           "backup",
+		"Backup/sub/deep.txt":       "deep",
+		"dotfiles/.bashrc":          "rc",
+		"nicmac/projects/main.go":   "go",
+		"root.txt":                  "root",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Save and restore global state
+	oldExcludeDirs := excludeDirs
+	oldSourceRoot := sourceRoot
+	defer func() {
+		excludeDirs = oldExcludeDirs
+		sourceRoot = oldSourceRoot
+	}()
+
+	SetSourceRoot(tmpDir)
+	SetExcludeDirs("Backup")
+
+	tests := []struct {
+		name string
+		file string
+		want bool
+	}{
+		{"file in excluded dir", "Backup/data.txt", false},
+		{"file in excluded subdir", "Backup/sub/deep.txt", false},
+		{"file in non-excluded dir", "dotfiles/.bashrc", true},
+		{"file in nested non-excluded dir", "nicmac/projects/main.go", true},
+		{"file at root", "root.txt", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ShouldTrack(filepath.Join(tmpDir, tt.file), 0, false)
+			if err != nil {
+				t.Fatalf("ShouldTrack() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("ShouldTrack(%q) with exclude=Backup = %v, want %v", tt.file, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsExcludedPath(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "excluded_path_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldExcludeDirs := excludeDirs
+	oldSourceRoot := sourceRoot
+	defer func() {
+		excludeDirs = oldExcludeDirs
+		sourceRoot = oldSourceRoot
+	}()
+
+	SetSourceRoot(tmpDir)
+	SetExcludeDirs("Backup,tmp/cache")
+
+	tests := []struct {
+		rel  string
+		want bool
+	}{
+		{"Backup", true},
+		{"Backup/sub", true},
+		{"Backups", false},
+		{"tmp/cache", true},
+		{"tmp/cache/deep", true},
+		{"tmp", false},
+		{"dotfiles", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.rel, func(t *testing.T) {
+			got := IsExcludedPath(filepath.Join(tmpDir, tt.rel))
+			if got != tt.want {
+				t.Errorf("IsExcludedPath(%q) = %v, want %v", tt.rel, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldTrack_NumericVimTemp(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "filter_vim_test")
 	if err != nil {

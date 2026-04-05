@@ -58,6 +58,8 @@ var excludePatterns = []*regexp.Regexp{
 }
 
 var includeExtensions map[string]bool
+var excludeDirs []string
+var sourceRoot string
 
 func SetIncludeExtensions(exts string) {
 	if exts == "" {
@@ -71,6 +73,45 @@ func SetIncludeExtensions(exts string) {
 			includeExtensions["."+ext] = true
 		}
 	}
+}
+
+func SetExcludeDirs(dirs string) {
+	excludeDirs = nil
+	if dirs == "" {
+		return
+	}
+	for _, d := range strings.Split(dirs, ",") {
+		d = strings.TrimSpace(d)
+		d = filepath.Clean(d)
+		if d != "" && d != "." {
+			excludeDirs = append(excludeDirs, d+string(filepath.Separator))
+		}
+	}
+}
+
+func SetSourceRoot(root string) {
+	sourceRoot = root
+}
+
+// IsExcludedPath returns true if the path falls under an excluded directory.
+// Works for both files and directories.
+func IsExcludedPath(path string) bool {
+	if len(excludeDirs) == 0 || sourceRoot == "" {
+		return false
+	}
+	rel, err := filepath.Rel(sourceRoot, path)
+	if err != nil {
+		return false
+	}
+	// Normalize: "Backup/foo.txt" or "Backup" both need to match "Backup/"
+	// Adding separator ensures "Backup" matches but "Backups" does not
+	rel = rel + string(filepath.Separator)
+	for _, dir := range excludeDirs {
+		if strings.HasPrefix(rel, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // ShouldTrack returns true if the file should be tracked based on filters.
@@ -100,6 +141,10 @@ func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
 		}
 	}
 	// For delete events, rely on pattern matching only
+
+	if IsExcludedPath(path) {
+		return false, nil
+	}
 
 	if len(includeExtensions) > 0 {
 		return includeExtensions[filepath.Ext(path)], nil

@@ -204,6 +204,11 @@ func (w *Watcher) processFSEvents() {
 					continue
 				}
 
+				if IsExcludedPath(event.Path) {
+					w.printDebug("fsevents: skipping excluded path: %s", event.Path)
+					continue
+				}
+
 				// Skip directories - only process files
 				info, err := os.Lstat(event.Path)
 				if err != nil && !os.IsNotExist(err) {
