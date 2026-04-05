@@ -22,7 +22,7 @@ The `install` command automatically:
 - Creates the app bundle for Full Disk Access support
 - Copies it to `~/Applications`
 - Creates and starts the launchd service
-- On subsequent runs: reloads the service if the binary was rebuilt
+- On subsequent runs: reloads the service if the binary or flags changed
 
 ### Managing the service
 
@@ -43,7 +43,7 @@ When modifying autoversion with running services:
 make build && ./autoversion install --base ~/repos ~/projects/myapp
 ```
 
-The install command detects when the binary has changed and automatically reloads running services.
+The install command detects when the binary or configuration flags have changed and automatically reloads running services.
 
 ### Build and test
 
@@ -89,12 +89,26 @@ Combine with `--only-include-extensions` to mirror only specific file types:
 ./autoversion sync --base /tmp/mirror --no-git --only-include-extensions md,csv,txt ~/projects/myapp
 ```
 
-Use `--exclude-dirs` to skip specific subdirectories (paths relative to source):
+### Excluding directories
+
+Use `--exclude-dirs` to skip specific subdirectories. Paths are relative to the source directory, comma-separated:
 
 ```bash
-# Watch ~/SyncDatabox but skip Backup and archives subdirectories
+# Watch ~/SyncDatabox but skip Backup and archives
 ./autoversion watch --base /tmp/mirror --exclude-dirs Backup,archives ~/SyncDatabox
+
+# Nested paths work too
+./autoversion sync --base /tmp/mirror --exclude-dirs nicmac/local_projects,tmp/cache ~/SyncDatabox
+
+# Combine with other flags
+./autoversion install --base ~/repos --exclude-dirs Backup --only-include-extensions md,csv ~/SyncDatabox
 ```
+
+Excluded directories are skipped entirely — no files are copied, no watches are set up, and no events are processed for anything under them. The flag is persisted in launchd plists, so `install` preserves it across reboots.
+
+Re-running `install` with different `--exclude-dirs` values automatically updates the service configuration and reloads it.
+
+Paths must be relative and cannot escape the source directory. Absolute paths (`/tmp`) and parent traversals (`../outside`) are rejected.
 
 ## Commands
 
@@ -106,9 +120,9 @@ Install as a launchd background service (requires `--base`):
 ./autoversion install --base BASE_PATH SOURCE_PATH [flags]
 ```
 
-Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `--no-login`, `--dry-run`, `--debug`
+Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `--no-login`, `--dry-run`, `--debug`, `--exclude-dirs`, `--only-include-extensions`
 
-The command is idempotent - run it again after rebuilding to reload the service.
+The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
 
 ### uninstall
 
