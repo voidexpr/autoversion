@@ -787,7 +787,9 @@ func main() {
 	// Use PersistentPreRunE to init error log before any command runs
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		SetIncludeExtensions(includeExtsFlag)
-		SetExcludeDirs(excludeDirsFlag)
+		if err := SetExcludeDirs(excludeDirsFlag); err != nil {
+			return err
+		}
 		return initErrLog(errLogFlag)
 	}
 

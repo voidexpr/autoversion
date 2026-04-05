@@ -281,7 +281,9 @@ func TestShouldTrack_ExcludeDirs(t *testing.T) {
 	}()
 
 	SetSourceRoot(tmpDir)
-	SetExcludeDirs("Backup")
+	if err := SetExcludeDirs("Backup"); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name string
@@ -323,7 +325,9 @@ func TestIsExcludedPath(t *testing.T) {
 	}()
 
 	SetSourceRoot(tmpDir)
-	SetExcludeDirs("Backup,tmp/cache")
+	if err := SetExcludeDirs("Backup,tmp/cache"); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		rel  string
@@ -343,6 +347,35 @@ func TestIsExcludedPath(t *testing.T) {
 			got := IsExcludedPath(filepath.Join(tmpDir, tt.rel))
 			if got != tt.want {
 				t.Errorf("IsExcludedPath(%q) = %v, want %v", tt.rel, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetExcludeDirs_Validation(t *testing.T) {
+	oldExcludeDirs := excludeDirs
+	defer func() { excludeDirs = oldExcludeDirs }()
+
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"valid relative", "Backup,tmp", false},
+		{"valid nested", "a/b/c", false},
+		{"empty string", "", false},
+		{"absolute path", "/etc/passwd", true},
+		{"parent escape", "../outside", true},
+		{"deep escape", "a/../../outside", true},
+		{"mixed valid and absolute", "Backup,/absolute", true},
+		{"dot-dot alone", "..", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := SetExcludeDirs(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SetExcludeDirs(%q) error = %v, wantErr = %v", tt.input, err, tt.wantErr)
 			}
 		})
 	}

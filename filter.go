@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -75,18 +76,29 @@ func SetIncludeExtensions(exts string) {
 	}
 }
 
-func SetExcludeDirs(dirs string) {
+func SetExcludeDirs(dirs string) error {
 	excludeDirs = nil
 	if dirs == "" {
-		return
+		return nil
 	}
 	for _, d := range strings.Split(dirs, ",") {
 		d = strings.TrimSpace(d)
-		d = filepath.Clean(d)
-		if d != "" && d != "." {
-			excludeDirs = append(excludeDirs, d+string(filepath.Separator))
+		if d == "" {
+			continue
 		}
+		d = filepath.Clean(d)
+		if d == "." {
+			continue
+		}
+		if filepath.IsAbs(d) {
+			return fmt.Errorf("--exclude-dirs: %q must be a relative path", d)
+		}
+		if d == ".." || strings.HasPrefix(d, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("--exclude-dirs: %q escapes source directory", d)
+		}
+		excludeDirs = append(excludeDirs, d+string(filepath.Separator))
 	}
+	return nil
 }
 
 func SetSourceRoot(root string) {

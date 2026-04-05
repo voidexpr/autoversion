@@ -173,6 +173,27 @@ func unescapeXML(s string) string {
 	return s
 }
 
+// parsePlistExecPath reads an existing plist file and extracts the executable
+// path (first <string> in ProgramArguments).
+func parsePlistExecPath(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	content := string(data)
+	arrayStart := strings.Index(content, "<array>")
+	arrayEnd := strings.Index(content, "</array>")
+	if arrayStart == -1 || arrayEnd == -1 {
+		return "", fmt.Errorf("no ProgramArguments array found in %s", path)
+	}
+	re := regexp.MustCompile(`<string>(.*?)</string>`)
+	match := re.FindStringSubmatch(content[arrayStart:arrayEnd])
+	if match == nil {
+		return "", fmt.Errorf("no string values in ProgramArguments in %s", path)
+	}
+	return unescapeXML(match[1]), nil
+}
+
 // parsePlistPaths reads an existing plist file and extracts the source path
 // (last <string> in ProgramArguments) and base path (value after --base).
 func parsePlistPaths(path string) (source, base string, err error) {
@@ -619,36 +640,44 @@ var installCmd = &cobra.Command{
 				return fmt.Errorf("job ID collision: %s\n  Existing install:\n    source: %s\n    base:   %s\n  New install:\n    source: %s\n    base:   %s\nThese paths produce the same sanitized job ID.\nRename one of the source directories to avoid the collision.", jobID, existingSource, existingBase, sourcePath, result.BaseResolved)
 			}
 
-			// Service is already installed
-			isRunning := isJobLoaded(jobID)
-			needsReload := isRunning && needsServiceReload(plist)
+			// Update installed bundle if needed
+			if needsInstalledBundleUpdate() {
+				if err := installAppBundle(); err != nil {
+					return fmt.Errorf("failed to update installed app bundle: %v", err)
+				}
+				fmt.Println("Updated installed app bundle")
+			}
+
+			// Check if plist content needs updating (flag changes, binary path changes)
+			execPath, err := parsePlistExecPath(plist)
+			if err != nil {
+				return fmt.Errorf("failed to parse existing plist: %v", err)
+			}
+			maxSize, _ := cmd.Flags().GetInt64("max-file-size")
+			bufTime, _ := cmd.Flags().GetInt("buffer-time")
+			logDirPath, _ := logDir(jobID)
+			newPlist := generatePlist(jobID, execPath, sourcePath, result.BaseResolved, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag)
+			existingPlist, _ := os.ReadFile(plist)
+
+			needsReload := needsServiceReload(plist) || string(existingPlist) != newPlist
 
 			if needsReload {
-				// Update installed bundle if needed
-				if needsInstalledBundleUpdate() {
-					if err := installAppBundle(); err != nil {
-						return fmt.Errorf("failed to update installed app bundle: %v", err)
-					}
-					fmt.Println("Updated installed app bundle")
+				if err := os.WriteFile(plist, []byte(newPlist), 0644); err != nil {
+					return fmt.Errorf("failed to write plist: %v", err)
 				}
 
-				// Reload service: unload then load
-				unloadCmd := exec.Command("launchctl", "unload", plist)
-				if output, err := unloadCmd.CombinedOutput(); err != nil {
-					return fmt.Errorf("failed to unload launchd job: %v\n%s", err, output)
+				isRunning := isJobLoaded(jobID)
+				if isRunning {
+					unloadCmd := exec.Command("launchctl", "unload", plist)
+					if output, err := unloadCmd.CombinedOutput(); err != nil {
+						return fmt.Errorf("failed to unload launchd job: %v\n%s", err, output)
+					}
 				}
 
 				// Clear stderr log so stale errors don't persist across reloads
-				logDirPath, _ := logDir(jobID)
 				stderrPath := filepath.Join(logDirPath, "stderr.log")
 				if err := os.Remove(stderrPath); err != nil && !os.IsNotExist(err) {
 					logError("failed to remove stderr log: %v", err)
-				}
-
-				// Touch the plist to update its mtime
-				now := time.Now()
-				if err := os.Chtimes(plist, now, now); err != nil {
-					logError("failed to update plist mtime: %v", err)
 				}
 
 				loadCmd := exec.Command("launchctl", "load", plist)
@@ -656,13 +685,14 @@ var installCmd = &cobra.Command{
 					return fmt.Errorf("failed to load launchd job: %v\n%s", err, output)
 				}
 
-				fmt.Println("Reloaded service (binary updated)")
+				fmt.Println("Updated and reloaded service")
 				fmt.Println()
 				printStatusInfo(jobID, sourcePath, targetPath)
 				return nil
 			}
 
 			// No reload needed, just print status
+			isRunning := isJobLoaded(jobID)
 			if isRunning {
 				fmt.Printf("Already installed and running: %s\n", jobID)
 			} else {
@@ -717,6 +747,8 @@ var installCmd = &cobra.Command{
 
 		// Get flag values from command
 		maxSize, _ := cmd.Flags().GetInt64("max-file-size")
+
+		SetSourceRoot(sourcePath)
 
 		if !dryRun {
 			fmt.Println("Initial sync...")
