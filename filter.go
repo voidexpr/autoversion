@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Compiled regex patterns for file exclusions
@@ -146,8 +147,8 @@ func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
 		if maxSizeMB > 0 {
 			maxBytes := maxSizeMB * 1024 * 1024
 			if info.Size() > maxBytes {
-				logSkip("skipping large file: %s (%d MB > %d MB)\n",
-					path, info.Size() / 1024 / 1024, maxSizeMB)
+				logSkip("[%s] skipping large file: %s (%d MB > %d MB)\n",
+					time.Now().Format("2006-01-02 15:04:05"), path, info.Size() / 1024 / 1024, maxSizeMB)
 				return false, nil
 			}
 		}
