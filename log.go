@@ -43,21 +43,23 @@ func closeErrLog() {
 	}
 }
 
-// writeErrLog writes a message to the error log file (if open)
+// nowTS returns the current time in the log timestamp format.
+func nowTS() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
+
 func writeErrLog(msg string) {
 	if errLogFile == nil {
 		return
 	}
 	errLogMutex.Lock()
 	defer errLogMutex.Unlock()
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(errLogFile, "[%s] %s\n", timestamp, msg)
+	fmt.Fprintf(errLogFile, "[%s] %s\n", nowTS(), msg)
 }
 
-// logError prints an error to stderr in bold red and writes to error log
 func logError(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "%s%s%s\n", colorBoldRed, msg, colorReset)
+	fmt.Fprintf(os.Stderr, "%s[%s] %s%s\n", colorBoldRed, nowTS(), msg, colorReset)
 	writeErrLog(msg)
 }
 

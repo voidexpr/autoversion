@@ -137,6 +137,7 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 		runAtLoad = "false"
 	}
 
+	// SuccessfulExit=false lets checkRapidRestartLoop stop the loop by exiting 0.
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -149,7 +150,12 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 	<key>RunAtLoad</key>
 	<%s/>
 	<key>KeepAlive</key>
-	<true/>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
 	<key>StandardOutPath</key>
 	<string>%s</string>
 	<key>StandardErrorPath</key>

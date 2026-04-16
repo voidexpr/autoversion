@@ -29,6 +29,25 @@ func runGit(repoPath string, args ...string) (string, error) {
 	return outputStr, err
 }
 
+// Keep argv under Darwin ARG_MAX (~1 MB).
+const gitPathBatchSize = 1000
+
+func runGitBatched(repoPath string, prefixArgs []string, paths []string) error {
+	args := make([]string, 0, len(prefixArgs)+gitPathBatchSize)
+	for start := 0; start < len(paths); start += gitPathBatchSize {
+		end := start + gitPathBatchSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+		args = append(args[:0], prefixArgs...)
+		args = append(args, paths[start:end]...)
+		if _, err := runGit(repoPath, args...); err != nil {
+			return fmt.Errorf("batch %d-%d of %d: %w", start, end, len(paths), err)
+		}
+	}
+	return nil
+}
+
 // Init initializes a git repository at the given path
 func Init(repoPath string, debug bool) error {
 	_, err := runGit(repoPath, "init", ".")
@@ -53,13 +72,7 @@ func Add(repoPath string, paths []string, debug bool) error {
 		return nil
 	}
 
-	// Add -- to separate paths from options, protecting special file names
-	args := append([]string{"add", "--"}, paths...)
-	_, err := runGit(repoPath, args...)
-
-	// If some files are in .gitignore, git add will fail for those
-	// but we want to continue with the others
-	if err != nil {
+	if err := runGitBatched(repoPath, []string{"add", "--"}, paths); err != nil {
 		return log_and_err("git add failed: %v", err)
 	}
 	return nil
@@ -90,9 +103,8 @@ func Remove(repoPath string, paths []string, debug bool) error {
 	}
 
 	if !noGit {
-		args := append([]string{"rm", "--ignore-unmatch", "-f", "--"}, paths...)
-		_, err := runGit(repoPath, args...)
-		if err != nil {
+		if err := runGitBatched(repoPath,
+			[]string{"rm", "--ignore-unmatch", "-f", "--"}, paths); err != nil {
 			return log_and_err("git rm failed: %v", err)
 		}
 	}
