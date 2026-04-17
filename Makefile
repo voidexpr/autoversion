@@ -1,6 +1,6 @@
 BINARY = autoversion
 
-.PHONY: build build-all test clean install uninstall docker-build docker-shell docker-test
+.PHONY: build build-all test test-verbose lint fmt clean install uninstall docker-build docker-shell docker-test
 
 build:
 	go build -o $(BINARY) .
@@ -16,7 +16,16 @@ endif
 	CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -o build/linux-arm64/$(BINARY) .
 
 test:
+	go test ./...
+
+test-verbose:
 	go test -v ./...
+
+lint:
+	go vet ./...
+
+fmt:
+	gofmt -w .
 
 clean:
 	rm -f $(BINARY)
