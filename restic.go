@@ -117,7 +117,9 @@ func InitRestic(targetPath string, debug bool) error {
 	_, err := runRestic(repoPath, passwordPath, "init")
 	if err != nil {
 		// Clean up password file if init fails
-		os.Remove(passwordPath)
+		if rmErr := os.Remove(passwordPath); rmErr != nil {
+			logError("failed to clean up password file: %v", rmErr)
+		}
 		return fmt.Errorf("restic init failed: %v", err)
 	}
 

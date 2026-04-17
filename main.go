@@ -191,8 +191,8 @@ func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) er
 // verifyPaths verifies that source and target paths are safe to use
 func hasPathPrefix(path, prefix string) bool {
 	return strings.HasPrefix(
-		strings.ToLower(filepath.Clean(path)+string(os.PathSeparator)),
-		strings.ToLower(filepath.Clean(prefix)+string(os.PathSeparator)),
+		path+string(os.PathSeparator),
+		prefix+string(os.PathSeparator),
 	)
 }
 
@@ -639,7 +639,11 @@ var watchCmd = &cobra.Command{
 					continue
 				}
 
-				doPassFilter, _ := ShouldTrack(event.Path, maxFileSize, event.Type == EventDeleted)
+				doPassFilter, err := ShouldTrack(event.Path, maxFileSize, event.Type == EventDeleted)
+				if err != nil {
+					logError("failed to check tracking for %s: %v", event.Path, err)
+					continue
+				}
 				// Map event type to operation name
 				var opName string
 				switch event.Type {
