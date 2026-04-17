@@ -3,7 +3,7 @@
 # This script executes the autoversion binary with all arguments passed through.
 # The app bundle is granted FDA, which is inherited by the executed binary.
 
-AUTOVERSION_BIN="/Users/nicolas/SyncDatabox/nicmac/projects/autoversion/autoversion"
+AUTOVERSION_BIN="$(dirname "$0")/../../../autoversion"
 
 if [ ! -x "$AUTOVERSION_BIN" ]; then
     echo "Error: autoversion binary not found at $AUTOVERSION_BIN" >&2
