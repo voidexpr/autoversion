@@ -77,25 +77,18 @@ func SetIncludeExtensions(exts string) {
 	}
 }
 
-func SetExcludeDirs(dirs string) error {
+func SetExcludeDirs(dirs []string) error {
 	excludeDirs = nil
-	if dirs == "" {
-		return nil
-	}
-	for _, d := range strings.Split(dirs, ",") {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			continue
-		}
+	for _, d := range dirs {
 		d = filepath.Clean(d)
 		if d == "." {
 			continue
 		}
 		if filepath.IsAbs(d) {
-			return fmt.Errorf("--exclude-dirs: %q must be a relative path", d)
+			return fmt.Errorf("--exclude-dir: %q must be a relative path", d)
 		}
 		if d == ".." || strings.HasPrefix(d, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("--exclude-dirs: %q escapes source directory", d)
+			return fmt.Errorf("--exclude-dir: %q escapes source directory", d)
 		}
 		excludeDirs = append(excludeDirs, d+string(filepath.Separator))
 	}

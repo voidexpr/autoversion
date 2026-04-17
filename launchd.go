@@ -98,7 +98,7 @@ func promptPath(prompt string, mustExist bool) (string, error) {
 
 // generatePlist creates the launchd plist content
 // basePath is the original --base value (not the computed target), so watch can re-compute the target correctly
-func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts, excludeDirs string) string {
+func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts string, excludeDirs []string) string {
 	stdoutLog := filepath.Join(logDir, "stdout.log")
 	stderrLog := filepath.Join(logDir, "stderr.log")
 
@@ -121,8 +121,8 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 	if includeExts != "" {
 		args = append(args, "--only-include-extensions", includeExts)
 	}
-	if excludeDirs != "" {
-		args = append(args, "--exclude-dirs", excludeDirs)
+	for _, d := range excludeDirs {
+		args = append(args, "--exclude-dir", d)
 	}
 	args = append(args, sourcePath)
 

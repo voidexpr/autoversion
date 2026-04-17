@@ -31,7 +31,7 @@ var (
 	dryRun         bool
 	noLogin        bool
 	includeExtsFlag string
-	excludeDirsFlag string
+	excludeDirsFlag []string
 )
 
 // longestCommonDir returns the longest common directory path between two absolute paths
@@ -761,7 +761,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&useRestic, "restic", false, "enable restic backup")
 	rootCmd.PersistentFlags().StringVar(&errLogFlag, "err-log", "", "error log file path")
 	rootCmd.PersistentFlags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
-	rootCmd.PersistentFlags().StringVar(&excludeDirsFlag, "exclude-dirs", "", "exclude directories relative to source (comma-separated, e.g. Backup,tmp)")
+	rootCmd.PersistentFlags().StringArrayVar(&excludeDirsFlag, "exclude-dir", nil, "exclude a directory relative to source (repeatable, e.g. --exclude-dir Backup --exclude-dir tmp)")
 
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")

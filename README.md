@@ -91,22 +91,24 @@ Combine with `--only-include-extensions` to mirror only specific file types:
 
 ### Excluding directories
 
-Use `--exclude-dirs` to skip specific subdirectories. Paths are relative to the source directory, comma-separated:
+Use `--exclude-dir` (repeatable) to skip specific subdirectories. Paths are relative to the source directory:
 
 ```bash
 # Watch ~/SyncDatabox but skip Backup and archives
-./autoversion watch --base /tmp/mirror --exclude-dirs Backup,archives ~/SyncDatabox
+./autoversion watch --base /tmp/mirror --exclude-dir Backup --exclude-dir archives ~/SyncDatabox
 
 # Nested paths work too
-./autoversion sync --base /tmp/mirror --exclude-dirs nicmac/local_projects,tmp/cache ~/SyncDatabox
+./autoversion sync --base /tmp/mirror --exclude-dir nicmac/local_projects --exclude-dir tmp/cache ~/SyncDatabox
 
 # Combine with other flags
-./autoversion install --base ~/repos --exclude-dirs Backup --only-include-extensions md,csv ~/SyncDatabox
+./autoversion install --base ~/repos --exclude-dir Backup --only-include-extensions md,csv ~/SyncDatabox
 ```
+
+Only top-level matches are excluded: `--exclude-dir Backup` with source `~/foo` skips `~/foo/Backup` but not `~/foo/nested/Backup`. For the nested case, pass `--exclude-dir nested/Backup`.
 
 Excluded directories are skipped entirely — no files are copied, no watches are set up, and no events are processed for anything under them. The flag is persisted in launchd plists, so `install` preserves it across reboots.
 
-Re-running `install` with different `--exclude-dirs` values automatically updates the service configuration and reloads it.
+Re-running `install` with different `--exclude-dir` values automatically updates the service configuration and reloads it.
 
 Paths must be relative and cannot escape the source directory. Absolute paths (`/tmp`) and parent traversals (`../outside`) are rejected.
 
@@ -120,7 +122,7 @@ Install as a launchd background service (requires `--base`):
 ./autoversion install --base BASE_PATH SOURCE_PATH [flags]
 ```
 
-Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `--no-login`, `--dry-run`, `--debug`, `--exclude-dirs`, `--only-include-extensions`
+Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `--no-login`, `--dry-run`, `--debug`, `--exclude-dir` (repeatable), `--only-include-extensions`
 
 The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
 
@@ -228,7 +230,7 @@ Autoversion excludes:
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--only-include-extensions` | (none) | Only include files with these extensions (comma-separated, e.g. `md,csv,txt`) |
-| `--exclude-dirs` | (none) | Exclude directories relative to source (comma-separated, e.g. `Backup,tmp`) |
+| `--exclude-dir` | (none) | Exclude a directory relative to source; repeatable (e.g. `--exclude-dir Backup --exclude-dir tmp`) |
 | `--no-git` | false | Disable git entirely (plain directory mirror) |
 | `--restic` | false | Enable restic backup |
 | `--no-login` | false | Don't start service at login (install only) |
