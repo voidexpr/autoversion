@@ -4,6 +4,12 @@ A lightweight Go tool that tracks file versions in real-time using git as the ba
 
 ## Quick Start
 
+### Prerequisites
+
+- Go ≥ 1.24 (for building from source)
+- git (required at runtime)
+- restic (optional, for backup functionality)
+
 ### Install as a background service (macOS)
 
 ```bash
@@ -151,6 +157,16 @@ Show detailed service status including PID, uptime, and recent log output:
 ```bash
 ./autoversion install-check --base BASE_PATH SOURCE_PATH
 ```
+
+### Linux
+
+The `install`, `uninstall`, and `status` commands are macOS-only — they rely on launchd. On Linux, run autoversion in the foreground instead:
+
+```bash
+./autoversion watch --base ~/repos ~/projects/myapp
+```
+
+Use systemd, screen, or tmux to keep it running in the background.
 
 ### watch
 
@@ -352,6 +368,3 @@ DEBUG: fsevents: raw event path=.../PLAN.md, flags=0x10800, mapped type: 2, flag
 
 The temp file was renamed to the final file. FSEvents reports both paths with `ItemRenamed`. To determine source/target, the code checks which file exists - this can race with other operations.
 
-## License
-
-See project documentation for licensing information.
