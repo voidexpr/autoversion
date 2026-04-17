@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 func log_and_err(format string, args ...interface{}) error {
@@ -127,10 +129,22 @@ func Remove(repoPath string, paths []string, debug bool) error {
 	// e.g. .git worktree files, or all files when --no-git is set)
 	for _, relPath := range paths {
 		fullPath := filepath.Join(repoPath, relPath)
-		if rmErr := os.Remove(fullPath); rmErr != nil && !os.IsNotExist(rmErr) {
+		rmErr := os.Remove(fullPath)
+		switch {
+		case rmErr == nil:
+			if debug {
+				fmt.Fprintf(os.Stderr, "DEBUG Remove: deleted %s\n", relPath)
+			}
+		case os.IsNotExist(rmErr):
+			// already gone
+		case errors.Is(rmErr, syscall.ENOTEMPTY):
+			// FSEvents can deliver a directory's delete before its
+			// children's; those later events drain the directory.
+			if debug {
+				fmt.Fprintf(os.Stderr, "DEBUG Remove: %s not empty, leaving\n", relPath)
+			}
+		default:
 			logError("Remove: failed to delete %s: %v", relPath, rmErr)
-		} else if rmErr == nil && debug {
-			fmt.Fprintf(os.Stderr, "DEBUG Remove: deleted %s\n", relPath)
 		}
 	}
 
