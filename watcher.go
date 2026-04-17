@@ -73,8 +73,3 @@ func (w *Watcher) Errors() <-chan error {
 	return w.errors
 }
 
-// ShouldProcess is kept for compatibility but is now mostly a no-op
-// The backend handles filtering internally
-func (w *Watcher) ShouldProcess(event FileEvent) bool {
-	return true
-}

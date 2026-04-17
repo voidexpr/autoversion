@@ -10,6 +10,8 @@ import (
 	"github.com/fsnotify/fsevents"
 )
 
+const itemCloned fsevents.EventFlags = 0x400000
+
 type watcherPlatform struct {
 	fseventsStream *fsevents.EventStream
 }
@@ -107,7 +109,7 @@ func decodeFSEventFlags(flags fsevents.EventFlags) []string {
 	if flags&fsevents.ItemIsSymlink != 0 {
 		flagNames = append(flagNames, "ItemIsSymlink")
 	}
-	if flags&0x400000 != 0 { // ItemCloned
+	if flags&itemCloned != 0 {
 		flagNames = append(flagNames, "ItemCloned")
 	}
 	return flagNames
@@ -129,7 +131,6 @@ func mapFSEventFlagsWithDetails(flags fsevents.EventFlags) (EventType, string) {
 
 	// Check for ItemCloned flag - always ignore clone events
 	// Clone operations are COW (copy-on-write) and don't represent actual file changes
-	const itemCloned = 0x400000
 	if flags&itemCloned != 0 {
 		return EventCanIgnore, details
 	}

@@ -10,7 +10,7 @@ import (
 	"syscall"
 )
 
-func log_and_err(format string, args ...interface{}) error {
+func logAndErr(format string, args ...interface{}) error {
     err := fmt.Errorf(format, args...)
     logError("Error: %v", err)
     return err
@@ -75,7 +75,7 @@ func Init(repoPath string, debug bool) error {
 		if debug {
 			fmt.Fprintf(os.Stderr, "DEBUG Init: git init failed: %v\n", err)
 		}
-		return log_and_err("git init failed: %v", err)
+		return logAndErr("git init failed: %v", err)
 	}
 	if debug {
 		fmt.Fprintf(os.Stderr, "DEBUG Init: successfully initialized git repository\n")
@@ -93,7 +93,7 @@ func Add(repoPath string, paths []string, debug bool) error {
 	}
 
 	if err := runGitBatched(repoPath, []string{"add", "--"}, paths); err != nil {
-		return log_and_err("git add failed: %v", err)
+		return logAndErr("git add failed: %v", err)
 	}
 	return nil
 }
@@ -107,7 +107,7 @@ func Commit(repoPath string, message string) error {
 			return nil
 		}
 
-		return log_and_err("git commit failed: %v", err)
+		return logAndErr("git commit failed: %v", err)
 	}
 
 	return nil
@@ -125,7 +125,7 @@ func Remove(repoPath string, paths []string, debug bool) error {
 	if !noGit {
 		if err := runGitBatched(repoPath,
 			[]string{"rm", "-r", "--ignore-unmatch", "-f", "--"}, paths); err != nil {
-			return log_and_err("git rm failed: %v", err)
+			return logAndErr("git rm failed: %v", err)
 		}
 	}
 
