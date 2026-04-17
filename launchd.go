@@ -137,7 +137,9 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 		runAtLoad = "false"
 	}
 
-	// SuccessfulExit=false lets checkRapidRestartLoop stop the loop by exiting 0.
+	// ThrottleInterval=21600 caps auto-restart attempts at one per 6 h, so a
+	// persistent crash doesn't hot-loop. Healthy long-lived runs still relaunch
+	// instantly after a crash (throttle measured spawn-to-spawn).
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -155,7 +157,7 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 		<false/>
 	</dict>
 	<key>ThrottleInterval</key>
-	<integer>60</integer>
+	<integer>21600</integer>
 	<key>StandardOutPath</key>
 	<string>%s</string>
 	<key>StandardErrorPath</key>

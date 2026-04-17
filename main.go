@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,13 +15,6 @@ import (
 const (
 	defaultMaxFileSizeMB = 10
 	defaultBufferTime    = 3
-
-	rapidRestartWindow = 30 * time.Second
-	rapidRestartLimit  = 2
-
-	restartStateFile = "restart_state"
-	keyLastStart     = "last_start"
-	keyRapidCount    = "rapid_count"
 )
 
 var (
@@ -594,9 +586,6 @@ var watchCmd = &cobra.Command{
 
 		SetSourceRoot(absSourcePath)
 
-		// Must run before expensive work (may exit 0).
-		checkRapidRestartLoop(absSourcePath, targetPath)
-
 		// First, run scan to capture any missed changes
 		fmt.Println("Initial scan...")
 		if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
@@ -808,59 +797,6 @@ func main() {
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
-	}
-}
-
-// No-op when the log dir doesn't exist (watch invoked outside launchd).
-func checkRapidRestartLoop(sourcePath, targetPath string) {
-	jobID := jobIdentifier(sourcePath, targetPath)
-	dir, err := logDir(jobID)
-	if err != nil {
-		return
-	}
-	if _, err := os.Stat(dir); err != nil {
-		return
-	}
-	statePath := filepath.Join(dir, restartStateFile)
-
-	var lastStart int64
-	var rapidCount int
-	if data, err := os.ReadFile(statePath); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
-			if !ok {
-				continue
-			}
-			switch k {
-			case keyLastStart:
-				lastStart, _ = strconv.ParseInt(v, 10, 64)
-			case keyRapidCount:
-				rapidCount, _ = strconv.Atoi(v)
-			}
-		}
-	}
-
-	now := time.Now()
-	tripped := false
-	if lastStart > 0 && now.Sub(time.Unix(lastStart, 0)) < rapidRestartWindow {
-		rapidCount++
-		tripped = rapidCount >= rapidRestartLimit
-	} else {
-		rapidCount = 0
-	}
-
-	newStart := now.Unix()
-	if tripped {
-		logError("rapid restart loop detected (%d fast exits in a row within %s); exiting 0 so launchd stops relaunching. Inspect %s/stderr.log and run 'launchctl unload && launchctl load' once fixed.",
-			rapidCount, rapidRestartWindow, dir)
-		newStart, rapidCount = 0, 0
-	}
-	content := fmt.Sprintf("%s=%d\n%s=%d\n", keyLastStart, newStart, keyRapidCount, rapidCount)
-	_ = os.WriteFile(statePath, []byte(content), 0644)
-
-	if tripped {
-		closeErrLog()
-		os.Exit(0)
 	}
 }
 

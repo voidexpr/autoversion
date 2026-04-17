@@ -29,20 +29,34 @@ func runGit(repoPath string, args ...string) (string, error) {
 	return outputStr, err
 }
 
-// Keep argv under Darwin ARG_MAX (~1 MB).
-const gitPathBatchSize = 1000
+// Target argv size per git invocation. Well under Darwin ARG_MAX (~1 MB)
+// so env and prefix flags fit with plenty of headroom.
+const gitArgBytesBudget = 256 * 1024
 
 func runGitBatched(repoPath string, prefixArgs []string, paths []string) error {
-	args := make([]string, 0, len(prefixArgs)+gitPathBatchSize)
-	for start := 0; start < len(paths); start += gitPathBatchSize {
-		end := start + gitPathBatchSize
-		if end > len(paths) {
-			end = len(paths)
-		}
+	prefixBytes := 0
+	for _, a := range prefixArgs {
+		prefixBytes += len(a) + 1
+	}
+	args := make([]string, 0, len(prefixArgs)+64)
+	i := 0
+	for i < len(paths) {
 		args = append(args[:0], prefixArgs...)
-		args = append(args, paths[start:end]...)
+		bytes := prefixBytes
+		start := i
+		for i < len(paths) {
+			need := len(paths[i]) + 1
+			// Always include at least one path per batch so a single
+			// oversized path still makes progress.
+			if len(args) > len(prefixArgs) && bytes+need > gitArgBytesBudget {
+				break
+			}
+			args = append(args, paths[i])
+			bytes += need
+			i++
+		}
 		if _, err := runGit(repoPath, args...); err != nil {
-			return fmt.Errorf("batch %d-%d of %d: %w", start, end, len(paths), err)
+			return fmt.Errorf("batch %d-%d of %d: %w", start, i, len(paths), err)
 		}
 	}
 	return nil

@@ -124,7 +124,7 @@ Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `-
 
 The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
 
-**Restart policy.** The service is configured with `KeepAlive={SuccessfulExit=false}` and `ThrottleInterval=60`, so launchd only relaunches on non-zero exits and waits at least 60 s between launches. If `watch` exits in under 30 s two launches in a row, it writes a rapid-restart-loop message to `stderr.log` and exits 0 — launchd then leaves it stopped. Fix the underlying issue, then recover with `launchctl unload ~/Library/LaunchAgents/<job>.plist && launchctl load ~/Library/LaunchAgents/<job>.plist` (or reinstall).
+**Restart policy.** The service is configured with `KeepAlive={SuccessfulExit=false}` and `ThrottleInterval=21600`, so launchd relaunches only on non-zero exits and at most once every 6 hours. A healthy service that crashes after hours of uptime relaunches immediately (the throttle is measured spawn-to-spawn). A broken service attempting to crash-loop is capped at four auto-restart attempts per day. Explicit `launchctl unload && load` bypasses the throttle.
 
 ### uninstall
 
