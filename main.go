@@ -189,6 +189,13 @@ func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) er
 }
 
 // verifyPaths verifies that source and target paths are safe to use
+func hasPathPrefix(path, prefix string) bool {
+	return strings.HasPrefix(
+		strings.ToLower(filepath.Clean(path)+string(os.PathSeparator)),
+		strings.ToLower(filepath.Clean(prefix)+string(os.PathSeparator)),
+	)
+}
+
 func verifyPaths(absSourcePath, absTargetPath string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -214,10 +221,10 @@ func verifyPaths(absSourcePath, absTargetPath string) error {
 	}
 
 	// Check if one path contains the other
-	if filepath.HasPrefix(absSourcePath, absTargetPath+string(filepath.Separator)) {
+	if hasPathPrefix(absSourcePath, absTargetPath) {
 		return fmt.Errorf("source path (%s) cannot be inside target path (%s)", absSourcePath, absTargetPath)
 	}
-	if filepath.HasPrefix(absTargetPath, absSourcePath+string(filepath.Separator)) {
+	if hasPathPrefix(absTargetPath, absSourcePath) {
 		return fmt.Errorf("target path (%s) cannot be inside source path (%s)", absTargetPath, absSourcePath)
 	}
 
@@ -361,7 +368,6 @@ func ValidateSourceAndBase(sourcePath, basePath string) (*PathValidationResult, 
 	result.TargetComputed = target
 
 	// Validation checks
-	sep := string(filepath.Separator)
 
 	// Check 1: base and source can't be the same
 	if resolvedSource == resolvedBase {
@@ -369,12 +375,12 @@ func ValidateSourceAndBase(sourcePath, basePath string) (*PathValidationResult, 
 	}
 
 	// Check 2: source can't be within base
-	if filepath.HasPrefix(resolvedSource, resolvedBase+sep) {
+	if hasPathPrefix(resolvedSource, resolvedBase) {
 		result.Errors = append(result.Errors, fmt.Sprintf("source path (%s) cannot be inside base path (%s)", resolvedSource, resolvedBase))
 	}
 
 	// Check 3: base can't be within source
-	if filepath.HasPrefix(resolvedBase, resolvedSource+sep) {
+	if hasPathPrefix(resolvedBase, resolvedSource) {
 		result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) cannot be inside source path (%s)", resolvedBase, resolvedSource))
 	}
 
