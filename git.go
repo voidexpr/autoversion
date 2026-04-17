@@ -28,7 +28,11 @@ func runGit(repoPath string, args ...string) (string, error) {
 		logGit("%s", outputStr)
 	}
 
-	return outputStr, err
+	if err != nil {
+		return outputStr, fmt.Errorf("%w (repo=%s args=%v output=%q)",
+			err, repoPath, args, strings.TrimSpace(outputStr))
+	}
+	return outputStr, nil
 }
 
 // Target argv size per git invocation. Well under Darwin ARG_MAX (~1 MB)

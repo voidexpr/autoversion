@@ -972,6 +972,10 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 		if err != nil {
 			continue
 		}
+		if !filepath.IsLocal(relPath) {
+			logError("skipping event outside source tree: %s (rel=%s)", event.Path, relPath)
+			continue
+		}
 
 		targetPath := filepath.Join(absTargetPath, relPath)
 		timestamp := time.Now().Format("2006-01-02 15:04:05")
