@@ -124,7 +124,7 @@ func Remove(repoPath string, paths []string, debug bool) error {
 
 	if !noGit {
 		if err := runGitBatched(repoPath,
-			[]string{"rm", "--ignore-unmatch", "-f", "--"}, paths); err != nil {
+			[]string{"rm", "-r", "--ignore-unmatch", "-f", "--"}, paths); err != nil {
 			return log_and_err("git rm failed: %v", err)
 		}
 	}
