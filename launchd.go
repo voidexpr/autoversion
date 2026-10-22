@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,11 @@ import (
 )
 
 const appBundleName = "Autoversion.app"
+
+// makeFDAAppScript builds the launcher app, see ensureAppBundle
+//
+//go:embed make-fda-app.sh
+var makeFDAAppScript string
 
 // sanitizePath converts a path to a safe identifier component
 // Replaces non-alphanumeric chars with underscores, collapses multiple underscores
@@ -181,27 +187,6 @@ func unescapeXML(s string) string {
 	return s
 }
 
-// parsePlistExecPath reads an existing plist file and extracts the executable
-// path (first <string> in ProgramArguments).
-func parsePlistExecPath(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	content := string(data)
-	arrayStart := strings.Index(content, "<array>")
-	arrayEnd := strings.Index(content, "</array>")
-	if arrayStart == -1 || arrayEnd == -1 {
-		return "", fmt.Errorf("no ProgramArguments array found in %s", path)
-	}
-	re := regexp.MustCompile(`<string>(.*?)</string>`)
-	match := re.FindStringSubmatch(content[arrayStart:arrayEnd])
-	if match == nil {
-		return "", fmt.Errorf("no string values in ProgramArguments in %s", path)
-	}
-	return unescapeXML(match[1]), nil
-}
-
 // parsePlistPaths reads an existing plist file and extracts the source path
 // (last <string> in ProgramArguments) and base path (value after --base).
 func parsePlistPaths(path string) (source, base string, err error) {
@@ -265,16 +250,6 @@ func getExecutablePath() (string, error) {
 	return filepath.EvalSymlinks(exe)
 }
 
-// localAppBundlePath returns the path to the app bundle in the source directory (next to the binary)
-func localAppBundlePath() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	exeDir := filepath.Dir(exe)
-	return filepath.Join(exeDir, appBundleName), nil
-}
-
 // installedAppBundlePath returns the path to the app bundle in ~/Applications
 func installedAppBundlePath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -290,35 +265,8 @@ func appBundleExecutable() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(appPath, "Contents", "MacOS", "autoversion-wrapper"), nil
-}
-
-// isLocalAppBundleCreated checks if the local app bundle exists (in source dir)
-func isLocalAppBundleCreated() bool {
-	appPath, err := localAppBundlePath()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(appPath)
-	return err == nil
-}
-
-// localWrapperPath returns the path to the local bundle's wrapper script
-func localWrapperPath() (string, error) {
-	appPath, err := localAppBundlePath()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(appPath, "Contents", "MacOS", "autoversion-wrapper"), nil
-}
-
-// installedWrapperPath returns the path to the installed bundle's wrapper script
-func installedWrapperPath() (string, error) {
-	appPath, err := installedAppBundlePath()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(appPath, "Contents", "MacOS", "autoversion-wrapper"), nil
+	// make-fda-app.sh names the executable after the app
+	return filepath.Join(appPath, "Contents", "MacOS", strings.TrimSuffix(appBundleName, ".app")), nil
 }
 
 // getBinaryMtime returns the modification time of the autoversion binary
@@ -334,32 +282,6 @@ func getBinaryMtime() (time.Time, error) {
 	return info.ModTime(), nil
 }
 
-// getLocalWrapperMtime returns the mtime of the local bundle's wrapper script
-func getLocalWrapperMtime() (time.Time, error) {
-	wrapperPath, err := localWrapperPath()
-	if err != nil {
-		return time.Time{}, err
-	}
-	info, err := os.Stat(wrapperPath)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return info.ModTime(), nil
-}
-
-// getInstalledWrapperMtime returns the mtime of the installed bundle's wrapper
-func getInstalledWrapperMtime() (time.Time, error) {
-	wrapperPath, err := installedWrapperPath()
-	if err != nil {
-		return time.Time{}, err
-	}
-	info, err := os.Stat(wrapperPath)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return info.ModTime(), nil
-}
-
 // getPlistMtime returns the mtime of a plist file
 func getPlistMtime(plistPath string) (time.Time, error) {
 	info, err := os.Stat(plistPath)
@@ -367,38 +289,6 @@ func getPlistMtime(plistPath string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return info.ModTime(), nil
-}
-
-// needsLocalBundle returns true if local bundle should be created/updated
-func needsLocalBundle() bool {
-	if !isLocalAppBundleCreated() {
-		return true
-	}
-	binaryMtime, err := getBinaryMtime()
-	if err != nil {
-		return true
-	}
-	wrapperMtime, err := getLocalWrapperMtime()
-	if err != nil {
-		return true
-	}
-	return binaryMtime.After(wrapperMtime)
-}
-
-// needsInstalledBundleUpdate returns true if installed bundle needs updating
-func needsInstalledBundleUpdate() bool {
-	if !isAppBundleInstalled() {
-		return true
-	}
-	localMtime, err := getLocalWrapperMtime()
-	if err != nil {
-		return true
-	}
-	installedMtime, err := getInstalledWrapperMtime()
-	if err != nil {
-		return true
-	}
-	return localMtime.After(installedMtime)
 }
 
 // needsServiceReload returns true if the running service should be reloaded
@@ -414,154 +304,37 @@ func needsServiceReload(plistPath string) bool {
 	return binaryMtime.After(plistMtime)
 }
 
-// createLocalBundle creates/updates the local Autoversion.app bundle
-// Returns true if bundle was created/updated, false if already up-to-date
-func createLocalBundle() (bool, error) {
-	execPath, err := getExecutablePath()
-	if err != nil {
-		return false, fmt.Errorf("failed to get executable path: %v", err)
-	}
-
-	appPath, err := localAppBundlePath()
-	if err != nil {
-		return false, err
-	}
-
-	contentsDir := filepath.Join(appPath, "Contents")
-	macosDir := filepath.Join(contentsDir, "MacOS")
-	resourcesDir := filepath.Join(contentsDir, "Resources")
-
-	for _, dir := range []string{macosDir, resourcesDir} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return false, fmt.Errorf("failed to create directory %s: %v", dir, err)
-		}
-	}
-
-	infoPlist := `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleExecutable</key>
-	<string>autoversion-wrapper</string>
-	<key>CFBundleIdentifier</key>
-	<string>projects.autoversion</string>
-	<key>CFBundleName</key>
-	<string>Autoversion</string>
-	<key>CFBundleDisplayName</key>
-	<string>Autoversion</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleVersion</key>
-	<string>1.0</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
-	<key>LSBackgroundOnly</key>
-	<true/>
-	<key>LSUIElement</key>
-	<true/>
-</dict>
-</plist>
-`
-	if err := os.WriteFile(filepath.Join(contentsDir, "Info.plist"), []byte(infoPlist), 0644); err != nil {
-		return false, fmt.Errorf("failed to write Info.plist: %v", err)
-	}
-
-	wrapperScript := fmt.Sprintf(`#!/bin/bash
-# Autoversion wrapper for Full Disk Access
-# This script executes the autoversion binary with all arguments passed through.
-# The app bundle is granted FDA, which is inherited by the executed binary.
-
-AUTOVERSION_BIN="%s"
-
-if [ ! -x "$AUTOVERSION_BIN" ]; then
-    echo "Error: autoversion binary not found at $AUTOVERSION_BIN" >&2
-    echo "Please rebuild autoversion and run 'autoversion bundle' again." >&2
-    exit 1
-fi
-
-exec "$AUTOVERSION_BIN" "$@"
-`, execPath)
-
-	wrapperPath := filepath.Join(macosDir, "autoversion-wrapper")
-	if err := os.WriteFile(wrapperPath, []byte(wrapperScript), 0755); err != nil {
-		return false, fmt.Errorf("failed to write wrapper script: %v", err)
-	}
-
-	return true, nil
-}
-
-// isAppBundleInstalled checks if the app bundle is installed in ~/Applications
-func isAppBundleInstalled() bool {
+// ensureAppBundle creates or updates ~/Applications/Autoversion.app, a small
+// signed launcher that runs this binary and stays its parent, so autoversion
+// inherits the Full Disk Access granted to the app. Rebuilding the binary in
+// place keeps the app (and the grant); it is only rebuilt if the binary moves.
+func ensureAppBundle() error {
 	appPath, err := installedAppBundlePath()
 	if err != nil {
-		return false
-	}
-	_, err = os.Stat(appPath)
-	return err == nil
-}
-
-// getEffectiveExecutable returns the app bundle wrapper if installed, otherwise the direct executable
-func getEffectiveExecutable() (string, error) {
-	if isAppBundleInstalled() {
-		return appBundleExecutable()
-	}
-	return getExecutablePath()
-}
-
-// copyDir recursively copies a directory
-func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		dstPath := filepath.Join(dst, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(dstPath, data, info.Mode())
-	})
-}
-
-// installAppBundle copies the local app bundle to ~/Applications
-func installAppBundle() error {
-	localPath, err := localAppBundlePath()
-	if err != nil {
 		return err
 	}
-
-	installedPath, err := installedAppBundlePath()
+	execPath, err := getExecutablePath()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get executable path: %v", err)
 	}
 
-	// Remove existing if present
-	if _, err := os.Stat(installedPath); err == nil {
-		if err := os.RemoveAll(installedPath); err != nil {
-			return fmt.Errorf("failed to remove existing app bundle: %v", err)
+	// make-fda-app.sh refuses to replace an app it didn't create (no
+	// launcher.c), so remove bundles made by older versions of autoversion
+	if _, err := os.Stat(appPath); err == nil {
+		if _, err := os.Stat(filepath.Join(appPath, "Contents", "Resources", "launcher.c")); os.IsNotExist(err) {
+			if err := os.RemoveAll(appPath); err != nil {
+				return fmt.Errorf("failed to remove legacy app bundle: %v", err)
+			}
+			fmt.Printf("Removed legacy app bundle: %s\n", appPath)
 		}
 	}
 
-	// Ensure ~/Applications exists
-	if err := os.MkdirAll(filepath.Dir(installedPath), 0755); err != nil {
-		return fmt.Errorf("failed to create ~/Applications: %v", err)
+	cmd := exec.Command("bash", "-c", makeFDAAppScript, "make-fda-app.sh", appPath, execPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create app bundle: %v", err)
 	}
-
-	// Copy the bundle
-	if err := copyDir(localPath, installedPath); err != nil {
-		return fmt.Errorf("failed to copy app bundle: %v", err)
-	}
-
 	return nil
 }
 
@@ -618,19 +391,15 @@ var installCmd = &cobra.Command{
 			return err
 		}
 
-		// Auto-create/update local bundle if needed
-		if needsLocalBundle() {
-			bundleExisted := isLocalAppBundleCreated()
-			_, err := createLocalBundle()
-			if err != nil {
-				return fmt.Errorf("failed to create app bundle: %v", err)
-			}
-			if bundleExisted {
-				fmt.Println("Updated app bundle")
-			} else {
-				fmt.Println("Created app bundle")
-			}
+		// The service runs through the launcher app that holds Full Disk Access
+		if err := ensureAppBundle(); err != nil {
+			return err
 		}
+		execPath, err := appBundleExecutable()
+		if err != nil {
+			return err
+		}
+		fmt.Println()
 
 		// Generate job ID
 		jobID := jobIdentifier(sourcePath, targetPath)
@@ -648,19 +417,7 @@ var installCmd = &cobra.Command{
 				return fmt.Errorf("job ID collision: %s\n  Existing install:\n    source: %s\n    base:   %s\n  New install:\n    source: %s\n    base:   %s\nThese paths produce the same sanitized job ID.\nRename one of the source directories to avoid the collision.", jobID, existingSource, existingBase, sourcePath, result.BaseResolved)
 			}
 
-			// Update installed bundle if needed
-			if needsInstalledBundleUpdate() {
-				if err := installAppBundle(); err != nil {
-					return fmt.Errorf("failed to update installed app bundle: %v", err)
-				}
-				fmt.Println("Updated installed app bundle")
-			}
-
-			// Check if plist content needs updating (flag changes, binary path changes)
-			execPath, err := parsePlistExecPath(plist)
-			if err != nil {
-				return fmt.Errorf("failed to parse existing plist: %v", err)
-			}
+			// Check if plist content needs updating (flag changes, launcher path changes)
 			maxSize, _ := cmd.Flags().GetInt64("max-file-size")
 			bufTime, _ := cmd.Flags().GetInt("buffer-time")
 			logDirPath, _ := logDir(jobID)
@@ -708,35 +465,6 @@ var installCmd = &cobra.Command{
 			}
 			printStatusInfo(jobID, sourcePath, targetPath)
 			return nil
-		}
-
-		// New install: update installed bundle if needed
-		var execPath string
-		firstInstall := false
-		if isLocalAppBundleCreated() {
-			if needsInstalledBundleUpdate() {
-				if err := installAppBundle(); err != nil {
-					return fmt.Errorf("failed to install app bundle: %v", err)
-				}
-				if !isAppBundleInstalled() {
-					firstInstall = true
-				}
-			}
-			execPath, err = appBundleExecutable()
-			if err != nil {
-				return fmt.Errorf("failed to get app bundle executable: %v", err)
-			}
-			installedApp, _ := installedAppBundlePath()
-			fmt.Printf("Installed app bundle: %s\n", installedApp)
-			if firstInstall {
-				fmt.Println("Grant Full Disk Access to this app in System Preferences > Privacy & Security")
-			}
-			fmt.Println()
-		} else {
-			execPath, err = getExecutablePath()
-			if err != nil {
-				return fmt.Errorf("failed to get executable path: %v", err)
-			}
 		}
 
 		// Create log directory
@@ -1095,88 +823,51 @@ func printStatusInfo(jobID, sourcePath, targetPath string) {
 var bundleCmd = &cobra.Command{
 	Use:   "bundle",
 	Short: "Create macOS app bundle for Full Disk Access support",
-	Long: `Creates Autoversion.app in the same directory as the autoversion binary.
+	Long: `Creates or updates ~/Applications/Autoversion.app, a small signed launcher
+that runs this autoversion binary. Services set up by 'autoversion install' run
+through it, so they inherit the Full Disk Access granted to the app.
 
-This app bundle can be granted Full Disk Access in System Preferences,
-which persists across CLI rebuilds. The install command will automatically
-copy this bundle to ~/Applications and use it.
+Rebuilding autoversion in place keeps the app and its grant. The app is only
+rebuilt, and needs a new grant, if the binary path changes.
+Requires clang (Xcode Command Line Tools). 'install' runs this automatically.
 
-After running 'autoversion install':
-1. Open System Preferences > Privacy & Security > Full Disk Access
-2. Click + and add ~/Applications/Autoversion.app
-3. The service will have Full Disk Access`,
+To grant Full Disk Access:
+1. Open System Settings > Privacy & Security > Full Disk Access
+2. Remove any old Autoversion entry, click + and add ~/Applications/Autoversion.app`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("bundle command is only supported on macOS")
 		}
-
-		_, err := createLocalBundle()
-		if err != nil {
-			return err
-		}
-
-		appPath, _ := localAppBundlePath()
-		execPath, _ := getExecutablePath()
-
-		fmt.Printf("Created app bundle: %s\n", appPath)
-		fmt.Printf("Wrapper points to: %s\n\n", execPath)
-		fmt.Println("The bundle will be copied to ~/Applications when you run 'autoversion install'.")
-		fmt.Println("After install, grant Full Disk Access to ~/Applications/Autoversion.app")
-		fmt.Println()
-		fmt.Println("If you rebuild autoversion, run 'autoversion bundle' again to update the wrapper.")
-
-		return nil
+		return ensureAppBundle()
 	},
 }
 
 var unbundleCmd = &cobra.Command{
 	Use:   "unbundle",
-	Short: "Remove the macOS app bundles",
-	Long:  "Removes Autoversion.app from both the local directory and ~/Applications.",
+	Short: "Remove the macOS app bundle",
+	Long:  "Removes ~/Applications/Autoversion.app.",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("unbundle command is only supported on macOS")
 		}
 
-		removed := false
-
-		// Remove local bundle
-		localPath, err := localAppBundlePath()
-		if err == nil {
-			if _, err := os.Stat(localPath); err == nil {
-				if err := os.RemoveAll(localPath); err != nil {
-					logError("failed to remove local app bundle: %v", err)
-				} else {
-					fmt.Printf("Removed: %s\n", localPath)
-					removed = true
-				}
-			}
-		}
-
-		// Remove installed bundle
 		installedPath, err := installedAppBundlePath()
-		if err == nil {
-			if _, err := os.Stat(installedPath); err == nil {
-				if err := os.RemoveAll(installedPath); err != nil {
-					logError("failed to remove installed app bundle: %v", err)
-				} else {
-					fmt.Printf("Removed: %s\n", installedPath)
-					removed = true
-				}
-			}
+		if err != nil {
+			return err
 		}
-
-		if !removed {
-			fmt.Println("No app bundles found")
+		if _, err := os.Stat(installedPath); os.IsNotExist(err) {
+			fmt.Println("No app bundle found")
 			return nil
 		}
+		if err := os.RemoveAll(installedPath); err != nil {
+			return fmt.Errorf("failed to remove app bundle: %v", err)
+		}
+		fmt.Printf("Removed: %s\n", installedPath)
 
-		fmt.Println("\nNote: Any installed services will continue running but may lose FDA.")
-		fmt.Println("To update services to use the direct binary, reinstall them:")
-		fmt.Println("  autoversion uninstall --base <BASE> <SOURCE>")
-		fmt.Println("  autoversion install --base <BASE> <SOURCE>")
+		fmt.Println("\nNote: installed services run through this app and won't start without it.")
+		fmt.Println("Recreate it with: autoversion bundle")
 
 		return nil
 	},

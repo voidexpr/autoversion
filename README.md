@@ -20,15 +20,16 @@ make build
 ./autoversion install --base ~/repos ~/projects/myapp
 
 # Grant Full Disk Access (required for some directories):
-# System Preferences > Privacy & Security > Full Disk Access
+# System Settings > Privacy & Security > Full Disk Access
 # Add: ~/Applications/Autoversion.app
 ```
 
 The `install` command automatically:
-- Creates the app bundle for Full Disk Access support
-- Copies it to `~/Applications`
-- Creates and starts the launchd service
+- Creates `~/Applications/Autoversion.app`, a small signed launcher that runs the autoversion binary (built by `make-fda-app.sh`, needs clang from the Xcode Command Line Tools)
+- Creates and starts the launchd service, which runs autoversion through the app so it inherits the app's Full Disk Access
 - On subsequent runs: reloads the service if the binary or flags changed
+
+Rebuilding the binary in place keeps the app and its Full Disk Access grant. The app is only rebuilt, and needs a new grant, if the binary moves to another path.
 
 ### Managing the service
 
@@ -64,10 +65,10 @@ make uninstall  # removes from /usr/local/bin
 ### Manual commands (for debugging)
 
 ```bash
-# Create/update app bundle manually
+# Create/update the launcher app manually
 ./autoversion bundle
 
-# Remove app bundles
+# Remove the launcher app
 ./autoversion unbundle
 ```
 
@@ -315,6 +316,7 @@ autoversion/
 ├── git.go            # Git wrapper
 ├── restic.go         # Restic backup integration
 ├── launchd.go        # macOS launchd integration
+├── make-fda-app.sh   # Builds the Full Disk Access launcher app (embedded in the binary)
 ├── log.go            # Logging helpers
 └── Makefile          # Build targets
 ```
