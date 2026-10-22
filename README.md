@@ -7,6 +7,7 @@ A lightweight Go tool that tracks file versions in real-time using git as the ba
 ### Prerequisites
 
 - Go ≥ 1.24 (for building from source)
+- macOS: Xcode Command Line Tools (clang, used for FSEvents and to build the launcher app)
 - git (required at runtime)
 - restic (optional, for backup functionality)
 
