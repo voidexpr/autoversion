@@ -29,6 +29,7 @@ var (
 	maxFileSize    int64
 	bufferTime     int
 	dryRun         bool
+	reportOnly     bool
 	noLogin        bool
 	includeExtsFlag string
 	excludeDirsFlag []string
@@ -248,6 +249,18 @@ func validateSourcePath(sourcePath string) error {
 	return nil
 }
 
+// resolveSourcePath validates the source directory and returns its absolute path with symlinks resolved
+func resolveSourcePath(sourcePath string) (string, error) {
+	if err := validateSourcePath(sourcePath); err != nil {
+		return "", err
+	}
+	absSourcePath, err := resolvePath(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve source path: %v", err)
+	}
+	return absSourcePath, nil
+}
+
 // resolvePath resolves symlinks and returns the absolute real path
 // If the path doesn't exist, returns the absolute path without resolving symlinks
 func resolvePath(path string) (string, error) {
@@ -452,16 +465,9 @@ var filterCmd = &cobra.Command{
 	Short: "List files that would be tracked",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		sourcePath := args[0]
-
-		if err := validateSourcePath(sourcePath); err != nil {
-			return err
-		}
-
-		// Resolve symlinks in source path
-		absSourcePath, err := resolvePath(sourcePath)
+		absSourcePath, err := resolveSourcePath(args[0])
 		if err != nil {
-			return fmt.Errorf("failed to resolve source path: %v", err)
+			return err
 		}
 
 		SetSourceRoot(absSourcePath)
@@ -578,14 +584,20 @@ var watchCmd = &cobra.Command{
 	Short: "Watch for changes in real-time",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if basePath == "" {
+		if basePath == "" && !reportOnly {
 			return fmt.Errorf("--base is required")
 		}
 
 		sourcePath := args[0]
 
-		// Validate all paths and get absolute paths
-		absSourcePath, targetPath, err := validatePaths(sourcePath, basePath, dryRun)
+		var absSourcePath, targetPath string
+		var err error
+		if reportOnly {
+			absSourcePath, err = resolveSourcePath(sourcePath)
+		} else {
+			// Validate all paths and get absolute paths
+			absSourcePath, targetPath, err = validatePaths(sourcePath, basePath, dryRun)
+		}
 		if err != nil {
 			return err
 		}
@@ -593,9 +605,11 @@ var watchCmd = &cobra.Command{
 		SetSourceRoot(absSourcePath)
 
 		// First, run scan to capture any missed changes
-		fmt.Println("Initial scan...")
-		if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
-			return fmt.Errorf("initial scan failed: %w", err)
+		if !reportOnly {
+			fmt.Println("Initial scan...")
+			if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
+				return fmt.Errorf("initial scan failed: %w", err)
+			}
 		}
 
 		// Create watcher
@@ -623,7 +637,11 @@ var watchCmd = &cobra.Command{
 		resticForgetTicker := time.NewTicker(12 * time.Hour)
 		defer resticForgetTicker.Stop()
 
-		fmt.Printf("Watching %s for changes (buffer time: %ds)...\n", absSourcePath, bufferTime)
+		if reportOnly {
+			fmt.Printf("Watching %s for changes (report only, nothing is copied)...\n", absSourcePath)
+		} else {
+			fmt.Printf("Watching %s for changes (buffer time: %ds)...\n", absSourcePath, bufferTime)
+		}
 		fmt.Println("Press Ctrl+C to stop")
 
 		for {
@@ -631,6 +649,10 @@ var watchCmd = &cobra.Command{
 			case event := <-watcher.Events():
 				// Handle MustResyncAll specially
 				if event.Type == EventMustResyncAll {
+					if reportOnly {
+						fmt.Printf("[%s] event resync required\n", nowTS())
+						continue
+					}
 					fmt.Printf("[%s] File system resync required - performing full scan\n", time.Now().Format("2006-01-02 15:04:05"))
 					if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
 						logError("Error during resync: %v", err)
@@ -655,13 +677,13 @@ var watchCmd = &cobra.Command{
 					opName = "deleted "
 				}
 
-				if doPassFilter {
-					fmt.Printf("[%s] event BUFFER %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
-				} else {
+				switch {
+				case !doPassFilter:
 					logSkip("[%s] event skip   %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
-				}
-
-				if doPassFilter {
+				case reportOnly:
+					fmt.Printf("[%s] event track  %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
+				default:
+					fmt.Printf("[%s] event BUFFER %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
 					buffer.Add(event.Path, event.Type)
 				}
 
@@ -784,6 +806,7 @@ func init() {
 	watchCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	watchCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	watchCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
+	watchCmd.Flags().BoolVar(&reportOnly, "report-only", false, "only print file events: no --base needed, no initial scan, nothing copied")
 
 	// Add commands to root
 	rootCmd.AddCommand(filterCmd)

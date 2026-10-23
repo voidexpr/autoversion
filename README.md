@@ -178,6 +178,14 @@ Run in foreground (useful for debugging):
 ./autoversion watch --base BASE_PATH SOURCE_PATH [--dry-run] [--buffer-time SECONDS]
 ```
 
+Only print file events, without copying anything (no `--base`, no initial scan). Each event is shown as `track` (passes the filters) or `skip`; add `--debug` to also see the raw FSEvents flags:
+
+```bash
+./autoversion watch --report-only SOURCE_PATH
+```
+
+This can be used instead of `inotifywait -m -r` (Linux) or `fswatch` (macOS) to see what changes under a directory, with autoversion's filters (`--exclude-dir`, `--only-include-extensions`, `--max-file-size`, built-in exclusions) applied, and to check what a `watch` would pick up before installing it.
+
 ### sync
 
 One-time sync without watching:
@@ -247,6 +255,7 @@ Autoversion excludes:
 | `--max-file-size` | 10 MB | Maximum file size to track |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
+| `--report-only` | false | Only print file events, copy nothing (watch only, no `--base` needed) |
 | `--only-include-extensions` | (none) | Only include files with these extensions (comma-separated, e.g. `md,csv,txt`) |
 | `--exclude-dir` | (none) | Exclude a directory relative to source; repeatable (e.g. `--exclude-dir Backup --exclude-dir tmp`) |
 | `--no-git` | false | Disable git entirely (plain directory mirror) |
