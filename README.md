@@ -134,6 +134,8 @@ Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `-
 
 The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
 
+**Logs.** The service writes `~/Library/Logs/autoversion/<job>/stdout.log` and `stderr.log` (`watch --log-dir`, set by `install`). Each file is rotated once it reaches 10 MB, keeping 5 old copies (`stdout.log.1` … `stdout.log.5`, `.1` being the most recent). Sizes are checked every minute. A log file removed by hand is recreated within a minute. Reloading the service through `install` clears `stderr.log` and its rotated copies. Filtered-out events are only logged with `--debug`, and a file over `--max-file-size` is reported once per run.
+
 **Restart policy.** The service is configured with `KeepAlive={SuccessfulExit=false}` and `ThrottleInterval=21600`, so launchd relaunches only on non-zero exits and at most once every 6 hours. A healthy service that crashes after hours of uptime relaunches immediately (the throttle is measured spawn-to-spawn). A broken service attempting to crash-loop is capped at four auto-restart attempts per day. Explicit `launchctl unload && load` bypasses the throttle.
 
 ### uninstall
@@ -187,8 +189,10 @@ Each watch in use takes about 1 KB of kernel memory. `sysctl -w` doesn't survive
 Run in foreground (useful for debugging):
 
 ```bash
-./autoversion watch --base BASE_PATH SOURCE_PATH [--dry-run] [--buffer-time SECONDS]
+./autoversion watch --base BASE_PATH SOURCE_PATH [--dry-run] [--buffer-time SECONDS] [--log-dir DIR]
 ```
+
+With `--log-dir DIR`, stdout and stderr go to `DIR/stdout.log` and `DIR/stderr.log`, rotated by size (see **Logs** under `install`). Filtered-out events (`event skip`) are only printed with `--debug`.
 
 Only print file events, without copying anything (no `--base`, no initial scan). Each event is shown as `track` (passes the filters) or `skip`; add `--debug` to also see the raw FSEvents flags:
 
@@ -275,7 +279,8 @@ Directories matched by these exclusions or by `--exclude-dir` are skipped entire
 | `--no-git` | false | Disable git entirely (plain directory mirror) |
 | `--restic` | false | Enable restic backup |
 | `--no-login` | false | Don't start service at login (install only) |
-| `--debug` | false | Enable debug logging |
+| `--debug` | false | Enable debug logging, including filtered-out events |
+| `--log-dir` | (none) | Write rotated `stdout.log` / `stderr.log` in this directory (watch; set by install) |
 
 ---
 

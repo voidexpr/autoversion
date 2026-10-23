@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -225,6 +226,24 @@ func TestShouldTrack_FileSize(t *testing.T) {
 	}
 	if got != true {
 		t.Errorf("ShouldTrack(2MB file, 3MB limit) = %v, want true", got)
+	}
+}
+
+func TestShouldTrack_LargeFileReportedOnce(t *testing.T) {
+	largePath := filepath.Join(t.TempDir(), "large.bin")
+	if err := os.WriteFile(largePath, make([]byte, 2*1024*1024), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		for range 3 {
+			if _, err := ShouldTrack(largePath, 1, false); err != nil {
+				t.Fatalf("ShouldTrack() error = %v", err)
+			}
+		}
+	})
+	if n := strings.Count(out, "skipping large file"); n != 1 {
+		t.Errorf("large file reported %d times, want 1; output: %q", n, out)
 	}
 }
 

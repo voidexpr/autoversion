@@ -32,6 +32,7 @@ var (
 	dryRun         bool
 	reportOnly     bool
 	noLogin        bool
+	logDirFlag     string
 	includeExtsFlag string
 	excludeDirsFlag []string
 )
@@ -580,11 +581,40 @@ var syncCmd = &cobra.Command{
 	},
 }
 
+// logEvent prints a watcher event. Filtered-out events are only printed with
+// --debug or --report-only, they are most of the events on a busy source.
+func logEvent(eventType EventType, path string, tracked bool) {
+	if !tracked && !debug && !reportOnly {
+		return
+	}
+	var opName string
+	switch eventType {
+	case EventCreated:
+		opName = "created "
+	case EventModified:
+		opName = "modified"
+	case EventDeleted:
+		opName = "deleted "
+	}
+	switch {
+	case !tracked:
+		logSkip("[%s] event skip   %s %s \n", nowTS(), opName, path)
+	case reportOnly:
+		fmt.Printf("[%s] event track  %s %s \n", nowTS(), opName, path)
+	default:
+		fmt.Printf("[%s] event BUFFER %s %s \n", nowTS(), opName, path)
+	}
+}
+
 var watchCmd = &cobra.Command{
 	Use:   "watch <source>",
 	Short: "Watch for changes in real-time",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if logDirFlag != "" {
+			redirectLogs(logDirFlag)
+		}
+
 		if basePath == "" && !reportOnly {
 			return fmt.Errorf("--base is required")
 		}
@@ -681,24 +711,10 @@ var watchCmd = &cobra.Command{
 					logError("failed to check tracking for %s: %v", event.Path, err)
 					continue
 				}
-				// Map event type to operation name
-				var opName string
-				switch event.Type {
-				case EventCreated:
-					opName = "created "
-				case EventModified:
-					opName = "modified"
-				case EventDeleted:
-					opName = "deleted "
-				}
 
-				switch {
-				case !doPassFilter:
-					logSkip("[%s] event skip   %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
-				case reportOnly:
-					fmt.Printf("[%s] event track  %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
-				default:
-					fmt.Printf("[%s] event BUFFER %s %s \n", time.Now().Format("2006-01-02 15:04:05"), opName, event.Path)
+				logEvent(event.Type, event.Path, doPassFilter)
+
+				if doPassFilter && !reportOnly {
 					buffer.Add(event.Path, event.Type)
 				}
 
@@ -823,6 +839,7 @@ func init() {
 	watchCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	watchCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
 	watchCmd.Flags().BoolVar(&reportOnly, "report-only", false, "only print file events: no --base needed, no initial scan, nothing copied")
+	watchCmd.Flags().StringVar(&logDirFlag, "log-dir", "", "write stdout.log and stderr.log in this directory, rotated by size (set by install)")
 
 	// Add commands to root
 	rootCmd.AddCommand(filterCmd)

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // Compiled regex patterns for file exclusions
@@ -61,6 +60,10 @@ var excludePatterns = []*regexp.Regexp{
 var includeExtensions map[string]bool
 var excludeDirs []string
 var sourceRoot string
+
+// reportedLargeFiles holds the large files already logged, a file being
+// written would otherwise be reported on every event
+var reportedLargeFiles = map[string]bool{}
 
 func SetIncludeExtensions(exts string) {
 	if exts == "" {
@@ -159,8 +162,11 @@ func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
 		if maxSizeMB > 0 {
 			maxBytes := maxSizeMB * 1024 * 1024
 			if info.Size() > maxBytes {
-				logSkip("[%s] skipping large file: %s (%d MB > %d MB)\n",
-					time.Now().Format("2006-01-02 15:04:05"), path, info.Size() / 1024 / 1024, maxSizeMB)
+				if !reportedLargeFiles[path] {
+					reportedLargeFiles[path] = true
+					logSkip("[%s] skipping large file: %s (%d MB > %d MB)\n",
+						nowTS(), path, info.Size()/1024/1024, maxSizeMB)
+				}
 				return false, nil
 			}
 		}

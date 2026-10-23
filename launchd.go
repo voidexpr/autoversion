@@ -105,8 +105,8 @@ func promptPath(prompt string, mustExist bool) (string, error) {
 // generatePlist creates the launchd plist content
 // basePath is the original --base value (not the computed target), so watch can re-compute the target correctly
 func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts string, excludeDirs []string) string {
-	stdoutLog := filepath.Join(logDir, "stdout.log")
-	stderrLog := filepath.Join(logDir, "stderr.log")
+	stdoutLog := filepath.Join(logDir, stdoutLogName)
+	stderrLog := filepath.Join(logDir, stderrLogName)
 
 	args := []string{
 		execPath,
@@ -114,6 +114,7 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 		"--base", basePath,
 		"--max-file-size", fmt.Sprintf("%d", maxFileSize),
 		"--buffer-time", fmt.Sprintf("%d", bufferTime),
+		"--log-dir", logDir,
 	}
 	if noGit {
 		args = append(args, "--no-git")
@@ -439,9 +440,8 @@ var installCmd = &cobra.Command{
 					}
 				}
 
-				// Clear stderr log so stale errors don't persist across reloads
-				stderrPath := filepath.Join(logDirPath, "stderr.log")
-				if err := os.Remove(stderrPath); err != nil && !os.IsNotExist(err) {
+				// Clear stderr logs so stale errors don't persist across reloads
+				if err := removeLogs(filepath.Join(logDirPath, stderrLogName)); err != nil {
 					logError("failed to remove stderr log: %v", err)
 				}
 
@@ -809,8 +809,8 @@ func printStatusInfo(jobID, sourcePath, targetPath string) {
 	fmt.Println()
 
 	fmt.Printf("Logs:\n")
-	printLogFile("stdout", filepath.Join(logDirPath, "stdout.log"), false)
-	printLogFile("stderr", filepath.Join(logDirPath, "stderr.log"), true)
+	printLogFile("stdout", filepath.Join(logDirPath, stdoutLogName), false)
+	printLogFile("stderr", filepath.Join(logDirPath, stderrLogName), true)
 	fmt.Println()
 
 	fmt.Printf("Commands:\n")
@@ -996,8 +996,8 @@ var installCheckCmd = &cobra.Command{
 		// Show log files with last 10 lines
 		logDirPath, _ := logDir(jobID)
 
-		stdoutPath := filepath.Join(logDirPath, "stdout.log")
-		stderrPath := filepath.Join(logDirPath, "stderr.log")
+		stdoutPath := filepath.Join(logDirPath, stdoutLogName)
+		stderrPath := filepath.Join(logDirPath, stderrLogName)
 
 		fmt.Printf("=== stdout: %s ===\n", stdoutPath)
 		lines := lastLines(stdoutPath, 10)
