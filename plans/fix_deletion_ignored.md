@@ -1,5 +1,7 @@
 # Bug: deletions of already-copied files are ignored (macOS)
 
+**Status: fixed**, `make watch-check` passes on macOS and Linux (2026-10-23). See "Fix" at the end.
+
 ## Symptom
 
 Deleting a file that autoversion has already copied to the target is not
@@ -59,3 +61,21 @@ To confirm with the same repro using `echo more >> file.txt`.
   cause a copy/commit loop. Verify.
 - Tests: create → delete, create → append, and no extra commit caused by
   autoversion's own copy.
+
+## Fix
+
+- `mapFSEventFlagsWithDetails` no longer ignores ItemCloned. Any event with
+  ItemRemoved or ItemRenamed maps to `EventCheckExists` (was `EventRenamed`),
+  resolved by `resolveFileEvent`: file missing → deleted, present → created.
+  This also covers a non-cloned file deleted and recreated, whose ItemRemoved
+  flag stays set.
+- The plan's assumption was wrong: only `scanPaths` skipped unchanged files,
+  `processEvents` copied every event, so autoversion's own clone would have
+  triggered a copy every buffer interval. `processEvents` now skips files
+  equal to their copy (mtime + size, like the scan), printing `unchanged` only
+  with `--debug`.
+- Unit tests: flag mapping with the raw flags above, `resolveFileEvent`, and
+  `processEvents` not copying an unchanged file twice.
+- `make watch-check` (`scripts/check_watch.sh`) runs a real watch: create,
+  append, file in a new directory, delete, and exactly one copy per change.
+  `make docker-watch-check` runs it on Linux. Both pass.

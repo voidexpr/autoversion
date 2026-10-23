@@ -129,11 +129,11 @@ func mapFSEventFlagsWithDetails(flags fsevents.EventFlags) (EventType, string) {
 		return EventMustResyncAll, details
 	}
 
-	// Check for ItemCloned flag - always ignore clone events
-	// Clone operations are COW (copy-on-write) and don't represent actual file changes
-	if flags&itemCloned != 0 {
-		return EventCanIgnore, details
-	}
+	// Flags accumulate for a path: once a file is cloned by autoversion's copy
+	// (cp -c), every later event of that file carries ItemCloned and the earlier
+	// ItemCreated/ItemModified flags, and ItemRemoved stays set if the file is
+	// recreated. So ItemCloned is not ignored, and removals are checked against
+	// the file system.
 
 	// Define action flags that indicate actual file changes we care about
 	// ItemInodeMetaMod is included because it tracks timestamp changes (e.g., touch command)
@@ -147,15 +147,11 @@ func mapFSEventFlagsWithDetails(flags fsevents.EventFlags) (EventType, string) {
 		return EventCanIgnore, details
 	}
 
-	// Map to regular event types based on action flags
-	if flags&fsevents.ItemRemoved != 0 {
-		return EventDeleted, details
-	}
-
-	// ItemRenamed can be either source (deleted) or target (created) of rename
-	// Return EventRenamed and let the caller check file existence to determine which
-	if flags&fsevents.ItemRenamed != 0 {
-		return EventRenamed, details
+	// A removed file may have been recreated since, and ItemRenamed can be either
+	// source (deleted) or target (created) of a rename: the caller checks file
+	// existence to determine which
+	if flags&(fsevents.ItemRemoved|fsevents.ItemRenamed) != 0 {
+		return EventCheckExists, details
 	}
 
 	if flags&fsevents.ItemCreated != 0 {
@@ -173,6 +169,34 @@ func mapFSEventFlagsWithDetails(flags fsevents.EventFlags) (EventType, string) {
 
 	// Should not reach here if actionFlags check above is correct, but default to modified
 	return EventModified, details
+}
+
+// resolveFileEvent checks path on disk: directories are skipped (ok false), and
+// EventCheckExists becomes EventCreated if the file exists, EventDeleted if not
+func (w *Watcher) resolveFileEvent(path string, eventType EventType) (EventType, bool) {
+	info, err := os.Lstat(path)
+	if err != nil && !os.IsNotExist(err) {
+		w.printDebug("fsevents: lstat error (skipping): %v", err)
+		return eventType, false
+	}
+
+	if err == nil && info.IsDir() {
+		w.printDebug("fsevents: skipping (is directory)")
+		return eventType, false
+	}
+
+	if eventType == EventCheckExists {
+		if err == nil {
+			// Rename target (new name), or a removed file that was recreated
+			eventType = EventCreated
+			w.printDebug("fsevents: EventCheckExists with file exists -> EventCreated")
+		} else {
+			// Removed, or rename source (old name)
+			eventType = EventDeleted
+			w.printDebug("fsevents: EventCheckExists with file missing -> EventDeleted")
+		}
+	}
+	return eventType, true
 }
 
 // processFSEvents processes events from fsevents and sends them as FileEvent
@@ -210,29 +234,9 @@ func (w *Watcher) processFSEvents() {
 					continue
 				}
 
-				// Skip directories - only process files
-				info, err := os.Lstat(event.Path)
-				if err != nil && !os.IsNotExist(err) {
-					w.printDebug("fsevents: lstat error (skipping): %v", err)
+				eventType, ok := w.resolveFileEvent(event.Path, eventType)
+				if !ok {
 					continue
-				}
-
-				if err == nil && info.IsDir() {
-					w.printDebug("fsevents: skipping (is directory)")
-					continue
-				}
-
-				// For EventRenamed, determine if it's a deletion or creation based on file existence
-				if eventType == EventRenamed {
-					if err == nil {
-						// File exists, so this is the target of the rename (new name)
-						eventType = EventCreated
-						w.printDebug("fsevents: EventRenamed with file exists -> EventCreated")
-					} else {
-						// File doesn't exist, so this is the source of the rename (old name)
-						eventType = EventDeleted
-						w.printDebug("fsevents: EventRenamed with file missing -> EventDeleted")
-					}
 				}
 
 				// Send the event

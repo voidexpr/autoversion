@@ -16,7 +16,7 @@ const (
 	EventCreated EventType = iota
 	EventModified
 	EventDeleted
-	EventRenamed // Special marker for rename events, resolved to Created/Deleted based on file existence
+	EventCheckExists // Removed or renamed (FSEvents), resolved to Created/Deleted based on file existence
 	EventMustResyncAll
 	EventCanIgnore
 )
@@ -30,8 +30,8 @@ func (e EventType) String() string {
 		return "EventModified"
 	case EventDeleted:
 		return "EventDeleted"
-	case EventRenamed:
-		return "EventRenamed"
+	case EventCheckExists:
+		return "EventCheckExists"
 	case EventMustResyncAll:
 		return "EventMustResyncAll"
 	case EventCanIgnore:

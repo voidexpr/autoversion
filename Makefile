@@ -1,6 +1,6 @@
 BINARY = autoversion
 
-.PHONY: build build-all test test-verbose lint fmt clean install uninstall docker-build docker-dev-build docker-shell docker-test docker-go-test docker-sh
+.PHONY: build build-all test test-verbose lint fmt clean install uninstall watch-check docker-build docker-dev-build docker-shell docker-test docker-go-test docker-sh docker-watch-check
 
 build:
 	go build -o $(BINARY) .
@@ -20,6 +20,11 @@ test:
 
 test-verbose:
 	go test -v ./...
+
+# Runs a real watch on a temp source and checks create, append, new directory,
+# delete, and no copy loop (scripts/check_watch.sh)
+watch-check: build
+	scripts/check_watch.sh ./$(BINARY)
 
 lint:
 	go vet ./...
@@ -82,3 +87,7 @@ override CMD := $(value CMD)
 export CMD
 docker-sh:
 	$(DOCKER_DEV_RUN) sh -c "$$CMD"
+
+# watch-check on Linux (inotify)
+docker-watch-check:
+	$(DOCKER_DEV_RUN) sh -c 'go build -o /tmp/autoversion . && scripts/check_watch.sh /tmp/autoversion'

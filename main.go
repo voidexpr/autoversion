@@ -760,6 +760,15 @@ func processEvents(events []PendingFileChanges, absSourcePath, absDestPath strin
 				changeCount++
 			}
 		} else {
+			// Same check as scanPaths. It also stops a loop on macOS, where
+			// autoversion's own copy (a clone) triggers an event for the source.
+			if FilesEqual(GetFileInfo(event.Path), GetFileInfo(destPath)) {
+				if debug {
+					logSkip("[%s] unchanged '%s'\n", timestamp, event.Path)
+				}
+				continue
+			}
+
 			// Get source and destination file info for logging
 			sourceInfo, err := os.Stat(event.Path)
 			destInfo, destErr := os.Stat(destPath)

@@ -62,6 +62,7 @@ make test
 make clean
 make install    # copies binary to /usr/local/bin
 make uninstall  # removes from /usr/local/bin
+make watch-check  # runs a real watch on a temp source: create, append, new directory, delete, no copy loop
 ```
 
 To try the Linux (inotify) watcher from macOS, `make docker-test` builds the image, then runs `init` and `watch` in a container. `SOURCE` (default `test_watch`) is mounted read-only at `/source`, `DESTINATION` (default: a new `/tmp/autoversion_docker_test/<timestamp>-<random>` directory) at `/destination`. Stop it with Ctrl+C.
@@ -79,6 +80,7 @@ make docker-dev-build
 make docker-go-test                                   # go test ./... on Linux
 make docker-go-test GOTEST_ARGS='-v -run TestShouldTrack'
 make docker-sh CMD='go build -o /tmp/av . && /tmp/av filter --source /src'
+make docker-watch-check                               # watch-check on Linux
 ```
 
 `docker-go-test` and `docker-sh` only run containers. They set a git identity, keep the Go build cache in the `autoversion-go-cache` volume, and pass `CMD` to `sh -c` as typed.
