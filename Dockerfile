@@ -1,5 +1,5 @@
 # Stage 1: build and test
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 RUN apk add --no-cache git
 
@@ -16,7 +16,7 @@ RUN go test -v ./...
 FROM builder AS dev
 
 RUN apk add --no-cache bash
-RUN mkdir -p /input /output
+RUN mkdir -p /source /destination
 CMD ["/bin/bash"]
 
 # Stage 3: runtime
@@ -24,9 +24,15 @@ FROM alpine:latest
 
 RUN apk add --no-cache git
 
+# Commits are made as root, in destinations mounted from the host (owned by
+# another user, which git refuses unless the directory is marked safe)
+RUN git config --global user.name autoversion \
+ && git config --global user.email autoversion@localhost \
+ && git config --global --add safe.directory '*'
+
 WORKDIR /app
 COPY --from=builder /src/autoversion .
 
-RUN mkdir /input /output
+RUN mkdir /source /destination
 
 ENTRYPOINT ["./autoversion"]

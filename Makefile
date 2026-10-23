@@ -43,18 +43,16 @@ docker-build:
 docker-shell:
 	docker build --target dev -t autoversion-dev .
 	docker run -it --rm \
-		$(if $(INPUT),-v $(abspath $(INPUT)):/input:ro) \
-		$(if $(OUTPUT),-v $(abspath $(OUTPUT)):/output:rw) \
+		$(if $(SOURCE),-v $(abspath $(SOURCE)):/source:ro) \
+		$(if $(DESTINATION),-v $(abspath $(DESTINATION)):/destination:rw) \
 		autoversion-dev
 
-docker-test:
-ifndef INPUT
-	$(error INPUT is required. Usage: make docker-test INPUT=/path/to/repo)
-endif
-	$(eval OUTPUT ?= /tmp/autoversion_docker_test/$(shell date +%Y%m%d%H%M%S)-$(shell head -c 4 /dev/urandom | xxd -p))
-	@mkdir -p $(OUTPUT)
-	@echo "Input:  $(INPUT)"
-	@echo "Output: $(OUTPUT)"
-	$(eval DOCKER_RUN := docker run --rm -v $(abspath $(INPUT)):/input:ro -v $(abspath $(OUTPUT)):/output:rw autoversion)
-	$(DOCKER_RUN) init --source /input --destination /output
-	$(DOCKER_RUN) watch --source /input --destination /output --buffer-time 1
+docker-test: docker-build
+	$(eval SOURCE ?= test_watch)
+	$(eval DESTINATION ?= /tmp/autoversion_docker_test/$(shell date +%Y%m%d%H%M%S)-$(shell head -c 4 /dev/urandom | xxd -p))
+	@mkdir -p $(DESTINATION)
+	@echo "Source:      $(SOURCE)"
+	@echo "Destination: $(DESTINATION)"
+	$(eval DOCKER_RUN := docker run --rm -v $(abspath $(SOURCE)):/source:ro -v $(abspath $(DESTINATION)):/destination:rw autoversion)
+	$(DOCKER_RUN) init --source /source --destination /destination
+	$(DOCKER_RUN) watch --source /source --destination /destination --buffer-time 1

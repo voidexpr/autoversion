@@ -6,7 +6,7 @@ A lightweight Go tool that tracks file versions in real-time using git as the ba
 
 ### Prerequisites
 
-- Go ≥ 1.24 (for building from source)
+- Go ≥ 1.25 (for building from source, required by `go.mod`)
 - macOS: Xcode Command Line Tools (clang, used for FSEvents and to build the launcher app)
 - git (required at runtime)
 - restic (optional, for backup functionality)
@@ -62,6 +62,14 @@ make test
 make clean
 make install    # copies binary to /usr/local/bin
 make uninstall  # removes from /usr/local/bin
+```
+
+To try the Linux (inotify) watcher from macOS, `make docker-test` builds the image, then runs `init` and `watch` in a container. `SOURCE` (default `test_watch`) is mounted read-only at `/source`, `DESTINATION` (default: a new `/tmp/autoversion_docker_test/<timestamp>-<random>` directory) at `/destination`. Stop it with Ctrl+C.
+
+```bash
+make docker-test
+make docker-test SOURCE=~/projects/myapp DESTINATION=/tmp/myapp_copy
+make docker-shell SOURCE=~/projects/myapp   # bash with the Go toolchain, same mounts (both optional)
 ```
 
 ### Manual commands (for debugging)
