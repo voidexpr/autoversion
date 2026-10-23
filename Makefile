@@ -1,6 +1,6 @@
 BINARY = autoversion
 
-.PHONY: build build-all test test-verbose lint fmt clean install uninstall docker-build docker-shell docker-test
+.PHONY: build build-all test test-verbose lint fmt clean install uninstall docker-build docker-dev-build docker-shell docker-test docker-go-test docker-sh
 
 build:
 	go build -o $(BINARY) .
@@ -40,8 +40,12 @@ uninstall:
 docker-build:
 	docker build -t autoversion .
 
-docker-shell:
+# Go toolchain image (Dockerfile dev stage) used by docker-shell, docker-go-test
+# and docker-sh. Rebuild it when go.mod changes (its module cache comes from the build).
+docker-dev-build:
 	docker build --target dev -t autoversion-dev .
+
+docker-shell: docker-dev-build
 	docker run -it --rm \
 		$(if $(SOURCE),-v $(abspath $(SOURCE)):/source:ro) \
 		$(if $(DESTINATION),-v $(abspath $(DESTINATION)):/destination:rw) \
@@ -56,3 +60,25 @@ docker-test: docker-build
 	$(eval DOCKER_RUN := docker run --rm -v $(abspath $(SOURCE)):/source:ro -v $(abspath $(DESTINATION)):/destination:rw autoversion)
 	$(DOCKER_RUN) init --source /source --destination /destination
 	$(DOCKER_RUN) watch --source /source --destination /destination --buffer-time 1
+
+# docker-go-test and docker-sh only run containers from the autoversion-dev
+# image (no image build), with the current source mounted at /src, so code
+# changes don't need a rebuild
+DOCKER_DEV_RUN = docker run --rm -v $(CURDIR):/src -w /src \
+	-v autoversion-go-cache:/root/.cache/go-build \
+	-e GOFLAGS=-buildvcs=false \
+	-e GIT_AUTHOR_NAME=autoversion -e GIT_AUTHOR_EMAIL=autoversion@localhost \
+	-e GIT_COMMITTER_NAME=autoversion -e GIT_COMMITTER_EMAIL=autoversion@localhost \
+	autoversion-dev
+
+# Go tests on Linux, e.g. make docker-go-test GOTEST_ARGS='-v -run TestShouldTrack'
+docker-go-test:
+	$(DOCKER_DEV_RUN) go test -count=1 $(GOTEST_ARGS) ./...
+
+# Shell command on Linux, e.g.
+# make docker-sh CMD='go build -o /tmp/av . && /tmp/av watch --report-only --source /tmp'
+# CMD is passed as typed ($(value)), so $VAR and quotes reach the container shell
+override CMD := $(value CMD)
+export CMD
+docker-sh:
+	$(DOCKER_DEV_RUN) sh -c "$$CMD"

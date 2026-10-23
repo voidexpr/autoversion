@@ -72,6 +72,17 @@ make docker-test SOURCE=~/projects/myapp DESTINATION=/tmp/myapp_copy
 make docker-shell SOURCE=~/projects/myapp   # bash with the Go toolchain, same mounts (both optional)
 ```
 
+To run the Go tests, or any command, on Linux against the current source (mounted at `/src`, no image rebuild after code changes), build the `autoversion-dev` image once, and again when `go.mod` changes:
+
+```bash
+make docker-dev-build
+make docker-go-test                                   # go test ./... on Linux
+make docker-go-test GOTEST_ARGS='-v -run TestShouldTrack'
+make docker-sh CMD='go build -o /tmp/av . && /tmp/av filter --source /src'
+```
+
+`docker-go-test` and `docker-sh` only run containers. They set a git identity, keep the Go build cache in the `autoversion-go-cache` volume, and pass `CMD` to `sh -c` as typed.
+
 ### Manual commands (for debugging)
 
 ```bash
