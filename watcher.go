@@ -19,6 +19,7 @@ const (
 	EventCheckExists // Removed or renamed (FSEvents), resolved to Created/Deleted based on file existence
 	EventMustResyncAll
 	EventCanIgnore
+	EventDirChanged // A directory moved in, out, renamed, created or removed: its subtree is rescanned
 )
 
 // String returns a human-readable string representation of the EventType
@@ -36,6 +37,8 @@ func (e EventType) String() string {
 		return "EventMustResyncAll"
 	case EventCanIgnore:
 		return "EventCanIgnore"
+	case EventDirChanged:
+		return "EventDirChanged"
 	default:
 		return fmt.Sprintf("EventType(%d)", e)
 	}

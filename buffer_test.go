@@ -16,6 +16,18 @@ func TestEventBuffer_Add(t *testing.T) {
 	}
 }
 
+func TestEventBuffer_DirChangedIsKept(t *testing.T) {
+	buffer := NewEventBuffer()
+
+	buffer.Add("/tmp/dir", EventDirChanged)
+	buffer.Add("/tmp/dir", EventDeleted)
+
+	events := buffer.Flush(0)
+	if len(events) != 1 || events[0].Action != EventDirChanged {
+		t.Errorf("Expected one EventDirChanged, got %v", events)
+	}
+}
+
 func TestEventBuffer_UpdateSameFile(t *testing.T) {
 	buffer := NewEventBuffer()
 

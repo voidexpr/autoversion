@@ -307,6 +307,8 @@ func logEvent(eventType EventType, path string, tracked bool) {
 		opName = "modified"
 	case EventDeleted:
 		opName = "deleted "
+	case EventDirChanged:
+		opName = "dir     "
 	}
 	switch {
 	case !tracked:
@@ -416,10 +418,16 @@ var watchCmd = &cobra.Command{
 					continue
 				}
 
-				doPassFilter, err := ShouldTrack(event.Path, maxFileSize, event.Type == EventDeleted)
-				if err != nil {
-					logError("failed to check tracking for %s: %v", event.Path, err)
-					continue
+				var doPassFilter bool
+				if event.Type == EventDirChanged {
+					doPassFilter = !IsExcludedDir(event.Path)
+				} else {
+					var err error
+					doPassFilter, err = ShouldTrack(event.Path, maxFileSize, event.Type == EventDeleted)
+					if err != nil {
+						logError("failed to check tracking for %s: %v", event.Path, err)
+						continue
+					}
 				}
 
 				logEvent(event.Type, event.Path, doPassFilter)
@@ -728,9 +736,81 @@ func scanPaths(source, dest string, maxFileSize int64, dryRun bool) error {
 	return nil
 }
 
+// expandDirChanges replaces each EventDirChanged by events for the files under
+// that directory: created for tracked files in the source, deleted for
+// destination files no longer tracked in the source. Other events are kept,
+// and take precedence over the expanded ones for the same path.
+func expandDirChanges(events []PendingFileChanges, absSourcePath, absDestPath string) []PendingFileChanges {
+	var result []PendingFileChanges
+	var dirs []string
+	seen := make(map[string]bool)
+	for _, event := range events {
+		if event.Action == EventDirChanged {
+			dirs = append(dirs, event.Path)
+			continue
+		}
+		result = append(result, event)
+		seen[event.Path] = true
+	}
+	add := func(path string, action EventType) {
+		if !seen[path] {
+			seen[path] = true
+			result = append(result, PendingFileChanges{Path: path, Action: action})
+		}
+	}
+
+	for _, dir := range dirs {
+		// Missing (moved away or removed): nothing to walk
+		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				if IsExcludedDir(path) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if info.Mode()&os.ModeSymlink == 0 {
+				if track, _ := ShouldTrack(path, maxFileSize, false); track {
+					add(path, EventCreated)
+				}
+			}
+			return nil
+		})
+
+		relDir, err := filepath.Rel(absSourcePath, dir)
+		if err != nil || !filepath.IsLocal(relDir) {
+			continue
+		}
+		filepath.Walk(filepath.Join(absDestPath, relDir), func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				if info.Name() == ".git" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			relPath, _ := filepath.Rel(absDestPath, path)
+			if relPath == markerFileName {
+				return nil
+			}
+			sourcePath := filepath.Join(absSourcePath, relPath)
+			if track, _ := ShouldTrack(sourcePath, maxFileSize, false); !track {
+				add(sourcePath, EventDeleted)
+			}
+			return nil
+		})
+	}
+	return result
+}
+
 // processEvents processes a batch of events
 func processEvents(events []PendingFileChanges, absSourcePath, absDestPath string, dryRun bool) error {
 	changeCount := 0
+	events = expandDirChanges(events, absSourcePath, absDestPath)
 
 	for _, event := range events {
 		relPath, err := filepath.Rel(absSourcePath, event.Path)

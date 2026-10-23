@@ -27,6 +27,11 @@ func TestMapFSEventFlags(t *testing.T) {
 		{"xattr only", fsevents.ItemXattrMod | fsevents.ItemIsFile, EventCanIgnore},
 		{"clone only", itemCloned | fsevents.ItemIsFile, EventCanIgnore},
 		{"events dropped", fsevents.KernelDropped | fsevents.ItemRemoved, EventMustResyncAll},
+
+		{"directory moved or renamed", fsevents.ItemRenamed | fsevents.ItemIsDir, EventDirChanged},
+		{"directory created", fsevents.ItemCreated | fsevents.ItemIsDir, EventCanIgnore},
+		{"directory removed", fsevents.ItemRemoved | fsevents.ItemIsDir, EventCanIgnore},
+		{"file replacing a directory", fsevents.ItemRemoved | fsevents.ItemIsDir | fsevents.ItemIsFile, EventCheckExists},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

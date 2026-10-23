@@ -76,8 +76,29 @@ func (w *Watcher) processFSNotifyEvents() {
 							return
 						}
 					}
+					// Files created or moved in before the new watches were added
+					// have no events: the main loop rescans the directory
+					if !w.sendEvent(FileEvent{Path: event.Name, Type: EventDirChanged, Details: "fsnotify: directory created"}) {
+						return
+					}
 				}
-				// Don't send directory events
+				// Don't send other directory events
+				continue
+			}
+
+			// A watched directory removed or moved away: drop its watches, so it
+			// is watched again if recreated, and let the main loop rescan it
+			if isDelete && w.watched[event.Name] {
+				if event.Op&fsnotify.Rename != 0 {
+					// Its subdirectories moved too, without events of their own
+					w.forgetDir(event.Name)
+				} else {
+					// fsnotify drops the watch of a deleted directory
+					delete(w.watched, event.Name)
+				}
+				if !w.sendEvent(FileEvent{Path: event.Name, Type: EventDirChanged, Details: "fsnotify: directory removed or moved"}) {
+					return
+				}
 				continue
 			}
 
@@ -102,10 +123,7 @@ func (w *Watcher) processFSNotifyEvents() {
 				details = fmt.Sprintf("fsnotify: %v", event.Op)
 			}
 
-			// Send the event
-			select {
-			case w.events <- FileEvent{Path: event.Name, Type: eventType, Details: details}:
-			case <-w.done:
+			if !w.sendEvent(FileEvent{Path: event.Name, Type: eventType, Details: details}) {
 				return
 			}
 
@@ -115,6 +133,26 @@ func (w *Watcher) processFSNotifyEvents() {
 			case <-w.done:
 				return
 			}
+		}
+	}
+}
+
+// sendEvent passes an event to the main loop, returns false if the watcher is closed
+func (w *Watcher) sendEvent(event FileEvent) bool {
+	select {
+	case w.events <- event:
+		return true
+	case <-w.done:
+		return false
+	}
+}
+
+// forgetDir drops the watches of dir and its subdirectories
+func (w *Watcher) forgetDir(dir string) {
+	for path := range w.watched {
+		if hasPathPrefix(path, dir) {
+			w.fsnotifyWatcher.Remove(path) // fails if fsnotify already dropped it
+			delete(w.watched, path)
 		}
 	}
 }

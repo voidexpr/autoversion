@@ -30,8 +30,11 @@ func NewEventBuffer() *EventBuffer {
 func (b *EventBuffer) Add(path string, eventType EventType) {
 	now := time.Now()
 	if existing, ok := b.events[path]; ok {
-		// Update existing event - keep first timestamp, update last
-		existing.Action = eventType
+		// Update existing event - keep first timestamp, update last. A directory
+		// rescan covers any later event for the same path, so it is kept.
+		if existing.Action != EventDirChanged {
+			existing.Action = eventType
+		}
 		existing.LastTimestamp = now
 		b.events[path] = existing
 	} else {

@@ -129,6 +129,15 @@ func mapFSEventFlagsWithDetails(flags fsevents.EventFlags) (EventType, string) {
 		return EventMustResyncAll, details
 	}
 
+	// FSEvents reports the files of a directory created or deleted, but not
+	// those of a directory moved in, out or renamed: the main loop rescans it
+	if flags&fsevents.ItemIsDir != 0 && flags&fsevents.ItemIsFile == 0 {
+		if flags&fsevents.ItemRenamed != 0 {
+			return EventDirChanged, details
+		}
+		return EventCanIgnore, details
+	}
+
 	// Flags accumulate for a path: once a file is cloned by autoversion's copy
 	// (cp -c), every later event of that file carries ItemCloned and the earlier
 	// ItemCreated/ItemModified flags, and ItemRemoved stays set if the file is
@@ -217,9 +226,9 @@ func (w *Watcher) processFSEvents() {
 					continue
 				}
 
-				// For MustResyncAll, send immediately without file checks
-				if eventType == EventMustResyncAll {
-					w.printDebug("fsevents: EventMustResyncAll detected")
+				// For MustResyncAll and directory changes, send immediately without file checks
+				if eventType == EventMustResyncAll || eventType == EventDirChanged {
+					w.printDebug("fsevents: %s detected", eventType)
 					select {
 					case w.events <- FileEvent{Path: event.Path, Type: eventType, Details: details}:
 						w.printDebug("fsevents: event sent to channel")

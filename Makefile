@@ -21,10 +21,11 @@ test:
 test-verbose:
 	go test -v ./...
 
-# Runs a real watch on a temp source and checks create, append, new directory,
-# delete, and no copy loop (scripts/check_watch.sh)
+# Runs a real watch on a temp source, with git and with --no-git, and checks
+# file and directory changes and no copy loop (scripts/check_watch.sh)
 watch-check: build
 	scripts/check_watch.sh ./$(BINARY)
+	scripts/check_watch.sh ./$(BINARY) --no-git
 
 lint:
 	go vet ./...
@@ -90,4 +91,4 @@ docker-sh:
 
 # watch-check on Linux (inotify)
 docker-watch-check:
-	$(DOCKER_DEV_RUN) sh -c 'go build -o /tmp/autoversion . && scripts/check_watch.sh /tmp/autoversion'
+	$(DOCKER_DEV_RUN) sh -c 'go build -o /tmp/autoversion . && scripts/check_watch.sh /tmp/autoversion && scripts/check_watch.sh /tmp/autoversion --no-git'

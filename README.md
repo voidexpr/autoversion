@@ -62,7 +62,7 @@ make test
 make clean
 make install    # copies binary to /usr/local/bin
 make uninstall  # removes from /usr/local/bin
-make watch-check  # runs a real watch on a temp source: create, append, new directory, delete, no copy loop
+make watch-check  # real watch on a temp source (git and --no-git): file and directory changes, no copy loop
 ```
 
 To try the Linux (inotify) watcher from macOS, `make docker-test` builds the image, then runs `init` and `watch` in a container. `SOURCE` (default `test_watch`) is mounted read-only at `/source`, `DESTINATION` (default: a new `/tmp/autoversion_docker_test/<timestamp>-<random>` directory) at `/destination`. Stop it with Ctrl+C.
@@ -220,6 +220,8 @@ Run in foreground (useful for debugging):
 ```bash
 ./autoversion watch --source SOURCE_PATH --destination DEST_PATH [--dry-run] [--buffer-time SECONDS] [--log-dir DIR]
 ```
+
+A directory moved into, out of, or within the source, or created (Linux), is rescanned: its files are copied, and destination files no longer in the source are removed.
 
 The destination's marker is checked at startup only. If the destination disappears while watching (renamed, volume unmounted), `watch` exits with `destination disappeared: DEST_PATH` instead of recreating it; under launchd the restarted service then fails at the startup check until the destination is back.
 
