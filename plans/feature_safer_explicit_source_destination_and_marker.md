@@ -36,6 +36,7 @@
 | `filter` | required | - | - |
 | `init` | required | required | creates / updates |
 | `sync`, `watch` | required | required | required, must match S |
+| `watch --report-only` | required | - | - |
 | `install` | required | required | required, must match S |
 | `check-paths` | required | required | reported, missing or mismatch is an error |
 | `uninstall`, `install-check`, `status` (detail) | required | required | not checked, must work when D is gone |
@@ -127,8 +128,9 @@ check (D is the repo now), and the silent create + git init in
 
 ## launchd
 
-- `generatePlist` emits `watch --source S --destination D …`; the positional
-  source and the `basePath` comment go away.
+- `generatePlist` emits `watch --source S --destination D --log-dir <dir> …`;
+  the positional source and the `basePath` comment go away. `--log-dir` is
+  unchanged.
 - `parsePlistPaths` reads the values after `--source` and `--destination`.
   An old-format plist fails to parse: `status` lists it without a source and
   `install` skips the collision check, same as for any parse error today.
@@ -183,7 +185,8 @@ and to "destination" in user-facing messages. "base" disappears.
 
 Each destination is set to the job's current computed target, so the
 existing repos and their history are used in place and the job IDs don't
-change.
+change. The log directories (`~/Library/Logs/autoversion/<job id>`, with
+their rotated files) are derived from the job ID, so they don't move either.
 
 | source | destination | flags |
 |---|---|---|
