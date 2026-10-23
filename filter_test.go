@@ -247,6 +247,37 @@ func TestShouldTrack_LargeFileReportedOnce(t *testing.T) {
 	}
 }
 
+func TestShouldTrack_VanishedFile(t *testing.T) {
+	oldDebug := debug
+	defer func() { debug = oldDebug }()
+	dir := t.TempDir()
+	vanished := filepath.Join(dir, "gone.txt")
+	excluded := filepath.Join(dir, "target", "debug", "incremental", "gone.o")
+
+	for _, d := range []bool{false, true} {
+		debug = d
+		out := captureStdout(t, func() {
+			for _, path := range []string{vanished, excluded} {
+				got, err := ShouldTrack(path, 10, false)
+				if err != nil || got {
+					t.Errorf("ShouldTrack(%q) = %v, %v, want false, nil", path, got, err)
+				}
+			}
+		})
+		// Only with --debug, and excluded paths are filtered before the file is looked up
+		want := 0
+		if d {
+			want = 1
+		}
+		if n := strings.Count(out, "skipping vanished file"); n != want {
+			t.Errorf("debug=%v: %d vanished file messages, want %d; output: %q", d, n, want, out)
+		}
+		if strings.Contains(out, "gone.o") {
+			t.Errorf("debug=%v: excluded path reported: %q", d, out)
+		}
+	}
+}
+
 func TestShouldTrack_Directory(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "filter_dir_test")
 	if err != nil {

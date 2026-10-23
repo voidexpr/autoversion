@@ -2,7 +2,7 @@
 
 **Status: done** in a530c9c. Existing installs got the new plist when they
 were reinstalled by the source/destination migration (2026-10-23), and the
-oversized logs are gone. One follow-up, see the end.
+oversized logs are gone. One follow-up, see the end (done too).
 
 ## Problem
 
@@ -67,7 +67,7 @@ the launcher (rebuilding it needs a new Full Disk Access grant).
 - A large file is reported once, not on every event.
 - No color codes when writing to a file.
 
-## Follow-up: vanished files logged as errors (open)
+## Follow-up: vanished files logged as errors (done)
 
 Found 2026-10-23, a few hours after the migration: the `SyncDatabox_nicmac_projects`
 jobs' `stderr.log` had 1321 and 381 lines, all
@@ -77,6 +77,6 @@ incremental builds create and delete those files quickly. `ShouldTrack`
 file already gone returns an error, which `watch` logs, even though
 `target/debug/` is excluded.
 
-Fix to discuss: apply `--exclude-dir` and the patterns before the `Lstat`, and
-treat a file that no longer exists as not tracked without logging an error
-(its delete event follows).
+Fix: `ShouldTrack` applies `--exclude-dir` and the patterns before the
+`Lstat`, and treats a file that no longer exists as not tracked (its delete
+event follows), printing `skipping vanished file` only with `--debug`.

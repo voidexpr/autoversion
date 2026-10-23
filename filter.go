@@ -146,51 +146,72 @@ func IsExcludedDir(path string) bool {
 // maxSizeMB is the maximum file size in megabytes (0 = no limit)
 // isDelete should be true if checking a deleted file (skips file existence checks)
 func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
-	if !isDelete {
-		// Get file info
-		info, err := os.Lstat(path)
-		if err != nil {
-			return false, err
-		}
+	// Path filters first: they need no file access, and excluded files are
+	// often temporary ones already gone (e.g. build outputs)
+	if !matchesPathFilters(path) {
+		return false, nil
+	}
 
-		// Exclude directories
-		if info.Mode().IsDir() {
+	// For delete events, rely on the path filters only
+	if isDelete {
+		return true, nil
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Removed before its event was handled, its delete event follows
+			if debug {
+				logSkip("[%s] skipping vanished file: %s\n", nowTS(), path)
+			}
 			return false, nil
 		}
+		return false, err
+	}
 
-		// Check file size
-		if maxSizeMB > 0 {
-			maxBytes := maxSizeMB * 1024 * 1024
-			if info.Size() > maxBytes {
-				if !reportedLargeFiles[path] {
-					reportedLargeFiles[path] = true
-					logSkip("[%s] skipping large file: %s (%d MB > %d MB)\n",
-						nowTS(), path, info.Size()/1024/1024, maxSizeMB)
-				}
-				return false, nil
+	// Exclude directories
+	if info.Mode().IsDir() {
+		return false, nil
+	}
+
+	// Check file size
+	if maxSizeMB > 0 {
+		maxBytes := maxSizeMB * 1024 * 1024
+		if info.Size() > maxBytes {
+			if !reportedLargeFiles[path] {
+				reportedLargeFiles[path] = true
+				logSkip("[%s] skipping large file: %s (%d MB > %d MB)\n",
+					nowTS(), path, info.Size()/1024/1024, maxSizeMB)
 			}
-		}
-	}
-	// For delete events, rely on pattern matching only
-
-	if IsExcludedPath(path) {
-		return false, nil
-	}
-
-	// A marker at the source root would overwrite the destination's marker
-	if sourceRoot != "" && path == filepath.Join(sourceRoot, markerFileName) {
-		return false, nil
-	}
-
-	if len(includeExtensions) > 0 {
-		return includeExtensions[filepath.Ext(path)], nil
-	}
-
-	for _, pattern := range excludePatterns {
-		if pattern.MatchString(path) {
 			return false, nil
 		}
 	}
 
 	return true, nil
+}
+
+// matchesPathFilters applies the filters that only look at the path:
+// --exclude-dir, the source root marker, then --only-include-extensions or
+// the built-in patterns
+func matchesPathFilters(path string) bool {
+	if IsExcludedPath(path) {
+		return false
+	}
+
+	// A marker at the source root would overwrite the destination's marker
+	if sourceRoot != "" && path == filepath.Join(sourceRoot, markerFileName) {
+		return false
+	}
+
+	if len(includeExtensions) > 0 {
+		return includeExtensions[filepath.Ext(path)]
+	}
+
+	for _, pattern := range excludePatterns {
+		if pattern.MatchString(path) {
+			return false
+		}
+	}
+
+	return true
 }
