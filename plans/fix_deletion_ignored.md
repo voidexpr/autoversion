@@ -11,8 +11,9 @@ detected fine, which hid the problem.
 ## Repro
 
 ```
-mkdir -p /tmp/av/src /tmp/av/base
-./autoversion watch --debug --no-git --buffer-time 1 --base /tmp/av/base /tmp/av/src &
+mkdir -p /tmp/av/src
+./autoversion init --no-git --source /tmp/av/src --destination /tmp/av/dst
+./autoversion watch --debug --no-git --buffer-time 1 --source /tmp/av/src --destination /tmp/av/dst &
 echo hi > /tmp/av/src/file.txt   # detected, copied
 sleep 3
 rm /tmp/av/src/file.txt          # ignored
