@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
+
+// errWatchLimit is returned when the inotify watch limit (one watch per directory) is reached
+var errWatchLimit = errors.New("inotify watch limit reached")
 
 // EventType represents the type of file system event
 type EventType int

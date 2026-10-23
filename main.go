@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -480,7 +481,7 @@ var filterCmd = &cobra.Command{
 			}
 
 			if info.IsDir() {
-				if IsExcludedPath(path) {
+				if IsExcludedDir(path) {
 					return filepath.SkipDir
 				}
 				return nil
@@ -622,6 +623,20 @@ var watchCmd = &cobra.Command{
 		// Create event buffer
 		buffer := NewEventBuffer()
 
+		// flushAll processes all remaining buffered events before exiting
+		flushAll := func() error {
+			events := buffer.Flush(0)
+			if len(events) == 0 {
+				return nil
+			}
+			fmt.Println("Processing remaining events...")
+			if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
+				logError("Error processing final events: %v", err)
+				return err
+			}
+			return nil
+		}
+
 		// Setup signal handling for graceful shutdown
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -689,6 +704,13 @@ var watchCmd = &cobra.Command{
 
 			case err := <-watcher.Errors():
 				logError("Watch error: %v", err)
+				if errors.Is(err, errWatchLimit) {
+					// New directories would go unwatched: stop instead of running partially
+					if flushErr := flushAll(); flushErr != nil {
+						return flushErr
+					}
+					return err
+				}
 
 			case <-ticker.C:
 				// Flush events older than buffer time
@@ -715,14 +737,8 @@ var watchCmd = &cobra.Command{
 
 			case <-sigChan:
 				fmt.Println("\nShutting down...")
-				// Flush all remaining events
-				events := buffer.Flush(0)
-				if len(events) > 0 {
-					fmt.Println("Processing remaining events...")
-					if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
-						logError("Error processing final events: %v", err)
-						return err
-					}
+				if err := flushAll(); err != nil {
+					return err
 				}
 				fmt.Println("Done")
 				return nil
@@ -875,7 +891,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 			return nil
 		}
 		if info.IsDir() {
-			if IsExcludedPath(path) {
+			if IsExcludedDir(path) {
 				return filepath.SkipDir
 			}
 			return nil

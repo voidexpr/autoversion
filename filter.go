@@ -119,6 +119,26 @@ func IsExcludedPath(path string) bool {
 	return false
 }
 
+// IsExcludedDir returns true if nothing under the directory can be tracked, so
+// walks and watchers can skip it entirely. The built-in patterns match full
+// paths, so a pattern matching "dir/" also matches every file below it.
+// --only-include-extensions bypasses the patterns: then only --exclude-dir applies.
+func IsExcludedDir(path string) bool {
+	if IsExcludedPath(path) {
+		return true
+	}
+	if len(includeExtensions) > 0 {
+		return false
+	}
+	dirPath := path + string(filepath.Separator)
+	for _, pattern := range excludePatterns {
+		if pattern.MatchString(dirPath) {
+			return true
+		}
+	}
+	return false
+}
+
 // ShouldTrack returns true if the file should be tracked based on filters.
 // maxSizeMB is the maximum file size in megabytes (0 = no limit)
 // isDelete should be true if checking a deleted file (skips file existence checks)

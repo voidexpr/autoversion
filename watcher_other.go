@@ -3,9 +3,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -66,7 +69,13 @@ func (w *Watcher) processFSNotifyEvents() {
 			if err == nil && info.IsDir() {
 				// If a new directory was created, add it and all subdirectories to watch list
 				if event.Op&fsnotify.Create == fsnotify.Create {
-					w.addRecursive(event.Name)
+					if err := w.addRecursive(event.Name); err != nil {
+						select {
+						case w.errors <- err:
+						case <-w.done:
+							return
+						}
+					}
 				}
 				// Don't send directory events
 				continue
@@ -110,9 +119,13 @@ func (w *Watcher) processFSNotifyEvents() {
 	}
 }
 
-// addRecursive adds a directory and all subdirectories to the watcher (fsnotify only)
+// addRecursive adds a directory and all subdirectories to the watcher (fsnotify only).
+// Once the inotify watch limit is reached no more watches are added; the walk
+// goes on only to count the directories left unwatched, and an errWatchLimit
+// error reports both counts.
 func (w *Watcher) addRecursive(path string) error {
-	return filepath.Walk(path, func(walkPath string, info os.FileInfo, err error) error {
+	unwatched := 0
+	err := filepath.Walk(path, func(walkPath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors, continue walking
 		}
@@ -123,7 +136,7 @@ func (w *Watcher) addRecursive(path string) error {
 				return filepath.SkipDir
 			}
 
-			if IsExcludedPath(walkPath) {
+			if IsExcludedDir(walkPath) {
 				return filepath.SkipDir
 			}
 
@@ -132,8 +145,17 @@ func (w *Watcher) addRecursive(path string) error {
 				return nil
 			}
 
+			if unwatched > 0 {
+				unwatched++
+				return nil
+			}
+
 			// Add directory to watcher
 			if err := w.fsnotifyWatcher.Add(walkPath); err != nil {
+				if errors.Is(err, syscall.ENOSPC) {
+					unwatched = 1
+					return nil
+				}
 				fmt.Fprintf(os.Stderr, "Warning: failed to watch %s: %v\n", walkPath, err)
 			} else {
 				w.watched[walkPath] = true
@@ -142,4 +164,21 @@ func (w *Watcher) addRecursive(path string) error {
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if unwatched > 0 {
+		return fmt.Errorf("%w (fs.inotify.max_user_watches=%s, shared by all processes of this user): %d directories watched, %d more under %s need a watch. Raise the limit or skip directories with --exclude-dir (see README, Linux)",
+			errWatchLimit, inotifyWatchLimit(), len(w.watched), unwatched, path)
+	}
+	return nil
+}
+
+// inotifyWatchLimit returns the fs.inotify.max_user_watches value, or "?" if it can't be read
+func inotifyWatchLimit() string {
+	data, err := os.ReadFile("/proc/sys/fs/inotify/max_user_watches")
+	if err != nil {
+		return "?"
+	}
+	return strings.TrimSpace(string(data))
 }

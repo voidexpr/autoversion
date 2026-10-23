@@ -170,6 +170,18 @@ The `install`, `uninstall`, and `status` commands are macOS-only — they rely o
 
 Use systemd, screen, or tmux to keep it running in the background.
 
+#### inotify watch limit
+
+On Linux, `watch` uses inotify, which needs one watch per directory (excluded directories don't use one). The number of watches per user, shared by all of that user's processes, is limited by `fs.inotify.max_user_watches` (often 8192). When the limit is reached, `watch` stops with an error giving the limit and how many directories still need a watch, at startup or when a new directory is created later. Check and raise the limit:
+
+```bash
+cat /proc/sys/fs/inotify/max_user_watches
+find SOURCE_PATH -type d | wc -l     # upper bound, also counts excluded directories
+sudo sysctl -w fs.inotify.max_user_watches=524288
+```
+
+Each watch in use takes about 1 KB of kernel memory. `sysctl -w` doesn't survive a reboot: put `fs.inotify.max_user_watches=524288` in `/etc/sysctl.d/`, or on Synology DSM add a triggered boot-up task in Task Scheduler (user root) that runs the `sysctl -w` command. Alternatively, skip large directories with `--exclude-dir`.
+
 ### watch
 
 Run in foreground (useful for debugging):
@@ -247,6 +259,8 @@ Autoversion excludes:
 **Directories:** `.git/`, `node_modules/`, `__pycache__/`, `.venv/`, `target/debug/`
 
 **Other:** Symlinks, files > 10MB (configurable), vim temp files
+
+Directories matched by these exclusions or by `--exclude-dir` are skipped entirely: scans don't walk into them, and on Linux they don't use an inotify watch. With `--only-include-extensions` the built-in exclusions don't apply, so only `.git` and `--exclude-dir` directories are skipped.
 
 ## Configuration
 

@@ -310,6 +310,63 @@ func TestShouldTrack_ExcludeDirs(t *testing.T) {
 	}
 }
 
+func TestIsExcludedDir(t *testing.T) {
+	oldExcludeDirs := excludeDirs
+	oldSourceRoot := sourceRoot
+	oldIncludeExtensions := includeExtensions
+	defer func() {
+		excludeDirs = oldExcludeDirs
+		sourceRoot = oldSourceRoot
+		includeExtensions = oldIncludeExtensions
+	}()
+
+	root := "/src"
+	SetSourceRoot(root)
+	if err := SetExcludeDirs([]string{"Backup"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		dir  string
+		want bool
+	}{
+		{"project", false},
+		{"project/src", false},
+		{"project/builder", false},
+		{"Backups", false},
+		{"project/node_modules", true},
+		{"project/node_modules/pkg", true},
+		{"project/.venv", true},
+		{"project/__pycache__", true},
+		{"project/build", true},
+		{"project/.git", true},
+		{"Backup", true},
+		{"Backup/sub", true},
+	}
+	for _, tt := range tests {
+		dir := filepath.Join(root, tt.dir)
+		if got := IsExcludedDir(dir); got != tt.want {
+			t.Errorf("IsExcludedDir(%q) = %v, want %v", tt.dir, got, tt.want)
+		}
+		// A skipped directory must not contain files ShouldTrack would accept
+		if tt.want {
+			if track, _ := ShouldTrack(filepath.Join(dir, "file.txt"), 0, true); track {
+				t.Errorf("IsExcludedDir(%q) is true but ShouldTrack accepts a file in it", tt.dir)
+			}
+		}
+	}
+
+	t.Run("include extensions bypass built-in patterns", func(t *testing.T) {
+		SetIncludeExtensions("md")
+		if IsExcludedDir(filepath.Join(root, "project/node_modules")) {
+			t.Error("node_modules excluded although --only-include-extensions bypasses patterns")
+		}
+		if !IsExcludedDir(filepath.Join(root, "Backup")) {
+			t.Error("--exclude-dir Backup not excluded with --only-include-extensions")
+		}
+	})
+}
+
 func TestIsExcludedPath(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "excluded_path_test")
 	if err != nil {
