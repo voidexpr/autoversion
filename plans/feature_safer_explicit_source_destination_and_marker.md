@@ -1,5 +1,16 @@
 # Plan: explicit --source / --destination and a destination marker
 
+**Status: done** in 0eb0caf, docker targets in 5bf1793. The 5 launchd jobs
+were migrated on 2026-10-23. Differences from the plan:
+- `resolvePath` resolves the nearest existing parent of a path that doesn't
+  exist yet, so a destination resolves the same before and after `init`.
+- `watch` exits with `destination disappeared: <D>`.
+- `status` without flags lists the destination of each job too.
+- `init` on an initialized destination still adds a missing git or restic
+  repository.
+- Makefile `docker-test` / `docker-shell` take `SOURCE` / `DESTINATION`
+  (default source `test_watch`), and the image sets a git identity.
+
 ## Problem
 
 - The CLI takes the source as a positional argument and `--base` as a flag.
