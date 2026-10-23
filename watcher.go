@@ -76,4 +76,3 @@ func (w *Watcher) Events() <-chan FileEvent {
 func (w *Watcher) Errors() <-chan error {
 	return w.errors
 }
-

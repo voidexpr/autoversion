@@ -11,9 +11,9 @@ import (
 )
 
 func logAndErr(format string, args ...interface{}) error {
-    err := fmt.Errorf(format, args...)
-    logError("Error: %v", err)
-    return err
+	err := fmt.Errorf(format, args...)
+	logError("Error: %v", err)
+	return err
 }
 
 // runGit runs a git command and prints its output
@@ -100,7 +100,13 @@ func Add(repoPath string, paths []string, debug bool) error {
 
 // Commit creates a commit with the given message, with retry logic
 func Commit(repoPath string, message string) error {
-	output, err := runGit(repoPath, "commit", ".", "-m", message)
+	return CommitPaths(repoPath, message, ".")
+}
+
+// CommitPaths commits the changes to the given paths only
+func CommitPaths(repoPath string, message string, paths ...string) error {
+	args := append([]string{"commit", "-m", message, "--"}, paths...)
+	output, err := runGit(repoPath, args...)
 	if err != nil {
 		// Check if it's because there's nothing to commit
 		if strings.Contains(output, "nothing to commit") {
@@ -113,7 +119,8 @@ func Commit(repoPath string, message string) error {
 	return nil
 }
 
-// Remove removes files from the target directory (and from git if enabled)
+// Remove removes files from the destination directory (and from git if enabled).
+// Returns an errDestMissing error if the destination itself is gone.
 func Remove(repoPath string, paths []string, debug bool) error {
 	if len(paths) == 0 {
 		if debug {
@@ -125,6 +132,9 @@ func Remove(repoPath string, paths []string, debug bool) error {
 	if !noGit {
 		if err := runGitBatched(repoPath,
 			[]string{"rm", "-r", "--ignore-unmatch", "-f", "--"}, paths); err != nil {
+			if missingErr := checkDestExists(repoPath); missingErr != nil {
+				return missingErr
+			}
 			return logAndErr("git rm failed: %v", err)
 		}
 	}
@@ -140,7 +150,10 @@ func Remove(repoPath string, paths []string, debug bool) error {
 				fmt.Fprintf(os.Stderr, "DEBUG Remove: deleted %s\n", relPath)
 			}
 		case os.IsNotExist(rmErr):
-			// already gone
+			// already gone, unless the whole destination is
+			if missingErr := checkDestExists(repoPath); missingErr != nil {
+				return missingErr
+			}
 		case errors.Is(rmErr, syscall.ENOTEMPTY):
 			// FSEvents can deliver a directory's delete before its
 			// children's; those later events drain the directory.
@@ -164,4 +177,3 @@ func IsGitRepo(repoPath string) bool {
 	}
 	return info.IsDir()
 }
-

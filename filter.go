@@ -177,6 +177,11 @@ func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
 		return false, nil
 	}
 
+	// A marker at the source root would overwrite the destination's marker
+	if sourceRoot != "" && path == filepath.Join(sourceRoot, markerFileName) {
+		return false, nil
+	}
+
 	if len(includeExtensions) > 0 {
 		return includeExtensions[filepath.Ext(path)], nil
 	}

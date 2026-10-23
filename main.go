@@ -20,102 +20,36 @@ const (
 
 var (
 	// Global flags
-	basePath   string
+	sourceFlag string
+	destFlag   string
 	debug      bool
 	noGit      bool
 	useRestic  bool
 	errLogFlag string
 
 	// Command-specific flags
-	maxFileSize    int64
-	bufferTime     int
-	dryRun         bool
-	reportOnly     bool
-	noLogin        bool
-	logDirFlag     string
+	maxFileSize     int64
+	bufferTime      int
+	dryRun          bool
+	reportOnly      bool
+	noLogin         bool
+	logDirFlag      string
+	forceNewSource  bool
+	forceObliterate bool
 	includeExtsFlag string
 	excludeDirsFlag []string
 )
 
-// longestCommonDir returns the longest common directory path between two absolute paths
-func longestCommonDir(a, b string) string {
-	aParts := strings.Split(filepath.Clean(a), string(filepath.Separator))
-	bParts := strings.Split(filepath.Clean(b), string(filepath.Separator))
-
-	var common []string
-	for i := 0; i < len(aParts) && i < len(bParts); i++ {
-		if aParts[i] == bParts[i] {
-			common = append(common, aParts[i])
-		} else {
-			break
-		}
+// requirePaths returns an error unless --source, and --destination when
+// needDest is set, were given
+func requirePaths(needDest bool) error {
+	if sourceFlag == "" {
+		return fmt.Errorf("--source is required")
 	}
-
-	if len(common) <= 1 {
-		return string(filepath.Separator)
+	if needDest && destFlag == "" {
+		return fmt.Errorf("--destination is required")
 	}
-	return strings.Join(common, string(filepath.Separator))
-}
-
-// computeTargetPath computes the target path from base and source path
-// For source under $HOME: target = base + (source - $HOME)
-// For source outside $HOME with common ancestor: target = base + (source - commonAncestor)
-// For source outside $HOME with no common ancestor: target = base + source
-func computeTargetPath(base, sourcePath string) (string, error) {
-	absSource, err := filepath.Abs(sourcePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute source path: %v", err)
-	}
-
-	absBase, err := filepath.Abs(base)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute base path: %v", err)
-	}
-
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %v", err)
-	}
-
-	var relPath string
-
-	// Case 1: Source is under home directory
-	if strings.HasPrefix(absSource, homeDir+string(filepath.Separator)) || absSource == homeDir {
-		relPath, err = filepath.Rel(homeDir, absSource)
-		if err != nil {
-			return "", fmt.Errorf("failed to compute relative path: %v", err)
-		}
-	} else {
-		// Case 2: Source is outside HOME
-		// Check if base and source share a common ancestor
-		commonDir := longestCommonDir(absBase, absSource)
-
-		if commonDir != string(filepath.Separator) {
-			// They share a common ancestor - use relative path from there
-			relPath, err = filepath.Rel(commonDir, absSource)
-			if err != nil {
-				// Fallback to full path
-				relPath = strings.TrimPrefix(absSource, string(filepath.Separator))
-			}
-		} else {
-			// No common ancestor - use full path structure
-			relPath = strings.TrimPrefix(absSource, string(filepath.Separator))
-		}
-	}
-
-	target := filepath.Join(absBase, relPath)
-
-	if debug {
-		fmt.Printf("computeTargetPath:\n")
-		fmt.Printf("  base:      '%s'\n", base)
-		fmt.Printf("  absBase:   '%s'\n", absBase)
-		fmt.Printf("  source:    '%s'\n", sourcePath)
-		fmt.Printf("  absSource: '%s'\n", absSource)
-		fmt.Printf("  homeDir:   '%s'\n", homeDir)
-		fmt.Printf("  relPath:   '%s'\n", relPath)
-		fmt.Printf("  target:    '%s'\n", target)
-	}
-	return target, nil
+	return nil
 }
 
 // isDirEmpty returns true if the directory exists and contains no entries
@@ -127,71 +61,6 @@ func isDirEmpty(path string) bool {
 	return len(entries) == 0
 }
 
-// validateTargetPath validates that the target is initialized as a git repository
-// If target doesn't exist, creates it and initializes as git repo
-// If target exists but is not a git repo, returns error
-// In dry-run mode, only prints warnings instead of creating/erroring
-func validateTargetPath(targetPath, basePath, sourcePath string, dryRun bool) error {
-	// Check if target directory exists
-	info, err := os.Stat(targetPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Target doesn't exist - create and initialize
-			if dryRun {
-				fmt.Fprintf(os.Stderr, "dry-run: would create and initialize %s\n", targetPath)
-				return nil
-			}
-
-			fmt.Printf("Creating target directory: %s\n", targetPath)
-			if err := EnsureDir(targetPath); err != nil {
-				return fmt.Errorf("failed to create target directory: %v", err)
-			}
-
-			// Initialize git if enabled (not disabled with --no-git)
-			if !noGit {
-				fmt.Printf("Initializing git repository at %s\n", targetPath)
-				if err := Init(targetPath, debug); err != nil {
-					return fmt.Errorf("failed to initialize git repository: %v", err)
-				}
-			}
-
-			// Initialize restic if enabled
-			if useRestic {
-				if err := InitRestic(targetPath, debug); err != nil {
-					return fmt.Errorf("failed to initialize restic: %v", err)
-				}
-			}
-
-			return nil
-		}
-		return fmt.Errorf("failed to stat target path: %v", err)
-	}
-
-	// Target exists - check if it's a directory
-	if !info.IsDir() {
-		return fmt.Errorf("target path exists but is not a directory: %s", targetPath)
-	}
-
-	// Target directory exists - if non-empty, must be a git repo (if git is not disabled)
-	if !noGit && !IsGitRepo(targetPath) && !isDirEmpty(targetPath) {
-		return fmt.Errorf("%s exists with files but is not a git repository", targetPath)
-	}
-
-	// Initialize restic if enabled and not already initialized
-	if useRestic && !IsResticRepo(targetPath) {
-		if dryRun {
-			fmt.Fprintf(os.Stderr, "dry-run: would initialize restic for %s\n", targetPath)
-		} else {
-			if err := InitRestic(targetPath, debug); err != nil {
-				return fmt.Errorf("failed to initialize restic: %v", err)
-			}
-		}
-	}
-
-	return nil
-}
-
-// verifyPaths verifies that source and target paths are safe to use
 func hasPathPrefix(path, prefix string) bool {
 	return strings.HasPrefix(
 		path+string(os.PathSeparator),
@@ -199,7 +68,8 @@ func hasPathPrefix(path, prefix string) bool {
 	)
 }
 
-func verifyPaths(absSourcePath, absTargetPath string) error {
+// verifyPaths verifies that source and destination paths are safe to use
+func verifyPaths(absSourcePath, absDestPath string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %v", err)
@@ -211,7 +81,7 @@ func verifyPaths(absSourcePath, absTargetPath string) error {
 		name string
 	}{
 		{absSourcePath, "source"},
-		{absTargetPath, "target"},
+		{absDestPath, "destination"},
 	}
 
 	for _, p := range dangerousPaths {
@@ -223,17 +93,17 @@ func verifyPaths(absSourcePath, absTargetPath string) error {
 		}
 	}
 
-	// Check if one path contains the other
-	if hasPathPrefix(absSourcePath, absTargetPath) {
-		return fmt.Errorf("source path (%s) cannot be inside target path (%s)", absSourcePath, absTargetPath)
-	}
-	if hasPathPrefix(absTargetPath, absSourcePath) {
-		return fmt.Errorf("target path (%s) cannot be inside source path (%s)", absTargetPath, absSourcePath)
+	// Check exact match
+	if absSourcePath == absDestPath {
+		return fmt.Errorf("source and destination paths cannot be the same (%s)", absSourcePath)
 	}
 
-	// Check exact match
-	if absSourcePath == absTargetPath {
-		return fmt.Errorf("source and target paths cannot be the same")
+	// Check if one path contains the other
+	if hasPathPrefix(absSourcePath, absDestPath) {
+		return fmt.Errorf("source path (%s) cannot be inside destination path (%s)", absSourcePath, absDestPath)
+	}
+	if hasPathPrefix(absDestPath, absSourcePath) {
+		return fmt.Errorf("destination path (%s) cannot be inside source path (%s)", absDestPath, absSourcePath)
 	}
 
 	return nil
@@ -263,36 +133,43 @@ func resolveSourcePath(sourcePath string) (string, error) {
 	return absSourcePath, nil
 }
 
-// resolvePath resolves symlinks and returns the absolute real path
-// If the path doesn't exist, returns the absolute path without resolving symlinks
+// resolvePath returns the absolute path with symlinks resolved. For a path
+// that doesn't exist yet, its nearest existing parent is resolved, so the
+// result is the same before and after the path is created.
 func resolvePath(path string) (string, error) {
-	// First get absolute path
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get absolute path: %v", err)
 	}
 
-	// Check if path exists
-	if _, err := os.Lstat(absPath); os.IsNotExist(err) {
-		// Path doesn't exist - return absolute path without resolving
-		return absPath, nil
+	existing, rest := absPath, ""
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("failed to stat %s: %v", existing, err)
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return absPath, nil
+		}
+		rest = filepath.Join(filepath.Base(existing), rest)
+		existing = parent
 	}
 
-	// Path exists - resolve any symlinks
-	realPath, err := filepath.EvalSymlinks(absPath)
+	realPath, err := filepath.EvalSymlinks(existing)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve symlinks: %v", err)
 	}
 
-	return realPath, nil
+	return filepath.Join(realPath, rest), nil
 }
 
-// hasGitInParents checks if any parent directory of path contains a .git directory
-func hasGitInParents(path string) (string, bool) {
+// findInParents returns the first parent directory of path that contains name
+func findInParents(path, name string) (string, bool) {
 	current := filepath.Dir(path) // start from parent, not the path itself
 	for current != "/" && current != "." {
-		gitPath := filepath.Join(current, ".git")
-		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+		if _, err := os.Lstat(filepath.Join(current, name)); err == nil {
 			return current, true
 		}
 		parent := filepath.Dir(current)
@@ -302,154 +179,6 @@ func hasGitInParents(path string) (string, bool) {
 		current = parent
 	}
 	return "", false
-}
-
-// PathValidationResult contains the results of path validation
-type PathValidationResult struct {
-	SourceInput    string
-	SourceResolved string
-	BaseInput      string
-	BaseResolved   string
-	TargetComputed string
-	Errors         []string
-}
-
-// ValidateSourceAndBase validates that source and base paths are compatible
-// Returns resolved paths and any validation errors
-func ValidateSourceAndBase(sourcePath, basePath string) (*PathValidationResult, error) {
-	result := &PathValidationResult{
-		SourceInput: sourcePath,
-		BaseInput:   basePath,
-	}
-
-	// Resolve source path
-	absSource, err := filepath.Abs(sourcePath)
-	if err != nil {
-		return result, fmt.Errorf("failed to get absolute source path: %v", err)
-	}
-
-	// Check source exists and is a directory
-	sourceInfo, err := os.Stat(absSource)
-	if err != nil {
-		if os.IsNotExist(err) {
-			result.Errors = append(result.Errors, fmt.Sprintf("source path does not exist: %s", absSource))
-		} else {
-			return result, fmt.Errorf("failed to stat source path: %v", err)
-		}
-	} else if !sourceInfo.IsDir() {
-		result.Errors = append(result.Errors, fmt.Sprintf("source path is not a directory: %s", absSource))
-	}
-
-	resolvedSource, err := resolvePath(absSource)
-	if err != nil {
-		return result, fmt.Errorf("failed to resolve source path: %v", err)
-	}
-	result.SourceResolved = resolvedSource
-
-	// Resolve base path
-	absBase, err := filepath.Abs(basePath)
-	if err != nil {
-		return result, fmt.Errorf("failed to get absolute base path: %v", err)
-	}
-
-	// Check base exists and is a directory
-	baseInfo, err := os.Stat(absBase)
-	if err != nil {
-		if os.IsNotExist(err) {
-			result.Errors = append(result.Errors, fmt.Sprintf("base path does not exist: %s", absBase))
-		} else {
-			return result, fmt.Errorf("failed to stat base path: %v", err)
-		}
-	} else if !baseInfo.IsDir() {
-		result.Errors = append(result.Errors, fmt.Sprintf("base path is not a directory: %s", absBase))
-	}
-
-	resolvedBase, err := resolvePath(absBase)
-	if err != nil {
-		return result, fmt.Errorf("failed to resolve base path: %v", err)
-	}
-	result.BaseResolved = resolvedBase
-
-	// If either path doesn't exist, skip further validation that depends on resolved paths
-	if len(result.Errors) > 0 {
-		return result, nil
-	}
-
-	// Compute target path
-	target, err := computeTargetPath(resolvedBase, resolvedSource)
-	if err != nil {
-		return result, fmt.Errorf("failed to compute target path: %v", err)
-	}
-	result.TargetComputed = target
-
-	// Validation checks
-
-	// Check 1: base and source can't be the same
-	if resolvedSource == resolvedBase {
-		result.Errors = append(result.Errors, fmt.Sprintf("source and base paths cannot be the same (%s)", resolvedSource))
-	}
-
-	// Check 2: source can't be within base
-	if hasPathPrefix(resolvedSource, resolvedBase) {
-		result.Errors = append(result.Errors, fmt.Sprintf("source path (%s) cannot be inside base path (%s)", resolvedSource, resolvedBase))
-	}
-
-	// Check 3: base can't be within source
-	if hasPathPrefix(resolvedBase, resolvedSource) {
-		result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) cannot be inside source path (%s)", resolvedBase, resolvedSource))
-	}
-
-	// Checks 4-6 only apply when git is enabled
-	if !noGit {
-		// Check 4: base directory itself can't be a git repository
-		gitDir := filepath.Join(resolvedBase, ".git")
-		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-			result.Errors = append(result.Errors, fmt.Sprintf("base path (%s) is a git repository - autoversion creates subdirectories with their own git repos", resolvedBase))
-		}
-
-		// Check 5: no parent of base can have a .git repository
-		if gitParent, found := hasGitInParents(resolvedBase); found {
-			result.Errors = append(result.Errors, fmt.Sprintf("base path has a parent with .git repository (%s) - this would create nested git repos", gitParent))
-		}
-
-		// Check 6: if target exists and is non-empty, it must be a git repo
-		if targetInfo, err := os.Stat(target); err == nil && targetInfo.IsDir() {
-			if !IsGitRepo(target) && !isDirEmpty(target) {
-				result.Errors = append(result.Errors, fmt.Sprintf("target path (%s) exists with files but is not a git repository", target))
-			}
-		}
-	}
-
-	return result, nil
-}
-
-// validatePaths validates source and base paths, computes target, and verifies everything
-// Returns absolute source path (with symlinks resolved) and target path, or an error
-func validatePaths(sourcePath, basePath string, dryRun bool) (absSourcePath, targetPath string, err error) {
-	// Run comprehensive source/base validation
-	result, err := ValidateSourceAndBase(sourcePath, basePath)
-	if err != nil {
-		return "", "", err
-	}
-
-	if len(result.Errors) > 0 {
-		return "", "", fmt.Errorf("path validation failed: %s", result.Errors[0])
-	}
-
-	absSourcePath = result.SourceResolved
-	targetPath = result.TargetComputed
-
-	// Validate target is initialized
-	if err := validateTargetPath(targetPath, result.BaseResolved, absSourcePath, dryRun); err != nil {
-		return "", "", err
-	}
-
-	// Verify additional path safety (HOME, root, etc.)
-	if err := verifyPaths(absSourcePath, targetPath); err != nil {
-		return "", "", err
-	}
-
-	return absSourcePath, targetPath, nil
 }
 
 var rootCmd = &cobra.Command{
@@ -463,11 +192,15 @@ making it easy to see what changed and restore files to any point in time.`,
 }
 
 var filterCmd = &cobra.Command{
-	Use:   "filter <source>",
+	Use:   "filter",
 	Short: "List files that would be tracked",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		absSourcePath, err := resolveSourcePath(args[0])
+		if err := requirePaths(false); err != nil {
+			return err
+		}
+
+		absSourcePath, err := resolveSourcePath(sourceFlag)
 		if err != nil {
 			return err
 		}
@@ -507,69 +240,48 @@ var filterCmd = &cobra.Command{
 }
 
 var initCmd = &cobra.Command{
-	Use:   "init <source>",
-	Short: "Initialize a git repository for version tracking",
-	Args:  cobra.ExactArgs(1),
+	Use:   "init",
+	Short: "Initialize a destination for a source",
+	Long: `Creates the destination if needed, initializes git (unless --no-git) and
+restic (with --restic), and writes the .autoversion marker naming the source.
+Commands that copy files (sync, watch, install) refuse a destination without
+a marker naming their source.
+
+The destination must be missing, empty, or already initialized for the source:
+  --force-new-source                use a non-empty destination, or one whose marker
+                                    names another source, keeping its contents and
+                                    git history. The next sync makes it match the
+                                    source.
+  --force-obliterate-yes-i-am-sure  remove everything in the destination, .git
+                                    included, then initialize it`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if basePath == "" {
-			return fmt.Errorf("--base is required")
-		}
-
-		sourcePath := args[0]
-
-		// Resolve source path symlinks
-		absSourcePath, err := resolvePath(sourcePath)
-		if err != nil {
-			return fmt.Errorf("failed to resolve source path: %v", err)
-		}
-
-		// Resolve base path symlinks
-		resolvedBasePath, err := resolvePath(basePath)
-		if err != nil {
-			return fmt.Errorf("failed to resolve base path: %v", err)
-		}
-
-		// Compute target path
-		targetPath, err := computeTargetPath(resolvedBasePath, absSourcePath)
-		if err != nil {
+		if err := requirePaths(true); err != nil {
 			return err
 		}
 
-		// Create directory if needed
-		if err := EnsureDir(targetPath); err != nil {
+		result, err := ValidateSourceAndDestination(sourceFlag, destFlag)
+		if err != nil {
 			return err
 		}
-
-		// Check if already initialized
-		gitDir := filepath.Join(targetPath, ".git")
-		if _, err := os.Stat(gitDir); err == nil {
-			fmt.Fprintf(os.Stderr, "Repository already initialized at %s\n", targetPath)
-			return nil
+		if len(result.Errors) > 0 {
+			return fmt.Errorf("path validation failed: %s", result.Errors[0])
 		}
 
-		// Initialize git repository
-		if err := Init(targetPath, debug); err != nil {
-			return err
-		}
-
-		fmt.Printf("Initialized git repository at %s\n", targetPath)
-		return nil
+		return initDestination(result.SourceResolved, result.DestinationResolved, forceNewSource, forceObliterate)
 	},
 }
 
 var syncCmd = &cobra.Command{
-	Use:   "sync <source>",
-	Short: "Sync source directory to target",
-	Args:  cobra.ExactArgs(1),
+	Use:   "sync",
+	Short: "Sync source directory to destination",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if basePath == "" {
-			return fmt.Errorf("--base is required")
+		if err := requirePaths(true); err != nil {
+			return err
 		}
 
-		sourcePath := args[0]
-
-		// Validate all paths and get absolute paths
-		absSourcePath, targetPath, err := validatePaths(sourcePath, basePath, dryRun)
+		absSourcePath, destPath, err := validatePaths(sourceFlag, destFlag)
 		if err != nil {
 			return err
 		}
@@ -577,7 +289,7 @@ var syncCmd = &cobra.Command{
 		SetSourceRoot(absSourcePath)
 
 		// Sync files
-		return scanPaths(absSourcePath, targetPath, maxFileSize, dryRun)
+		return scanPaths(absSourcePath, destPath, maxFileSize, dryRun)
 	},
 }
 
@@ -607,27 +319,25 @@ func logEvent(eventType EventType, path string, tracked bool) {
 }
 
 var watchCmd = &cobra.Command{
-	Use:   "watch <source>",
+	Use:   "watch",
 	Short: "Watch for changes in real-time",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if logDirFlag != "" {
 			redirectLogs(logDirFlag)
 		}
 
-		if basePath == "" && !reportOnly {
-			return fmt.Errorf("--base is required")
+		if err := requirePaths(!reportOnly); err != nil {
+			return err
 		}
 
-		sourcePath := args[0]
-
-		var absSourcePath, targetPath string
+		var absSourcePath, destPath string
 		var err error
 		if reportOnly {
-			absSourcePath, err = resolveSourcePath(sourcePath)
+			absSourcePath, err = resolveSourcePath(sourceFlag)
 		} else {
 			// Validate all paths and get absolute paths
-			absSourcePath, targetPath, err = validatePaths(sourcePath, basePath, dryRun)
+			absSourcePath, destPath, err = validatePaths(sourceFlag, destFlag)
 		}
 		if err != nil {
 			return err
@@ -638,7 +348,7 @@ var watchCmd = &cobra.Command{
 		// First, run scan to capture any missed changes
 		if !reportOnly {
 			fmt.Println("Initial scan...")
-			if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
+			if err := scanPaths(absSourcePath, destPath, maxFileSize, dryRun); err != nil {
 				return fmt.Errorf("initial scan failed: %w", err)
 			}
 		}
@@ -660,7 +370,7 @@ var watchCmd = &cobra.Command{
 				return nil
 			}
 			fmt.Println("Processing remaining events...")
-			if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
+			if err := processEvents(events, absSourcePath, destPath, dryRun); err != nil {
 				logError("Error processing final events: %v", err)
 				return err
 			}
@@ -699,9 +409,9 @@ var watchCmd = &cobra.Command{
 						continue
 					}
 					fmt.Printf("[%s] File system resync required - performing full scan\n", time.Now().Format("2006-01-02 15:04:05"))
-					if err := scanPaths(absSourcePath, targetPath, maxFileSize, dryRun); err != nil {
+					if err := scanPaths(absSourcePath, destPath, maxFileSize, dryRun); err != nil {
 						logError("Error during resync: %v", err)
-					return err
+						return err
 					}
 					continue
 				}
@@ -732,7 +442,7 @@ var watchCmd = &cobra.Command{
 				// Flush events older than buffer time
 				events := buffer.Flush(flushDuration)
 				if len(events) > 0 {
-					if err := processEvents(events, absSourcePath, targetPath, dryRun); err != nil {
+					if err := processEvents(events, absSourcePath, destPath, dryRun); err != nil {
 						logError("Error processing events: %v", err)
 						return err
 					}
@@ -742,14 +452,13 @@ var watchCmd = &cobra.Command{
 			case <-resticForgetTicker.C:
 				// Apply restic retention policy if conditions are met
 				if useRestic && !dryRun && hasEventsForRestic && time.Since(lastResticForget) >= 12*time.Hour {
-					if err := ForgetRestic(targetPath, debug); err != nil {
+					if err := ForgetRestic(destPath, debug); err != nil {
 						logError("Error applying restic retention policy: %v", err)
 					} else {
 						lastResticForget = time.Now()
 						hasEventsForRestic = false
 					}
 				}
-
 
 			case <-sigChan:
 				fmt.Println("\nShutting down...")
@@ -764,52 +473,27 @@ var watchCmd = &cobra.Command{
 }
 
 var checkPathsCmd = &cobra.Command{
-	Use:   "check-paths <source-path>",
-	Short: "Validate source and base paths",
-	Long: `Validates that source and base paths are compatible for autoversion.
+	Use:   "check-paths",
+	Short: "Validate source and destination paths",
+	Long: `Validates that source and destination paths are compatible for autoversion.
 
 Checks performed:
-- Source and base paths can't be the same
-- Source path can't be inside base path
-- Base path can't be inside source path
-- No parent directory of base can have a .git repository
+- Source and destination paths can't be the same, or HOME, or /
+- Neither path can be inside the other
+- The source can't contain a .autoversion marker (swapped paths)
+- No parent of the destination can contain a .autoversion marker, or a .git
+  repository unless --no-git
+- The destination must have a .autoversion marker naming the source (see init)
 
-Also shows how symlinks are resolved and what target path would be computed.`,
-	Args: cobra.ExactArgs(1),
+Also shows how symlinks are resolved.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		sourcePath := args[0]
-
-		if basePath == "" {
-			return fmt.Errorf("--base flag is required")
-		}
-
-		result, err := ValidateSourceAndBase(sourcePath, basePath)
-		if err != nil {
+		if err := requirePaths(true); err != nil {
 			return err
 		}
 
-		fmt.Println("Path Resolution:")
-		fmt.Printf("  source (input):    %s\n", result.SourceInput)
-		if result.SourceInput != result.SourceResolved {
-			fmt.Printf("  source (resolved): %s\n", result.SourceResolved)
-		} else {
-			fmt.Printf("  source (resolved): (no symlinks)\n")
-		}
-		fmt.Printf("  base (input):      %s\n", result.BaseInput)
-		if result.BaseInput != result.BaseResolved {
-			fmt.Printf("  base (resolved):   %s\n", result.BaseResolved)
-		} else {
-			fmt.Printf("  base (resolved):   (no symlinks)\n")
-		}
-		fmt.Printf("  target (computed): %s\n", result.TargetComputed)
-		fmt.Println()
-
-		if len(result.Errors) > 0 {
-			fmt.Println("Validation Errors:")
-			for _, e := range result.Errors {
-				fmt.Printf("  ✗ %s\n", e)
-			}
-			return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
+		if _, err := checkPaths(sourceFlag, destFlag); err != nil {
+			return err
 		}
 
 		fmt.Println("Validation: ✓ All checks passed")
@@ -819,7 +503,8 @@ Also shows how symlinks are resolved and what target path would be computed.`,
 
 func init() {
 	// Root-level persistent flags
-	rootCmd.PersistentFlags().StringVar(&basePath, "base", "", "base directory path")
+	rootCmd.PersistentFlags().StringVar(&sourceFlag, "source", "", "source directory to track")
+	rootCmd.PersistentFlags().StringVar(&destFlag, "destination", "", "destination directory, initialized by init")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&noGit, "no-git", false, "disable git versioning")
 	rootCmd.PersistentFlags().BoolVar(&useRestic, "restic", false, "enable restic backup")
@@ -830,6 +515,11 @@ func init() {
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 
+	// Init command flags
+	initCmd.Flags().BoolVar(&forceNewSource, "force-new-source", false, "use a non-empty destination or one initialized for another source, keeping its contents and git history")
+	initCmd.Flags().BoolVar(&forceObliterate, "force-obliterate-yes-i-am-sure", false, "remove everything in the destination, .git included, then initialize it")
+	initCmd.MarkFlagsMutuallyExclusive("force-new-source", "force-obliterate-yes-i-am-sure")
+
 	// Sync command flags
 	syncCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	syncCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
@@ -838,7 +528,7 @@ func init() {
 	watchCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	watchCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	watchCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
-	watchCmd.Flags().BoolVar(&reportOnly, "report-only", false, "only print file events: no --base needed, no initial scan, nothing copied")
+	watchCmd.Flags().BoolVar(&reportOnly, "report-only", false, "only print file events: no --destination needed, no initial scan, nothing copied")
 	watchCmd.Flags().StringVar(&logDirFlag, "log-dir", "", "write stdout.log and stderr.log in this directory, rotated by size (set by install)")
 
 	// Add commands to root
@@ -882,7 +572,7 @@ func formatSize(bytes int64) string {
 }
 
 // scanPaths scans directories, prints actions, and optionally executes them
-func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
+func scanPaths(source, dest string, maxFileSize int64, dryRun bool) error {
 	// Create filter function
 	filterFunc := func(path string, info os.FileInfo) bool {
 		// Skip all symlinks (both file and directory symlinks)
@@ -903,7 +593,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 	var totalChangedSize int64
 
 	// Walk source directory
-	filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
+	err := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
@@ -925,15 +615,15 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 		totalScannedSize += sourceInfo.Size
 
 		relPath, _ := filepath.Rel(source, path)
-		targetPath := filepath.Join(target, relPath)
+		destPath := filepath.Join(dest, relPath)
 
-		targetInfo := GetFileInfo(targetPath)
+		destInfo := GetFileInfo(destPath)
 
-		if !FilesEqual(sourceInfo, targetInfo) {
-			fmt.Printf("copy '%s' to '%s'\n", path, targetPath)
+		if !FilesEqual(sourceInfo, destInfo) {
+			fmt.Printf("copy '%s' to '%s'\n", path, destPath)
 			totalChangedSize += sourceInfo.Size
 
-			if targetInfo.Exists {
+			if destInfo.Exists {
 				filesToUpdate = append(filesToUpdate, path)
 			} else {
 				filesToCopy = append(filesToCopy, path)
@@ -941,7 +631,10 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 
 			// Execute if not dry run
 			if !dryRun {
-				if _, err := CopyFile(path, source, target, debug); err != nil {
+				if _, err := CopyFile(path, source, dest, debug); err != nil {
+					if errors.Is(err, errDestMissing) {
+						return err
+					}
 					logError("Error copying %s: %v", relPath, err)
 				}
 			}
@@ -949,10 +642,13 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
 
 	// Find and process deleted files
 	var filesToDelete []string
-	filepath.Walk(target, func(path string, info os.FileInfo, walkErr error) error {
+	filepath.Walk(dest, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || info.IsDir() {
 			if info != nil && info.IsDir() && info.Name() == ".git" {
 				return filepath.SkipDir
@@ -960,7 +656,10 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 			return nil
 		}
 
-		relPath, _ := filepath.Rel(target, path)
+		relPath, _ := filepath.Rel(dest, path)
+		if relPath == markerFileName {
+			return nil
+		}
 		sourcePath := filepath.Join(source, relPath)
 
 		if _, exists := filesToCopyMap[sourcePath]; !exists {
@@ -976,27 +675,27 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 	// Execute deletions and commit if not dry run
 	if !dryRun && changeCount > 0 {
 		if len(filesToDelete) > 0 {
-			if err := Remove(target, filesToDelete, debug); err != nil {
+			if err := Remove(dest, filesToDelete, debug); err != nil {
 				return fmt.Errorf("failed to remove files: %w", err)
 			}
 		}
 
 		// Commit changes to git
 		if !noGit {
-			if err := Add(target, []string{"."}, debug); err != nil {
+			if err := Add(dest, []string{"."}, debug); err != nil {
 				return fmt.Errorf("failed to add files to git: %w", err)
 			}
-			if err := Commit(target, fmt.Sprintf("scanned %d changes", changeCount)); err != nil {
+			if err := Commit(dest, fmt.Sprintf("scanned %d changes", changeCount)); err != nil {
 				return fmt.Errorf("failed to commit changes: %w", err)
 			}
 		}
 
 		// Create restic snapshot
 		if useRestic {
-			if err := BackupRestic(target, debug); err != nil {
+			if err := BackupRestic(dest, debug); err != nil {
 				return fmt.Errorf("failed to backup with restic: %w", err)
 			}
-			if err := ForgetRestic(target, debug); err != nil {
+			if err := ForgetRestic(dest, debug); err != nil {
 				return fmt.Errorf("failed to apply restic retention policy: %w", err)
 			}
 		}
@@ -1030,7 +729,7 @@ func scanPaths(source, target string, maxFileSize int64, dryRun bool) error {
 }
 
 // processEvents processes a batch of events
-func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath string, dryRun bool) error {
+func processEvents(events []PendingFileChanges, absSourcePath, absDestPath string, dryRun bool) error {
 	changeCount := 0
 
 	for _, event := range events {
@@ -1043,44 +742,52 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 			continue
 		}
 
-		targetPath := filepath.Join(absTargetPath, relPath)
+		destPath := filepath.Join(absDestPath, relPath)
 		timestamp := time.Now().Format("2006-01-02 15:04:05")
 
 		// Process the event based on type
 		if event.Action == EventDeleted {
-			fmt.Printf("[%s] remove '%s'\n", timestamp, targetPath)
+			fmt.Printf("[%s] remove '%s'\n", timestamp, destPath)
 			if !dryRun {
-				if err := Remove(absTargetPath, []string{relPath}, debug); err == nil {
+				err := Remove(absDestPath, []string{relPath}, debug)
+				if errors.Is(err, errDestMissing) {
+					return err
+				}
+				if err == nil {
 					changeCount++
 				}
 			} else {
 				changeCount++
 			}
 		} else {
-			// Get source and target file info for logging
+			// Get source and destination file info for logging
 			sourceInfo, err := os.Stat(event.Path)
-			targetInfo, targetErr := os.Stat(targetPath)
+			destInfo, destErr := os.Stat(destPath)
 
 			if err == nil {
 				sourceDetails := fmt.Sprintf(" (mtime=%s, size=%d)",
 					sourceInfo.ModTime().Format("2006-01-02 15:04:05"),
 					sourceInfo.Size())
 
-				targetDetails := ""
-				if targetErr == nil {
-					targetDetails = fmt.Sprintf(" (mtime=%s, size=%d)",
-						targetInfo.ModTime().Format("2006-01-02 15:04:05"),
-						targetInfo.Size())
+				destDetails := ""
+				if destErr == nil {
+					destDetails = fmt.Sprintf(" (mtime=%s, size=%d)",
+						destInfo.ModTime().Format("2006-01-02 15:04:05"),
+						destInfo.Size())
 				}
 
 				fmt.Printf("[%s] copy '%s'%s to '%s'%s\n",
-					timestamp, event.Path, sourceDetails, targetPath, targetDetails)
+					timestamp, event.Path, sourceDetails, destPath, destDetails)
 			} else {
-				fmt.Printf("[%s] copy '%s' to '%s'\n", timestamp, event.Path, targetPath)
+				fmt.Printf("[%s] copy '%s' to '%s'\n", timestamp, event.Path, destPath)
 			}
 
 			if !dryRun {
-				if metaChanged, err := CopyFile(event.Path, absSourcePath, absTargetPath, debug); err == nil {
+				metaChanged, err := CopyFile(event.Path, absSourcePath, absDestPath, debug)
+				if errors.Is(err, errDestMissing) {
+					return err
+				}
+				if err == nil {
 					if !metaChanged {
 						fmt.Printf("    no metadata change\n")
 					}
@@ -1096,17 +803,17 @@ func processEvents(events []PendingFileChanges, absSourcePath, absTargetPath str
 		if !dryRun {
 			// Commit changes to git
 			if !noGit {
-				if err := Add(absTargetPath, []string{"."}, debug); err != nil {
+				if err := Add(absDestPath, []string{"."}, debug); err != nil {
 					return fmt.Errorf("failed to add files to git: %w", err)
 				}
-				if err := Commit(absTargetPath, fmt.Sprintf("detected %d changes", changeCount)); err != nil {
+				if err := Commit(absDestPath, fmt.Sprintf("detected %d changes", changeCount)); err != nil {
 					return fmt.Errorf("failed to commit changes: %w", err)
 				}
 			}
 
-			// Create restic snapshot 
+			// Create restic snapshot
 			if useRestic {
-				if err := BackupRestic(absTargetPath, debug); err != nil {
+				if err := BackupRestic(absDestPath, debug); err != nil {
 					return fmt.Errorf("failed to backup with restic: %w", err)
 				}
 			}

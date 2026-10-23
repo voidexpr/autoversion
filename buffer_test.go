@@ -146,4 +146,3 @@ func TestEventBuffer_FlushAll(t *testing.T) {
 		t.Errorf("Expected empty buffer after flush all, got %d", buffer.Size())
 	}
 }
-

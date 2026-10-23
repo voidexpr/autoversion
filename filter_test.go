@@ -279,11 +279,11 @@ func TestShouldTrack_ExcludeDirs(t *testing.T) {
 		}
 	}
 	files := map[string]string{
-		"Backup/data.txt":           "backup",
-		"Backup/sub/deep.txt":       "deep",
-		"dotfiles/.bashrc":          "rc",
-		"nicmac/projects/main.go":   "go",
-		"root.txt":                  "root",
+		"Backup/data.txt":         "backup",
+		"Backup/sub/deep.txt":     "deep",
+		"dotfiles/.bashrc":        "rc",
+		"nicmac/projects/main.go": "go",
+		"root.txt":                "root",
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644); err != nil {

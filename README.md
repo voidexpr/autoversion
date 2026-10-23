@@ -17,8 +17,9 @@ A lightweight Go tool that tracks file versions in real-time using git as the ba
 # Build
 make build
 
-# Install and start watching a directory
-./autoversion install --base ~/repos ~/projects/myapp
+# Initialize the destination once, then install and start watching
+./autoversion init --source ~/projects/myapp --destination ~/repos/myapp
+./autoversion install --source ~/projects/myapp --destination ~/repos/myapp
 
 # Grant Full Disk Access (required for some directories):
 # System Settings > Privacy & Security > Full Disk Access
@@ -36,10 +37,10 @@ Rebuilding the binary in place keeps the app and its Full Disk Access grant. The
 
 ```bash
 # Check status
-./autoversion status --base ~/repos ~/projects/myapp
+./autoversion status --source ~/projects/myapp --destination ~/repos/myapp
 
 # Uninstall
-./autoversion uninstall --base ~/repos ~/projects/myapp
+./autoversion uninstall --source ~/projects/myapp --destination ~/repos/myapp
 ```
 
 ## Development Workflow
@@ -48,7 +49,7 @@ When modifying autoversion with running services:
 
 ```bash
 # Rebuild and reinstall (auto-reloads if service is running)
-make build && ./autoversion install --base ~/repos ~/projects/myapp
+make build && ./autoversion install --source ~/projects/myapp --destination ~/repos/myapp
 ```
 
 The install command detects when the binary or configuration flags have changed and automatically reloads running services.
@@ -78,14 +79,17 @@ make uninstall  # removes from /usr/local/bin
 Use `--no-git` to maintain a filtered copy of a directory without any git versioning. This is useful when you just want a clean mirror that excludes build artifacts, temp files, and other noise.
 
 ```bash
+# Initialize the mirror once (writes the marker, no git repository)
+./autoversion init --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
+
 # One-time mirror
-./autoversion sync --base /tmp/mirror --no-git ~/projects/myapp
+./autoversion sync --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
 
 # Real-time mirror (watches for changes)
-./autoversion watch --base /tmp/mirror --no-git ~/projects/myapp
+./autoversion watch --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
 
 # Install as a background service
-./autoversion install --base /tmp/mirror --no-git ~/projects/myapp
+./autoversion install --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
 ```
 
 The same file filtering rules apply — symlinks, large files, `node_modules/`, `.git/`, etc. are all excluded.
@@ -94,7 +98,7 @@ Combine with `--only-include-extensions` to mirror only specific file types:
 
 ```bash
 # Mirror only documentation and data files
-./autoversion sync --base /tmp/mirror --no-git --only-include-extensions md,csv,txt ~/projects/myapp
+./autoversion sync --no-git --only-include-extensions md,csv,txt --source ~/projects/myapp --destination /tmp/mirror/myapp
 ```
 
 ### Excluding directories
@@ -103,13 +107,13 @@ Use `--exclude-dir` (repeatable) to skip specific subdirectories. Paths are rela
 
 ```bash
 # Watch ~/SyncDatabox but skip Backup and archives
-./autoversion watch --base /tmp/mirror --exclude-dir Backup --exclude-dir archives ~/SyncDatabox
+./autoversion watch --exclude-dir Backup --exclude-dir archives --source ~/SyncDatabox --destination ~/repos/SyncDatabox
 
 # Nested paths work too
-./autoversion sync --base /tmp/mirror --exclude-dir nicmac/local_projects --exclude-dir tmp/cache ~/SyncDatabox
+./autoversion sync --exclude-dir nicmac/local_projects --exclude-dir tmp/cache --source ~/SyncDatabox --destination ~/repos/SyncDatabox
 
 # Combine with other flags
-./autoversion install --base ~/repos --exclude-dir Backup --only-include-extensions md,csv ~/SyncDatabox
+./autoversion install --exclude-dir Backup --only-include-extensions md,csv --source ~/SyncDatabox --destination ~/repos/SyncDatabox
 ```
 
 Only top-level matches are excluded: `--exclude-dir Backup` with source `~/foo` skips `~/foo/Backup` but not `~/foo/nested/Backup`. For the nested case, pass `--exclude-dir nested/Backup`.
@@ -124,15 +128,15 @@ Paths must be relative and cannot escape the source directory. Absolute paths (`
 
 ### install
 
-Install as a launchd background service (requires `--base`):
+Install as a launchd background service. The destination must be initialized for the source first (see **init**):
 
 ```bash
-./autoversion install --base BASE_PATH SOURCE_PATH [flags]
+./autoversion install --source SOURCE_PATH --destination DEST_PATH [flags]
 ```
 
 Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `--no-login`, `--dry-run`, `--debug`, `--exclude-dir` (repeatable), `--only-include-extensions`
 
-The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
+`install` prints the same path resolution and checks as **check-paths**, runs an initial sync, then writes and loads the plist (`watch --source SOURCE_PATH --destination DEST_PATH --log-dir …`). The job ID is built from the source and destination paths. The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
 
 **Logs.** The service writes `~/Library/Logs/autoversion/<job>/stdout.log` and `stderr.log` (`watch --log-dir`, set by `install`). Each file is rotated once it reaches 10 MB, keeping 5 old copies (`stdout.log.1` … `stdout.log.5`, `.1` being the most recent). Sizes are checked every minute. A log file removed by hand is recreated within a minute. Reloading the service through `install` clears `stderr.log` and its rotated copies. Filtered-out events are only logged with `--debug`, and a file over `--max-file-size` is reported once per run.
 
@@ -143,15 +147,18 @@ The command is idempotent — run it again after rebuilding or changing flags to
 Stop and remove the launchd service:
 
 ```bash
-./autoversion uninstall --base BASE_PATH SOURCE_PATH
+./autoversion uninstall --source SOURCE_PATH --destination DEST_PATH
 ```
+
+`uninstall`, `status` and `install-check` only use the paths to find the job, so they work after the source or destination is gone.
 
 ### status
 
-Show service status, uptime, and log locations:
+Without flags, list all services with their source and destination. With `--source` and `--destination`, show the service status, uptime, and log locations:
 
 ```bash
-./autoversion status --base BASE_PATH SOURCE_PATH
+./autoversion status
+./autoversion status --source SOURCE_PATH --destination DEST_PATH
 ```
 
 ### install-check
@@ -159,7 +166,7 @@ Show service status, uptime, and log locations:
 Show detailed service status including PID, uptime, and recent log output:
 
 ```bash
-./autoversion install-check --base BASE_PATH SOURCE_PATH
+./autoversion install-check --source SOURCE_PATH --destination DEST_PATH
 ```
 
 ### Linux
@@ -167,7 +174,8 @@ Show detailed service status including PID, uptime, and recent log output:
 The `install`, `uninstall`, and `status` commands are macOS-only — they rely on launchd. On Linux, run autoversion in the foreground instead:
 
 ```bash
-./autoversion watch --base ~/repos ~/projects/myapp
+./autoversion init --source ~/projects/myapp --destination ~/repos/myapp
+./autoversion watch --source ~/projects/myapp --destination ~/repos/myapp
 ```
 
 Use systemd, screen, or tmux to keep it running in the background.
@@ -178,7 +186,7 @@ On Linux, `watch` uses inotify, which needs one watch per directory (excluded di
 
 ```bash
 cat /proc/sys/fs/inotify/max_user_watches
-find SOURCE_PATH -type d | wc -l     # upper bound, also counts excluded directories
+find SOURCE_PATH -type d | wc -l    # upper bound, also counts excluded directories
 sudo sysctl -w fs.inotify.max_user_watches=524288
 ```
 
@@ -189,15 +197,17 @@ Each watch in use takes about 1 KB of kernel memory. `sysctl -w` doesn't survive
 Run in foreground (useful for debugging):
 
 ```bash
-./autoversion watch --base BASE_PATH SOURCE_PATH [--dry-run] [--buffer-time SECONDS] [--log-dir DIR]
+./autoversion watch --source SOURCE_PATH --destination DEST_PATH [--dry-run] [--buffer-time SECONDS] [--log-dir DIR]
 ```
+
+The destination's marker is checked at startup only. If the destination disappears while watching (renamed, volume unmounted), `watch` exits with `destination disappeared: DEST_PATH` instead of recreating it; under launchd the restarted service then fails at the startup check until the destination is back.
 
 With `--log-dir DIR`, stdout and stderr go to `DIR/stdout.log` and `DIR/stderr.log`, rotated by size (see **Logs** under `install`). Filtered-out events (`event skip`) are only printed with `--debug`.
 
-Only print file events, without copying anything (no `--base`, no initial scan). Each event is shown as `track` (passes the filters) or `skip`; add `--debug` to also see the raw FSEvents flags:
+Only print file events, without copying anything (no `--destination`, no initial scan). Each event is shown as `track` (passes the filters) or `skip`; add `--debug` to also see the raw FSEvents flags:
 
 ```bash
-./autoversion watch --report-only SOURCE_PATH
+./autoversion watch --report-only --source SOURCE_PATH
 ```
 
 This can be used instead of `inotifywait -m -r` (Linux) or `fswatch` (macOS) to see what changes under a directory, with autoversion's filters (`--exclude-dir`, `--only-include-extensions`, `--max-file-size`, built-in exclusions) applied, and to check what a `watch` would pick up before installing it.
@@ -207,52 +217,65 @@ This can be used instead of `inotifywait -m -r` (Linux) or `fswatch` (macOS) to 
 One-time sync without watching:
 
 ```bash
-./autoversion sync --base BASE_PATH SOURCE_PATH [--dry-run]
+./autoversion sync --source SOURCE_PATH --destination DEST_PATH [--dry-run]
 ```
 
 ### init
 
-Initialize a git repository for a source directory:
+Initialize a destination for a source. Files under `SOURCE_PATH` are mirrored directly into `DEST_PATH` (`SOURCE_PATH/rel` → `DEST_PATH/rel`):
 
 ```bash
-./autoversion init --base BASE_PATH SOURCE_PATH
+./autoversion init --source SOURCE_PATH --destination DEST_PATH [--no-git] [--restic]
+    [--force-new-source | --force-obliterate-yes-i-am-sure]
 ```
+
+`init` creates the destination if needed, runs `git init` (unless `--no-git`), initializes restic (with `--restic`), and writes the `.autoversion` marker naming the source (see **Destination Marker**). With git, the marker is committed on its own (`init: source SOURCE_PATH`).
+
+| destination | default | `--force-new-source` | `--force-obliterate-yes-i-am-sure` |
+|---|---|---|---|
+| missing or empty | initialize | initialize | initialize |
+| marker names this source | nothing to do | nothing to do | wipe, initialize |
+| marker names another source | error | rewrite the marker, keep contents and `.git` | wipe, initialize |
+| not empty, no marker | error | write the marker, keep contents and `.git` | wipe, initialize |
+
+- After `--force-new-source` the next sync makes the destination match the source: files not in the source are removed (`git rm`, kept in history; with `--no-git` deleted for good).
+- `--force-obliterate-yes-i-am-sure` removes everything inside the destination, `.git` included. The restic repository next to it is not touched.
+- The two flags are mutually exclusive.
 
 ### filter
 
 List files that would be tracked:
 
 ```bash
-./autoversion filter PATH [--max-file-size MB]
+./autoversion filter --source SOURCE_PATH [--max-file-size MB]
 ```
 
 ### check-paths
 
-Validate source and base paths before installing:
+Validate source and destination paths before installing:
 
 ```bash
-./autoversion check-paths --base BASE_PATH SOURCE_PATH
+./autoversion check-paths --source SOURCE_PATH --destination DEST_PATH
 ```
 
-Shows symlink resolution and validates:
-- Source and base paths can't be the same
-- Source path can't be inside base path
-- Base path can't be inside source path
-- Base directory itself can't be a git repository
-- No parent of base can have a .git repository (prevents nested repos)
+Shows symlink resolution and the marker status, and validates:
+- Source and destination can't be the same, `$HOME` or `/`
+- Neither path can be inside the other
+- The source can't contain a `.autoversion` marker (catches swapped `--source` / `--destination`)
+- No parent of the destination can contain a `.autoversion` marker (an outer destination's sync would delete the inner one's files), or a `.git` repository unless `--no-git` (prevents nested repos)
+- The destination must have a marker naming the source (and a restic repository with `--restic`)
 
-## Path Computation
+## Destination Marker
 
-Autoversion computes the target path automatically:
+`init` writes `DEST_PATH/.autoversion`, a small JSON file naming the source (absolute path, symlinks resolved):
 
-- **Paths under $HOME**: `target = base + (source - $HOME)`
-  - `~/projects/myapp` with base `~/repos` → `~/repos/projects/myapp`
+```json
+{
+  "source": "/Users/me/projects/myapp"
+}
+```
 
-- **Paths outside $HOME with common ancestor**: `target = base + (source - commonAncestor)`
-  - `/tmp/myapp` with base `/tmp/backups` → `/tmp/backups/myapp` (common ancestor: `/tmp`)
-
-- **Paths outside $HOME with no common ancestor**: `target = base + source`
-  - `/var/log` with base `~/repos` → `~/repos/var/log`
+`sync`, `watch` and `install` refuse to copy anything unless the marker exists and names their source. This catches typos in either path (a mistyped destination is never silently created) and prevents two sources from syncing into the same destination. The marker is never deleted or overwritten by a sync, and a `.autoversion` file at the root of a source is not tracked. With git, the marker is versioned like the other files, so `git log -p .autoversion` shows which source the destination belonged to over time.
 
 ## File Filtering
 
@@ -270,10 +293,14 @@ Directories matched by these exclusions or by `--exclude-dir` are skipped entire
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--source` | (none) | Source directory to track (all commands except `bundle`/`unbundle`; optional for `status`) |
+| `--destination` | (none) | Destination directory, initialized by `init` (not used by `filter` and `watch --report-only`) |
+| `--force-new-source` | false | `init`: use a non-empty destination, or one initialized for another source, keeping its contents and history |
+| `--force-obliterate-yes-i-am-sure` | false | `init`: remove everything in the destination, `.git` included, then initialize it |
 | `--max-file-size` | 10 MB | Maximum file size to track |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
-| `--report-only` | false | Only print file events, copy nothing (watch only, no `--base` needed) |
+| `--report-only` | false | Only print file events, copy nothing (watch only, no `--destination` needed) |
 | `--only-include-extensions` | (none) | Only include files with these extensions (comma-separated, e.g. `md,csv,txt`) |
 | `--exclude-dir` | (none) | Exclude a directory relative to source; repeatable (e.g. `--exclude-dir Backup --exclude-dir tmp`) |
 | `--no-git` | false | Disable git entirely (plain directory mirror) |
@@ -286,12 +313,12 @@ Directories matched by these exclusions or by `--exclude-dir` are skipped entire
 
 ## Design Decisions
 
-### Why automatic path computation?
+### Why an explicit destination and a marker?
 
-The automatic path computation (`base + (source - $HOME)`) provides several benefits:
-1. Organizes all tracked directories under one base
-2. Preserves meaningful directory structure
-3. Makes it easy to track multiple projects
+Earlier versions took `--base` and computed the destination as `base + (source - $HOME)`, creating and `git init`-ing it on the fly. That kept several sources under one root, but the destination was implicit and a typo silently started a new repository. With an explicit `--destination` and the `.autoversion` marker:
+1. The command line says where files go
+2. A destination is only created by `init`, never by a sync
+3. A destination belongs to one source; switching it is an explicit `init --force-new-source`
 
 ### Why git as backing store?
 
@@ -338,6 +365,7 @@ Libraries considered:
 ```
 autoversion/
 ├── main.go           # CLI entry point and commands
+├── destination.go    # Path validation, .autoversion marker, init
 ├── filter.go         # File filtering logic
 ├── buffer.go         # Event buffer with collapsing
 ├── watcher.go        # File system watcher wrapper

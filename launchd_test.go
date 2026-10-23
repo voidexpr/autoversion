@@ -9,6 +9,34 @@ import (
 	"testing"
 )
 
+func TestGeneratePlist_ParsePlistPaths(t *testing.T) {
+	source := "/Users/me/src & 'docs'"
+	dest := "/Volumes/backup/<dest>"
+	plist := generatePlist("projects.autoversion.job", "/bin/autoversion", source, dest, "/tmp/logs",
+		10, 3, true, false, false, false, "md", []string{"Backup"})
+
+	path := filepath.Join(t.TempDir(), "job.plist")
+	if err := os.WriteFile(path, []byte(plist), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gotSource, gotDest, err := parsePlistPaths(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSource != source || gotDest != dest {
+		t.Errorf("parsePlistPaths() = %q, %q, want %q, %q", gotSource, gotDest, source, dest)
+	}
+
+	// Plists written before --source/--destination are not parsed
+	old := strings.Replace(plist, "<string>--source</string>", "<string>--base</string>", 1)
+	if err := os.WriteFile(path, []byte(old), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := parsePlistPaths(path); err == nil {
+		t.Error("expected an error for a plist without --source")
+	}
+}
+
 func TestEnsureAppBundle(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("app bundles are macOS only")

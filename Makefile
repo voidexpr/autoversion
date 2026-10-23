@@ -55,4 +55,6 @@ endif
 	@mkdir -p $(OUTPUT)
 	@echo "Input:  $(INPUT)"
 	@echo "Output: $(OUTPUT)"
-	docker run --rm -v $(abspath $(INPUT)):/input:ro -v $(abspath $(OUTPUT)):/output:rw autoversion watch /input --base /output --buffer-time 1
+	$(eval DOCKER_RUN := docker run --rm -v $(abspath $(INPUT)):/input:ro -v $(abspath $(OUTPUT)):/output:rw autoversion)
+	$(DOCKER_RUN) init --source /input --destination /output
+	$(DOCKER_RUN) watch --source /input --destination /output --buffer-time 1

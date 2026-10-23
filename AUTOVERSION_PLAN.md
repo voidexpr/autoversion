@@ -7,41 +7,40 @@ Use git as the repository of these versions for familiarity.
 
 ## Terminology
 
-* **source path**: monitor a source directory
-* **target repo**: git repository used to track versioned files
+* **source** (`--source`): the directory being monitored
+* **destination** (`--destination`): the directory files are mirrored into, a git repository unless `--no-git`. It is marked by a `.autoversion` file naming its source, written by `init`
+
+The design and implementation phases further down use the original names (`--repo`, `scan`, target repo). The current commands are documented in README.md.
 
 ## CLI
 
-autoversion filter PATH
+autoversion filter --source PATH
 
     scan recursively all the files under the path provided and print the files to be versioned based on internal filters. Do not copy anything
 
-autoversion --repo PATH init
+autoversion init --source PATH1 --destination PATH2
 
-    create PATH if doesn't exist
-    run git init . in PATH
+    create PATH2 if doesn't exist
+    run git init . in PATH2
+    write PATH2/.autoversion naming PATH1 and commit it
 
-autoversion --repo PATH1 scan PATH2
+autoversion sync --source PATH1 --destination PATH2
 
-    process all files from PATH2, filter them as needed and copy them into PATH1, do git commit with 'scanned files' as the message
+    process all files from PATH1, filter them as needed and copy them into PATH2, do git commit with 'scanned files' as the message. Refuses to run unless PATH2/.autoversion names PATH1
 
-autoversion --repo PATH2 watch PATH1 [--buffer-time SECONDS]
+autoversion watch --source PATH1 --destination PATH2 [--buffer-time SECONDS]
 
     monitor for changes in PATH1, if the file is matched by internal filters copy to PATH2 and periodically run git add/git commit. Also handle deleted files (delete in repo)
 
     to end the process: CONTROL-C or send SIGTERM.
 
-    Note that before watching for changes the 'scan' command is ran to pickup any changes that might have been forgotten since last time changes were watched.
+    Note that before watching for changes the 'sync' command is ran to pickup any changes that might have been forgotten since last time changes were watched.
 
-    --buffer-time SECONDS  (default: 5)
+    --buffer-time SECONDS  (default: 3)
 
         how long to wait when a file is changed before copying it out. This allows to collapse multiple edits or avoiding doing a delete/copy when a file is overwritten.
 
 ### Options for watch and filter
-
---repo PATH
-
-    Where to copy and version changes. Can you skipped if AUTOVERSION_PATH environment variable is set
 
 --max-file-size XXX
 

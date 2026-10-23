@@ -31,11 +31,11 @@ func sanitizePath(path string) string {
 	return s
 }
 
-// jobIdentifier returns the launchd job label for a source/target pair
-func jobIdentifier(sourcePath, targetPath string) string {
+// jobIdentifier returns the launchd job label for a source/destination pair
+func jobIdentifier(sourcePath, destPath string) string {
 	srcSan := sanitizePath(sourcePath)
-	tgtSan := sanitizePath(targetPath)
-	return fmt.Sprintf("projects.autoversion.%s_to_%s", srcSan, tgtSan)
+	destSan := sanitizePath(destPath)
+	return fmt.Sprintf("projects.autoversion.%s_to_%s", srcSan, destSan)
 }
 
 // launchAgentDir returns the user's LaunchAgents directory
@@ -103,15 +103,15 @@ func promptPath(prompt string, mustExist bool) (string, error) {
 }
 
 // generatePlist creates the launchd plist content
-// basePath is the original --base value (not the computed target), so watch can re-compute the target correctly
-func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts string, excludeDirs []string) string {
+func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts string, excludeDirs []string) string {
 	stdoutLog := filepath.Join(logDir, stdoutLogName)
 	stderrLog := filepath.Join(logDir, stderrLogName)
 
 	args := []string{
 		execPath,
 		"watch",
-		"--base", basePath,
+		"--source", sourcePath,
+		"--destination", destPath,
 		"--max-file-size", fmt.Sprintf("%d", maxFileSize),
 		"--buffer-time", fmt.Sprintf("%d", bufferTime),
 		"--log-dir", logDir,
@@ -131,7 +131,6 @@ func generatePlist(jobID, execPath, sourcePath, basePath, logDir string, maxFile
 	for _, d := range excludeDirs {
 		args = append(args, "--exclude-dir", d)
 	}
-	args = append(args, sourcePath)
 
 	// Build ProgramArguments XML
 	var argsXML strings.Builder
@@ -188,9 +187,9 @@ func unescapeXML(s string) string {
 	return s
 }
 
-// parsePlistPaths reads an existing plist file and extracts the source path
-// (last <string> in ProgramArguments) and base path (value after --base).
-func parsePlistPaths(path string) (source, base string, err error) {
+// parsePlistPaths reads an existing plist file and extracts the values of
+// --source and --destination in ProgramArguments
+func parsePlistPaths(path string) (source, dest string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", "", err
@@ -211,18 +210,34 @@ func parsePlistPaths(path string) (source, base string, err error) {
 		return "", "", fmt.Errorf("no string values in ProgramArguments in %s", path)
 	}
 
-	// Source path is the last argument
-	source = unescapeXML(matches[len(matches)-1][1])
-
-	// Base path is the value after --base
-	for i, m := range matches {
-		if unescapeXML(m[1]) == "--base" && i+1 < len(matches) {
-			base = unescapeXML(matches[i+1][1])
-			break
+	for i := 0; i+1 < len(matches); i++ {
+		switch unescapeXML(matches[i][1]) {
+		case "--source":
+			source = unescapeXML(matches[i+1][1])
+		case "--destination":
+			dest = unescapeXML(matches[i+1][1])
 		}
 	}
+	if source == "" || dest == "" {
+		return "", "", fmt.Errorf("no --source and --destination in ProgramArguments in %s", path)
+	}
 
-	return source, base, nil
+	return source, dest, nil
+}
+
+// jobPaths resolves --source and --destination, which identify a launchd job.
+// They don't have to exist, so a job can be removed after its destination is gone.
+func jobPaths() (sourcePath, destPath string, err error) {
+	if err := requirePaths(true); err != nil {
+		return "", "", err
+	}
+	if sourcePath, err = resolvePath(sourceFlag); err != nil {
+		return "", "", err
+	}
+	if destPath, err = resolvePath(destFlag); err != nil {
+		return "", "", err
+	}
+	return sourcePath, destPath, nil
 }
 
 // escapeXML escapes special XML characters
@@ -340,57 +355,27 @@ func ensureAppBundle() error {
 }
 
 var installCmd = &cobra.Command{
-	Use:   "install <source-path>",
+	Use:   "install",
 	Short: "Install autoversion as a launchd service (macOS only)",
-	Long:  "Configures launchd to run autoversion in watch mode. Requires --base flag.",
-	Args:  cobra.ExactArgs(1),
+	Long:  "Configures launchd to run autoversion in watch mode. The destination must be initialized for the source (see init).",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("install command is only supported on macOS (launchd). Linux systemd support coming later")
 		}
 
-		if basePath == "" {
-			return fmt.Errorf("--base flag is required")
+		if err := requirePaths(true); err != nil {
+			return err
 		}
 
-		// Run comprehensive source/base validation
-		result, err := ValidateSourceAndBase(args[0], basePath)
+		// Same validation and output as check-paths
+		result, err := checkPaths(sourceFlag, destFlag)
 		if err != nil {
 			return err
 		}
 
-		// Print path resolution (same as check-paths)
-		fmt.Println("Path Resolution:")
-		fmt.Printf("  source (input):    %s\n", result.SourceInput)
-		if result.SourceInput != result.SourceResolved {
-			fmt.Printf("  source (resolved): %s\n", result.SourceResolved)
-		} else {
-			fmt.Printf("  source (resolved): (no symlinks)\n")
-		}
-		fmt.Printf("  base (input):      %s\n", result.BaseInput)
-		if result.BaseInput != result.BaseResolved {
-			fmt.Printf("  base (resolved):   %s\n", result.BaseResolved)
-		} else {
-			fmt.Printf("  base (resolved):   (no symlinks)\n")
-		}
-		fmt.Printf("  target (computed): %s\n", result.TargetComputed)
-		fmt.Println()
-
-		if len(result.Errors) > 0 {
-			fmt.Println("Validation Errors:")
-			for _, e := range result.Errors {
-				fmt.Printf("  ✗ %s\n", e)
-			}
-			return fmt.Errorf("path validation failed with %d error(s)", len(result.Errors))
-		}
-
 		sourcePath := result.SourceResolved
-		targetPath := result.TargetComputed
-
-		// Verify additional path safety (HOME, root, etc.)
-		if err := verifyPaths(sourcePath, targetPath); err != nil {
-			return err
-		}
+		destPath := result.DestinationResolved
 
 		// The service runs through the launcher app that holds Full Disk Access
 		if err := ensureAppBundle(); err != nil {
@@ -403,7 +388,7 @@ var installCmd = &cobra.Command{
 		fmt.Println()
 
 		// Generate job ID
-		jobID := jobIdentifier(sourcePath, targetPath)
+		jobID := jobIdentifier(sourcePath, destPath)
 
 		// Check if already installed
 		plist, err := plistPath(jobID)
@@ -413,16 +398,16 @@ var installCmd = &cobra.Command{
 
 		if _, err := os.Stat(plist); err == nil {
 			// Check for job ID collision: different paths producing the same sanitized ID
-			existingSource, existingBase, parseErr := parsePlistPaths(plist)
-			if parseErr == nil && (existingSource != sourcePath || existingBase != result.BaseResolved) {
-				return fmt.Errorf("job ID collision: %s\n  Existing install:\n    source: %s\n    base:   %s\n  New install:\n    source: %s\n    base:   %s\nThese paths produce the same sanitized job ID.\nRename one of the source directories to avoid the collision.", jobID, existingSource, existingBase, sourcePath, result.BaseResolved)
+			existingSource, existingDest, parseErr := parsePlistPaths(plist)
+			if parseErr == nil && (existingSource != sourcePath || existingDest != destPath) {
+				return fmt.Errorf("job ID collision: %s\n  Existing install:\n    source:      %s\n    destination: %s\n  New install:\n    source:      %s\n    destination: %s\nThese paths produce the same sanitized job ID.\nRename one of the directories to avoid the collision.", jobID, existingSource, existingDest, sourcePath, destPath)
 			}
 
 			// Check if plist content needs updating (flag changes, launcher path changes)
 			maxSize, _ := cmd.Flags().GetInt64("max-file-size")
 			bufTime, _ := cmd.Flags().GetInt("buffer-time")
 			logDirPath, _ := logDir(jobID)
-			newPlist := generatePlist(jobID, execPath, sourcePath, result.BaseResolved, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag)
+			newPlist := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag)
 			existingPlist, _ := os.ReadFile(plist)
 
 			needsReload := needsServiceReload(plist) || string(existingPlist) != newPlist
@@ -452,7 +437,7 @@ var installCmd = &cobra.Command{
 
 				fmt.Println("Updated and reloaded service")
 				fmt.Println()
-				printStatusInfo(jobID, sourcePath, targetPath)
+				printStatusInfo(jobID, sourcePath, destPath)
 				return nil
 			}
 
@@ -463,7 +448,7 @@ var installCmd = &cobra.Command{
 			} else {
 				fmt.Printf("Already installed but not running: %s\n", jobID)
 			}
-			printStatusInfo(jobID, sourcePath, targetPath)
+			printStatusInfo(jobID, sourcePath, destPath)
 			return nil
 		}
 
@@ -476,11 +461,6 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("failed to create log directory: %v", err)
 		}
 
-		// Create target, initialize git, and run initial sync
-		if err := validateTargetPath(targetPath, result.BaseResolved, sourcePath, dryRun); err != nil {
-			return err
-		}
-
 		// Get flag values from command
 		maxSize, _ := cmd.Flags().GetInt64("max-file-size")
 
@@ -488,7 +468,7 @@ var installCmd = &cobra.Command{
 
 		if !dryRun {
 			fmt.Println("Initial sync...")
-			if err := scanPaths(sourcePath, targetPath, maxSize, dryRun); err != nil {
+			if err := scanPaths(sourcePath, destPath, maxSize, dryRun); err != nil {
 				return fmt.Errorf("initial sync failed: %v", err)
 			}
 		}
@@ -503,8 +483,7 @@ var installCmd = &cobra.Command{
 		}
 		bufTime, _ := cmd.Flags().GetInt("buffer-time")
 
-		// Generate plist - pass original base path so watch can correctly compute target
-		plistContent := generatePlist(jobID, execPath, sourcePath, result.BaseResolved, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag)
+		plistContent := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag)
 
 		if dryRun {
 			fmt.Println("=== Generated plist (dry-run) ===")
@@ -526,37 +505,30 @@ var installCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Installed and started: %s\n\n", jobID)
-		fmt.Printf("Watching: %s\n", sourcePath)
-		fmt.Printf("Target:   %s\n\n", targetPath)
+		fmt.Printf("Watching:    %s\n", sourcePath)
+		fmt.Printf("Destination: %s\n\n", destPath)
 
-		printStatusInfo(jobID, sourcePath, targetPath)
+		printStatusInfo(jobID, sourcePath, destPath)
 		return nil
 	},
 }
 
 var uninstallCmd = &cobra.Command{
-	Use:   "uninstall <source-path>",
+	Use:   "uninstall",
 	Short: "Uninstall autoversion launchd service",
-	Long:  "Stops and removes the launchd job for the specified source path.",
-	Args:  cobra.ExactArgs(1),
+	Long:  "Stops and removes the launchd job for the given source and destination.",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("uninstall command is only supported on macOS")
 		}
 
-		if basePath == "" {
-			return fmt.Errorf("--base flag is required to identify the job to uninstall")
-		}
-
-		// Use ValidateSourceAndBase to get properly resolved paths
-		result, err := ValidateSourceAndBase(args[0], basePath)
+		sourcePath, destPath, err := jobPaths()
 		if err != nil {
 			return err
 		}
 
-		sourcePath := result.SourceResolved
-		targetPath := result.TargetComputed
-		jobID := jobIdentifier(sourcePath, targetPath)
+		jobID := jobIdentifier(sourcePath, destPath)
 		plist, err := plistPath(jobID)
 		if err != nil {
 			return err
@@ -622,7 +594,7 @@ func listAllAutoversionJobs() error {
 		jobID := strings.TrimSuffix(plistName, ".plist")
 		plistFile := filepath.Join(agentDir, plistName)
 
-		source, _, parseErr := parsePlistPaths(plistFile)
+		source, dest, parseErr := parsePlistPaths(plistFile)
 
 		pid, exitStatus, running := getJobInfo(jobID)
 
@@ -633,7 +605,8 @@ func listAllAutoversionJobs() error {
 			fmt.Printf("%-10s %s (exit %s)\n", "STOPPED", jobID, exitStatus)
 		}
 		if parseErr == nil {
-			fmt.Printf("           source: %s\n", source)
+			fmt.Printf("           source:      %s\n", source)
+			fmt.Printf("           destination: %s\n", dest)
 		}
 	}
 
@@ -641,32 +614,25 @@ func listAllAutoversionJobs() error {
 }
 
 var statusCmd = &cobra.Command{
-	Use:   "status [source-path]",
+	Use:   "status",
 	Short: "Show status of autoversion launchd service(s)",
-	Long:  "With no arguments, lists all autoversion services. With a source path and --base, shows detailed status.",
-	Args:  cobra.MaximumNArgs(1),
+	Long:  "Without --source and --destination, lists all autoversion services. With them, shows detailed status.",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("status command is only supported on macOS")
 		}
 
-		if len(args) == 0 {
+		if sourceFlag == "" && destFlag == "" {
 			return listAllAutoversionJobs()
 		}
 
-		if basePath == "" {
-			return fmt.Errorf("--base flag is required to identify the job")
-		}
-
-		// Use ValidateSourceAndBase to get properly resolved paths
-		result, err := ValidateSourceAndBase(args[0], basePath)
+		sourcePath, destPath, err := jobPaths()
 		if err != nil {
 			return err
 		}
 
-		sourcePath := result.SourceResolved
-		targetPath := result.TargetComputed
-		jobID := jobIdentifier(sourcePath, targetPath)
+		jobID := jobIdentifier(sourcePath, destPath)
 		plist, err := plistPath(jobID)
 		if err != nil {
 			return err
@@ -674,25 +640,25 @@ var statusCmd = &cobra.Command{
 
 		// Check if installed
 		if _, err := os.Stat(plist); os.IsNotExist(err) {
-			fmt.Printf("Status: NOT INSTALLED\n")
-			fmt.Printf("Source: %s\n", sourcePath)
-			fmt.Printf("Target: %s\n", targetPath)
-			fmt.Printf("Job ID: %s\n", jobID)
+			fmt.Printf("Status:      NOT INSTALLED\n")
+			fmt.Printf("Source:      %s\n", sourcePath)
+			fmt.Printf("Destination: %s\n", destPath)
+			fmt.Printf("Job ID:      %s\n", jobID)
 			return nil
 		}
 
 		// Check if running
 		running := isJobLoaded(jobID)
 		if running {
-			fmt.Printf("Status: RUNNING\n")
+			fmt.Printf("Status:      RUNNING\n")
 		} else {
-			fmt.Printf("Status: INSTALLED (not running)\n")
+			fmt.Printf("Status:      INSTALLED (not running)\n")
 		}
 
-		fmt.Printf("Source: %s\n", sourcePath)
-		fmt.Printf("Target: %s\n\n", targetPath)
+		fmt.Printf("Source:      %s\n", sourcePath)
+		fmt.Printf("Destination: %s\n\n", destPath)
 
-		printStatusInfo(jobID, sourcePath, targetPath)
+		printStatusInfo(jobID, sourcePath, destPath)
 		return nil
 	},
 }
@@ -790,7 +756,7 @@ func getJobInfo(jobID string) (pid string, status string, running bool) {
 }
 
 // printStatusInfo prints log locations and control commands
-func printStatusInfo(jobID, sourcePath, targetPath string) {
+func printStatusInfo(jobID, sourcePath, destPath string) {
 	logDirPath, _ := logDir(jobID)
 	plist, _ := plistPath(jobID)
 
@@ -817,7 +783,7 @@ func printStatusInfo(jobID, sourcePath, targetPath string) {
 	fmt.Printf("  Status:  launchctl list %s\n", jobID)
 	fmt.Printf("  Stop:    launchctl unload %s\n", plist)
 	fmt.Printf("  Start:   launchctl load %s\n", plist)
-	fmt.Printf("  Remove:  autoversion uninstall --base <BASE> %s\n", sourcePath)
+	fmt.Printf("  Remove:  autoversion uninstall --source %s --destination %s\n", sourcePath, destPath)
 }
 
 var bundleCmd = &cobra.Command{
@@ -943,28 +909,21 @@ func formatUptime(etime string) string {
 }
 
 var installCheckCmd = &cobra.Command{
-	Use:   "install-check <source-path>",
+	Use:   "install-check",
 	Short: "Check installed service status and show recent logs",
 	Long:  "Shows detailed status of an installed service including PID, uptime, and recent log output.",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("install-check command is only supported on macOS")
 		}
 
-		if basePath == "" {
-			return fmt.Errorf("--base flag is required to identify the job")
-		}
-
-		// Use ValidateSourceAndBase to get properly resolved paths
-		result, err := ValidateSourceAndBase(args[0], basePath)
+		sourcePath, destPath, err := jobPaths()
 		if err != nil {
 			return err
 		}
 
-		sourcePath := result.SourceResolved
-		targetPath := result.TargetComputed
-		jobID := jobIdentifier(sourcePath, targetPath)
+		jobID := jobIdentifier(sourcePath, destPath)
 		plist, err := plistPath(jobID)
 		if err != nil {
 			return err
@@ -978,9 +937,9 @@ var installCheckCmd = &cobra.Command{
 		// Get process info
 		pid, status, running := getJobInfo(jobID)
 
-		fmt.Printf("Job:    %s\n", jobID)
-		fmt.Printf("Source: %s\n", sourcePath)
-		fmt.Printf("Target: %s\n\n", targetPath)
+		fmt.Printf("Job:         %s\n", jobID)
+		fmt.Printf("Source:      %s\n", sourcePath)
+		fmt.Printf("Destination: %s\n\n", destPath)
 
 		if running {
 			uptime := getProcessUptime(pid)

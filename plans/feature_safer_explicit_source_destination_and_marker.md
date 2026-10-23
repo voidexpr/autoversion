@@ -198,9 +198,11 @@ their rotated files) are derived from the job ID, so they don't move either.
 
 Steps (run outside the Claude sandbox: it can't read `~/Data` or `~/Dropbox`):
 
-1. Before rebuilding, uninstall each job with the current binary
-   (`autoversion uninstall --base <base> <source>`). The launcher app runs the
-   repo binary, so a job restarted after the rebuild would fail on `--base`.
+1. Uninstall each job. The launcher app runs the repo binary, so a job
+   restarted after the rebuild fails on `--base` (exit 1, no data change).
+   The new binary can uninstall the old jobs too
+   (`autoversion uninstall --source S --destination D`), since the job IDs
+   are the same.
 2. Build and run the tests.
 3. For each job:
    1. `autoversion check-paths --source S --destination D` (only error

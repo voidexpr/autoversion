@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 )
 
-// computeResticPaths returns (repoPath, passwordPath) from targetPath
-// targetPath: BASE/path/to/dirname/ (the git-tracked directory)
-// Returns: (BASE/path/to/.restic_dirname/repo, BASE/path/to/.restic_password_dirname)
-func computeResticPaths(targetPath string) (repoPath string, passwordPath string) {
+// computeResticPaths returns (repoPath, passwordPath) from destPath
+// destPath: path/to/dirname/ (the destination directory)
+// Returns: (path/to/.restic_dirname/repo, path/to/.restic_password_dirname)
+func computeResticPaths(destPath string) (repoPath string, passwordPath string) {
 	// Clean the path to handle trailing slashes
-	cleanPath := filepath.Clean(targetPath)
+	cleanPath := filepath.Clean(destPath)
 
 	// Get the directory name (last component)
 	dirName := filepath.Base(cleanPath)
@@ -71,13 +71,13 @@ func runRestic(repoPath, passwordPath string, args ...string) (string, error) {
 }
 
 // InitRestic initializes restic repository and generates password
-// Creates .restic_dirname/repo and .restic_password_dirname as siblings to targetPath
-func InitRestic(targetPath string, debug bool) error {
-	repoPath, passwordPath := computeResticPaths(targetPath)
+// Creates .restic_dirname/repo and .restic_password_dirname as siblings to destPath
+func InitRestic(destPath string, debug bool) error {
+	repoPath, passwordPath := computeResticPaths(destPath)
 
 	if debug {
-		fmt.Fprintf(os.Stderr, "DEBUG InitRestic: targetPath=%s, repoPath=%s, passwordPath=%s\n",
-			targetPath, repoPath, passwordPath)
+		fmt.Fprintf(os.Stderr, "DEBUG InitRestic: destPath=%s, repoPath=%s, passwordPath=%s\n",
+			destPath, repoPath, passwordPath)
 	}
 
 	// Check if repo already exists
@@ -128,8 +128,8 @@ func InitRestic(targetPath string, debug bool) error {
 }
 
 // IsResticRepo checks if .restic_dirname/repo exists
-func IsResticRepo(targetPath string) bool {
-	repoPath, _ := computeResticPaths(targetPath)
+func IsResticRepo(destPath string) bool {
+	repoPath, _ := computeResticPaths(destPath)
 	info, err := os.Stat(repoPath)
 	if err != nil {
 		return false
@@ -137,12 +137,12 @@ func IsResticRepo(targetPath string) bool {
 	return info.IsDir()
 }
 
-// BackupRestic creates a snapshot of targetPath (excluding .git/)
-func BackupRestic(targetPath string, debug bool) error {
-	repoPath, passwordPath := computeResticPaths(targetPath)
+// BackupRestic creates a snapshot of destPath (excluding .git/)
+func BackupRestic(destPath string, debug bool) error {
+	repoPath, passwordPath := computeResticPaths(destPath)
 
 	if debug {
-		fmt.Fprintf(os.Stderr, "DEBUG BackupRestic: backing up %s\n", targetPath)
+		fmt.Fprintf(os.Stderr, "DEBUG BackupRestic: backing up %s\n", destPath)
 	}
 
 	// Check if password file exists
@@ -151,7 +151,7 @@ func BackupRestic(targetPath string, debug bool) error {
 	}
 
 	// Backup with .git exclusion
-	_, err := runRestic(repoPath, passwordPath, "backup", targetPath, "--exclude", ".git")
+	_, err := runRestic(repoPath, passwordPath, "backup", destPath, "--exclude", ".git")
 	if err != nil {
 		return fmt.Errorf("restic backup failed: %v", err)
 	}
@@ -160,8 +160,8 @@ func BackupRestic(targetPath string, debug bool) error {
 }
 
 // ForgetRestic applies retention policy and prunes
-func ForgetRestic(targetPath string, debug bool) error {
-	repoPath, passwordPath := computeResticPaths(targetPath)
+func ForgetRestic(destPath string, debug bool) error {
+	repoPath, passwordPath := computeResticPaths(destPath)
 
 	if debug {
 		fmt.Fprintf(os.Stderr, "DEBUG ForgetRestic: applying retention policy\n")
