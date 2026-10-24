@@ -243,9 +243,13 @@ func (w *Watcher) processFSEvents() {
 					continue
 				}
 
-				eventType, ok := w.resolveFileEvent(event.Path, eventType)
-				if !ok {
-					continue
+				// Paths the filters reject need no file check: the main loop only
+				// logs them (with --debug or --report-only)
+				if matchesPathFilters(event.Path) {
+					var ok bool
+					if eventType, ok = w.resolveFileEvent(event.Path, eventType); !ok {
+						continue
+					}
 				}
 
 				// Send the event

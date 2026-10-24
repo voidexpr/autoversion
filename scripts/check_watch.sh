@@ -45,6 +45,11 @@ check "created file copied" cmp -s "$src/file.txt" "$dst/file.txt"
 echo more >> "$src/file.txt"; settle
 check "appended file copied" cmp -s "$src/file.txt" "$dst/file.txt"
 
+echo r > "$src/old-name.txt"; settle
+mv "$src/old-name.txt" "$src/new-name.txt"; settle
+check "file renamed: new name copied" cmp -s "$src/new-name.txt" "$dst/new-name.txt"
+check "file renamed: old name removed" test ! -e "$dst/old-name.txt"
+
 mkdir "$src/newdir"; echo new > "$src/newdir/new.txt"; settle
 check "file in a new directory copied" cmp -s "$src/newdir/new.txt" "$dst/newdir/new.txt"
 
@@ -68,7 +73,7 @@ rm "$src/file.txt"; settle
 check "deleted file removed" test ! -e "$dst/file.txt"
 
 copies=$(grep -c "copy '" "$log")
-check "one copy per change ($copies copies, want 6)" test "$copies" -eq 6
+check "one copy per change ($copies copies, want 8)" test "$copies" -eq 8
 
 "$repo/claude_kill" -INT "$pid" > /dev/null
 wait "$pid" 2> /dev/null

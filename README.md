@@ -312,6 +312,13 @@ Autoversion excludes:
 
 Directories matched by these exclusions or by `--exclude-dir` are skipped entirely: scans don't walk into them, and on Linux they don't use an inotify watch. With `--only-include-extensions` the built-in exclusions don't apply, so only `.git` and `--exclude-dir` directories are skipped.
 
+**Single files:** `--only-include-file PATH` (repeatable, relative to the source) tracks only those files, even if a built-in exclusion matches them; `--max-file-size` still applies. Only the directories leading to them are scanned and, on Linux, watched. It can't be combined with `--exclude-dir` or `--only-include-extensions`. Removing a file from the list removes its copy at the next sync (kept in git history). For example, to version one file of a busy directory:
+
+```bash
+./autoversion init --source ~/.claude --destination ~/backup/claude_settings
+./autoversion install --only-include-file settings.json --source ~/.claude --destination ~/backup/claude_settings
+```
+
 ## Configuration
 
 | Flag | Default | Description |
@@ -326,6 +333,7 @@ Directories matched by these exclusions or by `--exclude-dir` are skipped entire
 | `--report-only` | false | Only print file events, copy nothing (watch only, no `--destination` needed) |
 | `--only-include-extensions` | (none) | Only include files with these extensions (comma-separated, e.g. `md,csv,txt`) |
 | `--exclude-dir` | (none) | Exclude a directory relative to source; repeatable (e.g. `--exclude-dir Backup --exclude-dir tmp`) |
+| `--only-include-file` | (none) | Only track this file, relative to source; repeatable (see **Single files**) |
 | `--no-git` | false | Disable git entirely (plain directory mirror) |
 | `--restic` | false | Enable restic backup |
 | `--no-login` | false | Don't start service at login (install only) |
@@ -436,6 +444,8 @@ Uses `github.com/fsnotify/fsevents` for file system monitoring.
 **Undocumented flag 0x400000:** Sometimes appears combined with `ItemIsFile` (e.g., flags=0x410000). This could be related to Dropbox/iCloud sync operations, APFS features (cloning, snapshots), or system metadata operations.
 
 ### Known Issues
+
+**Changes during the initial scan** (accepted behavior): `watch` starts the watcher after its initial scan, so a file changed while the scan runs is only picked up by its next change or the next start. autoversion is meant to catch changes made by people and agents, which rarely happen in the seconds after it starts (at login or reboot). On Linux, an inotify watch limit error also shows only after the scan.
 
 **File rename detection**: FSEvents reports renames as two separate events (old path renamed, new path renamed). The code checks which file exists to determine the operation, which can have race conditions.
 

@@ -79,6 +79,38 @@ func TestProcessEvents_DirectoryMovedInAndOut(t *testing.T) {
 	}
 }
 
+func TestScanPaths_IncludeFiles(t *testing.T) {
+	setGlobals(t, false)
+	oldIncludeFiles := includeFiles
+	t.Cleanup(func() { includeFiles = oldIncludeFiles })
+	source := resolvedTempDir(t)
+	dest := resolvedTempDir(t)
+	SetSourceRoot(source)
+	if err := SetIncludeFiles([]string{"settings.json"}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(source, "settings.json"), "{}")
+	writeFile(t, filepath.Join(source, "other.json"), "{}")
+	writeFile(t, filepath.Join(source, "projects", "p.jsonl"), "{}")
+
+	captureStdout(t, func() {
+		if err := scanPaths(source, dest, 0, false); err != nil {
+			t.Error(err)
+		}
+	})
+	var copied []string
+	filepath.Walk(dest, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			rel, _ := filepath.Rel(dest, path)
+			copied = append(copied, rel)
+		}
+		return nil
+	})
+	if strings.Join(copied, ",") != "settings.json" {
+		t.Errorf("copied %v, want only settings.json", copied)
+	}
+}
+
 func TestProcessEvents_SkipsUnchangedFiles(t *testing.T) {
 	setGlobals(t, false)
 	source := resolvedTempDir(t)

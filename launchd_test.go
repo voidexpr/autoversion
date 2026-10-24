@@ -13,7 +13,10 @@ func TestGeneratePlist_ParsePlistPaths(t *testing.T) {
 	source := "/Users/me/src & 'docs'"
 	dest := "/Volumes/backup/<dest>"
 	plist := generatePlist("projects.autoversion.job", "/bin/autoversion", source, dest, "/tmp/logs",
-		10, 3, true, false, false, false, "md", []string{"Backup"})
+		10, 3, true, false, false, false, "md", []string{"Backup"}, []string{"settings.json"})
+	if !strings.Contains(plist, "<string>--only-include-file</string>\n\t\t<string>settings.json</string>") {
+		t.Errorf("plist misses --only-include-file settings.json:\n%s", plist)
+	}
 
 	path := filepath.Join(t.TempDir(), "job.plist")
 	if err := os.WriteFile(path, []byte(plist), 0644); err != nil {

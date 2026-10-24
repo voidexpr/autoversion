@@ -1,12 +1,10 @@
 # Autoversion todos
 
-## Issue with multiple installs
+## Restic repository next to the destination
 
-* want multiple background apps for different paths
-
-## fix bug with renames not detected
-
-investigate as I think we tried in the past and that didn't work. Develop test suites
+`init --restic` creates `<parent>/.restic_<name>/repo` and
+`<parent>/.restic_password_<name>` next to the destination, i.e. outside of
+it. Move them inside the destination (none of the current jobs use restic).
 
 ## Configuration
 

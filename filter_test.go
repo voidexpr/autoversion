@@ -488,6 +488,82 @@ func TestSetExcludeDirs_Validation(t *testing.T) {
 	}
 }
 
+func TestSetIncludeFiles_Validation(t *testing.T) {
+	oldIncludeFiles := includeFiles
+	defer func() { includeFiles = oldIncludeFiles }()
+
+	tests := []struct {
+		name    string
+		input   []string
+		want    []string
+		wantErr bool
+	}{
+		{"valid", []string{"settings.json", "sub/keep.txt"}, []string{"settings.json", "sub/keep.txt"}, false},
+		{"cleaned", []string{"./a/../b.txt"}, []string{"b.txt"}, false},
+		{"absolute path", []string{"/etc/passwd"}, nil, true},
+		{"parent escape", []string{"../outside.txt"}, nil, true},
+		{"source itself", []string{"."}, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := SetIncludeFiles(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("SetIncludeFiles(%v) error = %v, wantErr = %v", tt.input, err, tt.wantErr)
+			}
+			if !tt.wantErr && strings.Join(includeFiles, ",") != strings.Join(tt.want, ",") {
+				t.Errorf("includeFiles = %v, want %v", includeFiles, tt.want)
+			}
+		})
+	}
+}
+
+func TestIncludeFiles(t *testing.T) {
+	oldIncludeFiles, oldSourceRoot := includeFiles, sourceRoot
+	defer func() { includeFiles, sourceRoot = oldIncludeFiles, oldSourceRoot }()
+
+	root := t.TempDir()
+	SetSourceRoot(root)
+	// debug.log and node_modules/ would be excluded by the built-in patterns
+	if err := SetIncludeFiles([]string{"settings.json", "debug.log", "node_modules/keep.js"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"settings.json", "debug.log", "node_modules/keep.js", "other.json", "node_modules/other.js"} {
+		writeFile(t, filepath.Join(root, name), "x")
+	}
+	writeFile(t, filepath.Join(root, "large.json"), strings.Repeat("x", 2*1024*1024))
+
+	for name, want := range map[string]bool{
+		"settings.json":         true,
+		"debug.log":             true,
+		"node_modules/keep.js":  true,
+		"other.json":            false,
+		"node_modules/other.js": false,
+	} {
+		if got, err := ShouldTrack(filepath.Join(root, name), 10, false); got != want || err != nil {
+			t.Errorf("ShouldTrack(%s) = %v, %v, want %v", name, got, err, want)
+		}
+	}
+
+	// --max-file-size still applies to listed files
+	if err := SetIncludeFiles([]string{"large.json"}); err != nil {
+		t.Fatal(err)
+	}
+	captureStdout(t, func() {
+		if got, _ := ShouldTrack(filepath.Join(root, "large.json"), 1, false); got {
+			t.Error("listed file over --max-file-size tracked")
+		}
+	})
+
+	if err := SetIncludeFiles([]string{"a/b/f.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	for dir, want := range map[string]bool{".": false, "a": false, "a/b": false, "a/b/c": true, "a/c": true, "x": true} {
+		if got := IsExcludedDir(filepath.Join(root, dir)); got != want {
+			t.Errorf("IsExcludedDir(%s) = %v, want %v", dir, got, want)
+		}
+	}
+}
+
 func TestShouldTrack_NumericVimTemp(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "filter_vim_test")
 	if err != nil {

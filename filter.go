@@ -59,6 +59,7 @@ var excludePatterns = []*regexp.Regexp{
 
 var includeExtensions map[string]bool
 var excludeDirs []string
+var includeFiles []string
 var sourceRoot string
 
 // reportedLargeFiles holds the large files already logged, a file being
@@ -79,26 +80,95 @@ func SetIncludeExtensions(exts string) {
 	}
 }
 
+// cleanRelativePath cleans a path given with flag, which must be relative to
+// the source and stay inside it
+func cleanRelativePath(flag, p string) (string, error) {
+	p = filepath.Clean(p)
+	if filepath.IsAbs(p) {
+		return "", fmt.Errorf("%s: %q must be a relative path", flag, p)
+	}
+	if p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%s: %q escapes source directory", flag, p)
+	}
+	return p, nil
+}
+
 func SetExcludeDirs(dirs []string) error {
 	excludeDirs = nil
 	for _, d := range dirs {
-		d = filepath.Clean(d)
+		d, err := cleanRelativePath("--exclude-dir", d)
+		if err != nil {
+			return err
+		}
 		if d == "." {
 			continue
-		}
-		if filepath.IsAbs(d) {
-			return fmt.Errorf("--exclude-dir: %q must be a relative path", d)
-		}
-		if d == ".." || strings.HasPrefix(d, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("--exclude-dir: %q escapes source directory", d)
 		}
 		excludeDirs = append(excludeDirs, d+string(filepath.Separator))
 	}
 	return nil
 }
 
+func SetIncludeFiles(files []string) error {
+	includeFiles = nil
+	for _, f := range files {
+		f, err := cleanRelativePath("--only-include-file", f)
+		if err != nil {
+			return err
+		}
+		if f == "." {
+			return fmt.Errorf("--only-include-file: %q is not a file path", f)
+		}
+		includeFiles = append(includeFiles, f)
+	}
+	return nil
+}
+
 func SetSourceRoot(root string) {
 	sourceRoot = root
+}
+
+// relToSource returns path relative to the source root, ok false outside it
+func relToSource(path string) (string, bool) {
+	if sourceRoot == "" {
+		return "", false
+	}
+	rel, err := filepath.Rel(sourceRoot, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", false
+	}
+	return rel, true
+}
+
+// isIncludedFile returns true if path is one of the --only-include-file files
+func isIncludedFile(path string) bool {
+	rel, ok := relToSource(path)
+	if !ok {
+		return false
+	}
+	for _, f := range includeFiles {
+		if rel == f {
+			return true
+		}
+	}
+	return false
+}
+
+// leadsToIncludedFile returns true if dir is the source root or contains one
+// of the --only-include-file files
+func leadsToIncludedFile(dir string) bool {
+	rel, ok := relToSource(dir)
+	if !ok {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	for _, f := range includeFiles {
+		if f != rel && hasPathPrefix(f, rel) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsExcludedPath returns true if the path falls under an excluded directory.
@@ -126,9 +196,13 @@ func IsExcludedPath(path string) bool {
 // walks and watchers can skip it entirely. The built-in patterns match full
 // paths, so a pattern matching "dir/" also matches every file below it.
 // --only-include-extensions bypasses the patterns: then only --exclude-dir applies.
+// With --only-include-file, only the directories leading to those files are kept.
 func IsExcludedDir(path string) bool {
 	if IsExcludedPath(path) {
 		return true
+	}
+	if len(includeFiles) > 0 {
+		return !leadsToIncludedFile(path)
 	}
 	if len(includeExtensions) > 0 {
 		return false
@@ -201,6 +275,11 @@ func matchesPathFilters(path string) bool {
 	// A marker at the source root would overwrite the destination's marker
 	if sourceRoot != "" && path == filepath.Join(sourceRoot, markerFileName) {
 		return false
+	}
+
+	// Files named explicitly bypass the extension filter and the built-in patterns
+	if len(includeFiles) > 0 {
+		return isIncludedFile(path)
 	}
 
 	if len(includeExtensions) > 0 {

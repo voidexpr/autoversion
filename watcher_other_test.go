@@ -43,6 +43,37 @@ func drainEvents(t *testing.T, w *Watcher, d time.Duration, dir string) {
 	}
 }
 
+func TestWatcher_IncludeFilesWatchOnlyTheirDirectories(t *testing.T) {
+	oldIncludeFiles, oldSourceRoot := includeFiles, sourceRoot
+	defer func() { includeFiles, sourceRoot = oldIncludeFiles, oldSourceRoot }()
+	root := t.TempDir()
+	SetSourceRoot(root)
+	if err := SetIncludeFiles([]string{"a/b/f.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"a/b/c", "a/other", "x/y"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	w, err := NewWatcher(root, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	want := map[string]bool{root: true, filepath.Join(root, "a"): true, filepath.Join(root, "a", "b"): true}
+	if len(w.watched) != len(want) {
+		t.Errorf("watched %v, want %v", w.watched, want)
+	}
+	for dir := range want {
+		if !w.watched[dir] {
+			t.Errorf("%s not watched", dir)
+		}
+	}
+}
+
 func TestWatcher_Directories(t *testing.T) {
 	root := t.TempDir()
 	w, err := NewWatcher(root, 0, false)

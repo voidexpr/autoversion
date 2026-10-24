@@ -103,7 +103,7 @@ func promptPath(prompt string, mustExist bool) (string, error) {
 }
 
 // generatePlist creates the launchd plist content
-func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts string, excludeDirs []string) string {
+func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts string, excludeDirs, includeFiles []string) string {
 	stdoutLog := filepath.Join(logDir, stdoutLogName)
 	stderrLog := filepath.Join(logDir, stderrLogName)
 
@@ -130,6 +130,9 @@ func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, maxFile
 	}
 	for _, d := range excludeDirs {
 		args = append(args, "--exclude-dir", d)
+	}
+	for _, f := range includeFiles {
+		args = append(args, "--only-include-file", f)
 	}
 
 	// Build ProgramArguments XML
@@ -407,7 +410,7 @@ var installCmd = &cobra.Command{
 			maxSize, _ := cmd.Flags().GetInt64("max-file-size")
 			bufTime, _ := cmd.Flags().GetInt("buffer-time")
 			logDirPath, _ := logDir(jobID)
-			newPlist := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag)
+			newPlist := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag, includeFilesFlag)
 			existingPlist, _ := os.ReadFile(plist)
 
 			needsReload := needsServiceReload(plist) || string(existingPlist) != newPlist
@@ -483,7 +486,7 @@ var installCmd = &cobra.Command{
 		}
 		bufTime, _ := cmd.Flags().GetInt("buffer-time")
 
-		plistContent := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag)
+		plistContent := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag, includeFilesFlag)
 
 		if dryRun {
 			fmt.Println("=== Generated plist (dry-run) ===")

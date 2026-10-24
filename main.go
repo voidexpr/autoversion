@@ -28,16 +28,17 @@ var (
 	errLogFlag string
 
 	// Command-specific flags
-	maxFileSize     int64
-	bufferTime      int
-	dryRun          bool
-	reportOnly      bool
-	noLogin         bool
-	logDirFlag      string
-	forceNewSource  bool
-	forceObliterate bool
-	includeExtsFlag string
-	excludeDirsFlag []string
+	maxFileSize      int64
+	bufferTime       int
+	dryRun           bool
+	reportOnly       bool
+	noLogin          bool
+	logDirFlag       string
+	forceNewSource   bool
+	forceObliterate  bool
+	includeExtsFlag  string
+	excludeDirsFlag  []string
+	includeFilesFlag []string
 )
 
 // requirePaths returns an error unless --source, and --destination when
@@ -309,6 +310,8 @@ func logEvent(eventType EventType, path string, tracked bool) {
 		opName = "deleted "
 	case EventDirChanged:
 		opName = "dir     "
+	case EventCheckExists:
+		opName = "changed "
 	}
 	switch {
 	case !tracked:
@@ -519,6 +522,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&errLogFlag, "err-log", "", "error log file path")
 	rootCmd.PersistentFlags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
 	rootCmd.PersistentFlags().StringArrayVar(&excludeDirsFlag, "exclude-dir", nil, "exclude a directory relative to source (repeatable, e.g. --exclude-dir Backup --exclude-dir tmp)")
+	rootCmd.PersistentFlags().StringArrayVar(&includeFilesFlag, "only-include-file", nil, "only track this file, relative to source (repeatable); bypasses the built-in exclusions, --max-file-size still applies")
 
 	// Filter command flags
 	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
@@ -553,6 +557,13 @@ func main() {
 		SetIncludeExtensions(includeExtsFlag)
 		if err := SetExcludeDirs(excludeDirsFlag); err != nil {
 			return err
+		}
+		if err := SetIncludeFiles(includeFilesFlag); err != nil {
+			return err
+		}
+		// Only the listed files are tracked, so these filters could only contradict the list
+		if len(includeFilesFlag) > 0 && (len(excludeDirsFlag) > 0 || includeExtsFlag != "") {
+			return fmt.Errorf("--only-include-file can't be combined with --exclude-dir or --only-include-extensions")
 		}
 		return initErrLog(errLogFlag)
 	}
