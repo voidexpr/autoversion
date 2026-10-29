@@ -1,14 +1,43 @@
 # Plan: filter rules in the shared syntax, stored with the destination
 
-**Status: proposal v3, 2026-10-29. Not implemented.** Breaking change: jobs
-are re-migrated.
+**Status: ready for implementation (v4, 2026-10-29).** The shared syntax spec
+is being finalized and will be given to the implementer separately. Breaking
+change: jobs are re-migrated (see Migration).
 
-The syntax and its meaning are defined in
-`~/projects/ownit/plans/spec_filter_syntax.md` (v3), the source of truth
-shared by ownit, autoversion and minimon. This plan says how autoversion uses
-it: where the rules live, the commands, the built-in groups, the code and the
-migration. One addition is proposed for the shared spec: `exclude-files`
-(see below).
+## For the implementer: read first
+
+**Inputs:**
+- This plan: the authority for how autoversion uses the rules (storage,
+  commands, built-ins, code changes, migration).
+- `~/projects/ownit/plans/spec_filter_syntax.md`, final version (given
+  separately): the authority for the syntax, matching, sugar, decision
+  rule, validation and error codes. Where it disagrees with this plan's
+  summary of the syntax, the shared spec wins. Tell the user about any
+  disagreement.
+- ownit's `tests/filter_conformance.json`: copy it unchanged into
+  `filterrules/testdata/`, and record the ownit commit it came from in a
+  comment in the test.
+
+**Project rules** (from `CLAUDE.md` and the user's preferences):
+- Run the tests before and after each change: `make test`, and
+  `make docker-go-test` for the Linux code. `gofmt -l .` must be clean.
+- No new dependency: the matcher uses the standard library only.
+- Document every new or changed command in `README.md`.
+- Use `./claude_kill`, not `kill`.
+- Commit only when the user asks. Messages go through a heredoc
+  (`git commit -F - <<'EOF'`), never `$(…)`, and end with the
+  `Co-Authored-By` line.
+- Ask before expanding the scope beyond this plan.
+
+**Testing limits in the Claude sandbox:**
+- FSEvents doesn't start in the sandbox, so `make watch-check` (macOS) is
+  run by the user. Linux runs work through `make docker-go-test`,
+  `make docker-sh CMD='…'` and `make docker-watch-check`.
+- The user builds Docker images (`make docker-dev-build`).
+
+**Related plan:** `feature_remote_destination.md` adds a `remotes` field to
+the same marker. The marker must be read and rewritten without losing
+fields autoversion doesn't know about.
 
 ## Motivation: `~/.claude`
 
@@ -58,7 +87,7 @@ exclude /*
 | `skills/pdf/SKILL.md` | kept | `/skills` |
 | `skills/synced/foo/SKILL.md` | left out | `skills/synced` (exclude, closer than `/skills`) |
 | `skills/pdf/node_modules/x.js` | left out | `skills/pdf/node_modules` (`default`'s `/**/node_modules`, closer than `/skills`) |
-| `skills/pdf/x.pyc` | left out | the entry itself (`default`'s `/**/*.pyc`) |
+| `skills/pdf/x.pyc` | left out | the entry itself (`default`'s `f:/**/*.pyc`) |
 | `projects/-Users-x/memory/MEMORY.md` | kept | `projects/-Users-x/memory` (include) |
 | `projects/-Users-x/abc123.jsonl` | left out | `projects` (`/*`) |
 | `file-history/...` | left out | `file-history` (`/*`) |
@@ -73,159 +102,201 @@ exclude /*
   That's about 250 of 6254. `file-history/`, `plugins/` and
   `skills/synced/` are never entered.
 - **macOS:** FSEvents still reports the whole tree. Events are dropped by
-  the path rules before any file access, so this costs little.
+  the rules before any file access.
 
-Other jobs, for comparison:
+Other jobs:
 - `projects`, `dotfiles`, `notes`, `sync`, `sublime`: the whole tree minus
-  the built-ins. The filter file is `version 1` and `use default`, or there
-  is no file.
+  the built-ins. Their filter file is `version 1` and `use default`, or
+  there is no file.
 - A tree minus one folder: `exclude /Backup`.
 - Markdown and CSV only (today's `--only-include-extensions`):
-  `exclude /*` and `/**/*.{md,csv}`.
+  `exclude /*` and `f:/**/*.{md,csv}`.
   - A root-level `a.md` is kept: a wildcard include wins its tie with `/*`.
   - Deeper `.md` files are kept: the include matches the file, closer than
     `/*`.
   - As today, this reaches into `node_modules/`, because the include on
     the file is closer than `/**/node_modules`. Every folder is visited
     (`**` can match anywhere).
-  - A wildcard include: native only, which is fine for autoversion.
 
 ## The syntax, in short
 
-Read `spec_filter_syntax.md` for the exact definitions, sugar, error codes
-and conformance suite. What matters most:
+The shared spec has the exact definitions. What matters most here:
 - **Rooted:** every rule starts with `/`, the source. `/**/x` means at any
   depth.
-- **Wildcards:** `*` stays within one name, `**` is a whole segment (at
-  most once, never last). There is no `?`, no `[…]` and no escapes.
+- **Wildcards:** `*` stays within one name; `**` is a whole segment, at
+  most once, never last. There is no `?`, no `[…]` and no escapes.
 - **Shorthands:** `{a,b}` braces, and `!` for exceptions.
-- **No folder-only rules:** `/**/build/*` leaves out a build folder's
-  content but keeps a file named `build`.
-- **Closest match wins.** On the same level, a literal rule beats a
-  wildcard rule; between two wildcards, the include wins. Two literal rules
-  on one path are a `contradiction` error.
+- **Closest match wins:**
+  - The entry itself is checked first, then each folder above it.
+  - On the same level, a literal rule beats a wildcard rule.
+  - Between two wildcards, the include wins.
+  - Two literal rules on one path are a `contradiction` error.
 - **No order:** rules and groups combine as unions. Adding an include never
   leaves out more, and adding an exclude never keeps more.
 - **Nothing is implied:** an allowlist says `exclude /*`.
 - **Wildcard includes** (`/projects/*/memory`) are fine for autoversion's
-  native matcher. Only the converters to other tools refuse them.
+  native matcher. Only converters to other tools refuse them.
 
-### Proposed addition: `exclude-files`
+### Entry type prefix: `f:` and `d:`
 
-`exclude-files RULE` is an exclude that matches files only, never folders.
-Today's built-ins work that way (`*.old`, `*.bak`, `*.log` leave out files,
-not a folder named `x.old`), and a backup of a folder named
-`osxphotos.old/` must not silently lose it.
+A rule may start with a type prefix, before its leading `/`:
+- No prefix: a **path** rule. It matches files and folders alike.
+- `f:/**/*.old`: matches **files only**. A folder named `foo.old` is not
+  matched, so it and its content stay.
+- `d:` is reserved for a future "folders only" rule. It isn't needed yet,
+  because `/dir/*` already targets a folder's content. It's not
+  implemented: a `d:` prefix is an error (use the shared spec's code, if
+  it has one).
 
-- **Matching:** the rule takes part only at the entry's own level, and only
-  when the entry is a file. When a folder level is checked, it's ignored.
-  Otherwise it behaves like `exclude`: same syntax, same literal-or-wildcard
-  ties.
-- **Rules file:** a third keyword, `exclude-files /**/*.old`.
-- **Converters, preliminary, to settle in the shared spec:**
-  - gitignore and rsync have directory-only patterns (a trailing `/`). So
-    an extra line that keeps folders of that name (`!/**/*.old/` in
-    gitignore, `+ /**/*.old/` in rsync) can express it. Where that line
-    goes in each tool's ordered list needs the same care as the `**`
-    split.
-  - restic, borg: no file type in patterns, so refuse. Writing it as a
-    plain `exclude` would leave out more (data loss).
-- autoversion only needs the native matcher, so it can use `exclude-files`
-  right away. This is to be proposed to ownit's spec before the
-  implementation.
+Matching an `f:` rule:
+- It takes part only at the entry's own level, and only when the entry is a
+  file. When a folder level is checked (an entry's parent, grandparent, …,
+  or a folder itself), `f:` rules are ignored.
+- Otherwise it behaves like any rule: same syntax and sugar
+  (`f:/**/{*.tmp,*.bak}`), and the same literal-or-wildcard ties.
+- A deleted entry has no type. A delete event is decided as a file. A
+  removed folder's files get their own events or a directory rescan, so
+  nothing is missed.
 
-## Where the rules live
+Where it's written:
+- In a filter file: `exclude f:/**/*.old`, `include f:/**/*.md`, or a bare
+  line `f:/**/*.md`.
+- In flags: `--exclude 'f:/**/*.old'`.
 
-The rules describe the destination, not one run. So they are stored in the
-destination, and every command applies the same ones.
+The shared spec defines the prefix. If the final spec says otherwise, the
+shared spec wins.
 
-- `D/.autoversion` (the marker, JSON) gets the settings that aren't rules:
+**To check in the shared spec:** what `f:` combined with a `!` exception
+means (`exclude f:/a/!b`). If the spec doesn't address it, raise it with
+the user before implementing that combination. Reject it meanwhile.
+
+## Where the configuration lives
+
+The rules and the settings describe the destination, not one run. They are
+stored in the destination, so every command applies the same ones.
+
+- **`D/.autoversion`** (the marker, JSON): the source and the settings that
+  aren't rules.
   ```json
-  {"source": "/Users/nicolas/SyncDatabox/nicmac/.claude", "git": true, "max_file_size_mb": 10}
+  {"source": "/Users/nicolas/SyncDatabox/nicmac/.claude", "git": true, "restic": false, "max_file_size_mb": 10}
   ```
-  Missing fields keep today's defaults: git, 10 MB.
-- `D/.autoversion.filter`: a filter file in the shared format, without a
-  `root` line. The root is the marker's source.
+  - Missing fields describe what the destination is today, so current
+    markers (only `source`) stay valid:
+    - `git`: whether `D/.git` exists. A destination made with `--no-git`
+      has none.
+    - `restic`: whether its restic repository exists.
+    - `max_file_size_mb`: 10.
+  - Unknown fields (e.g. `remotes` from `feature_remote_destination.md`)
+    are kept when the marker is rewritten.
+- **`D/.autoversion.filter`:** a filter file in the shared format, without
+  a `root` line (the root is the marker's source).
   - No file means `use default`, so current destinations keep working.
   - With git, both files are committed: `git log -p .autoversion.filter`
     shows every rule change.
 - Both files are kept by the delete pass. Files with these names at the
   source root are never tracked.
 
-## Input: flags for simple cases, a file for complex ones
+## Rule input: flags for simple cases, a file for complex ones
 
-Wherever rules are taken (`init`, `filter set`, `filter scan`,
-`filter dump`, `watch --report-only`):
-- `--filter FILE`: a filter file (shared format; a `root` line, if any,
-  must match the source).
-- `--include RULE`, `--exclude RULE`, `--exclude-files RULE`, `--use GROUP`:
-  repeatable, for simple cases.
+Commands that take rules (`init`, `filter set`, `filter scan`,
+`filter dump`, `watch --report-only`) accept:
+- `--filter FILE`: a filter file in the shared format. A `root` line, if
+  any, must resolve to the source.
+- `--include RULE`, `--exclude RULE`: repeatable. A rule may have the `f:`
+  prefix.
+- `--use GROUP`: repeatable.
 
 Flags and a file combine as a union (no order). With neither, the rules are
 `use default`. `init` and `filter set` write the combined rules to
-`D/.autoversion.filter`.
+`D/.autoversion.filter`, normalized (sugar kept as written, one rule per
+line, `use` lines first).
 
 ## Commands
 
-Names follow ownit's `filter dump` / `filter scan` where the meaning is the
-same.
+Names follow ownit's `filter dump` and `filter scan` where the meaning is
+the same.
 
 | command | what it does |
 |---|---|
-| `init --source S --destination D [rules] [--no-git] [--max-file-size MB]` | creates the destination, writes the marker and `.autoversion.filter`, validates |
-| `sync`, `watch`, `install`, `check-paths` | read the destination's rules; they take no rule input |
-| `filter scan --source S [rules \| --destination D] [--explain PATH] [--summary]` | lists the kept files (was `filter`). `--explain` prints the result, the level and the deciding rule. `--summary` prints the counts of kept files and of folders visited (= inotify watches on Linux) |
+| `init --source S --destination D [rules] [--no-git] [--restic] [--max-file-size MB] [--update-settings]` | creates or adopts the destination (as today), writes the marker and `.autoversion.filter`, validates, commits. On an existing destination, see "Changing settings" |
+| `sync`, `watch`, `install` | read the marker and the filter file. Rule flags, `--no-git`, `--restic` and `--max-file-size` are errors here: "set with init or filter set" |
+| `check-paths` | as today, plus the rules' validation result |
+| `filter scan --source S [rules \| --destination D] [--explain PATH] [--summary]` | lists the kept files (was `filter`). `--explain PATH` prints the result, the level and the rule that decided it. `--summary` prints the number of kept files and of folders visited (= inotify watches on Linux) |
 | `filter dump [rules \| --destination D]` | prints the expanded rules, groups included |
 | `filter set --destination D rules` | replaces `.autoversion.filter`, then the same as `filter check` |
-| `filter check --destination D` | after a hand edit: validates, prints the warnings and the change since the last commit, commits it (`filter: …`), and restarts the installed job if there is one |
-| `filter groups` | lists the built-in groups with their rules, ready to copy into a file |
+| `filter check --destination D` | after a hand edit: validates, prints the warnings and the change since the last commit, commits (`filter: …`), and restarts the installed job if there is one |
+| `filter groups` | lists the built-in groups and their rules, ready to copy into a file |
 | `watch --report-only --source S [rules]` | NAS checks: no destination, so the rules are given |
 
-- Validation errors stop the command. Warnings are printed: dead literal
-  rules (no such path under the source), and includes that change nothing.
-- Removed: `--exclude-dir`, `--only-include-extensions`,
-  `--only-include-file`.
-- `install` writes only runtime flags in the plist (`--buffer-time`,
-  `--debug`, `--log-dir`), plus a hash of the marker and the filter file
-  (`EnvironmentVariables` → `AUTOVERSION_CONFIG`). After a rule change,
-  re-running `install` reloads the job, through the existing reload logic.
+### Changing settings
 
-## Built-ins in the new syntax
+`init` on a destination that is already initialized for the source:
+- **Settings equal to the marker's** (or none given): no change, as today.
+- **Different settings** (`--max-file-size`, `--no-git`, `--restic`):
+  - Without `--update-settings`: an error listing the differences.
+  - With it: the marker is updated and committed. This works like
+    `--force-new-source` for the source.
+- **Git to plain mirror** (`--no-git` on a git destination): refused, even
+  with `--update-settings`. The `.git` folder and its history would stay
+  while files stop being committed. The error says how to do it on
+  purpose: remove `D/.git` by hand, or start over with
+  `--force-obliterate-yes-i-am-sure`.
+- **Plain mirror to git** (no `--no-git` on a mirror, with
+  `--update-settings`): `git init`; the next sync commits everything.
+- Rules aren't settings: they change with `filter set` or `filter check`.
+  Rules given to `init` on an existing destination are an error that
+  points to `filter set`.
+
+### Notes
+
+- Validation errors stop the command. Warnings are printed and don't stop
+  it:
+  - dead literal rules (no such path under the source)
+  - includes that change nothing
+- Removed flags: `--exclude-dir`, `--only-include-extensions`,
+  `--only-include-file`.
+- **install:** the plist keeps only runtime flags (`--buffer-time`,
+  `--debug`, `--log-dir`, `--no-login`), plus a hash of the marker and the
+  filter file (`EnvironmentVariables` → `AUTOVERSION_CONFIG`). After a
+  change, re-running `install` sees a different plist and reloads the job,
+  through the existing reload logic.
+
+## Built-ins
 
 ### Always applied (not a group, can't be removed)
 
 - `/**/.git` folders: a nested repository's `.git` must never be copied
   into a git destination.
-- Symlinks, never followed.
+- Symlinks: never followed, never tracked.
 - `/.autoversion` and `/.autoversion.filter` at the source root.
 
 ### Groups
 
-Each group is one named, code-defined Rules, used with `use NAME`.
-`default` uses all of them. `x` is `exclude`, `xf` is `exclude-files`.
+Each group is one named, code-defined set of rules, used with `use NAME`.
+`default` uses all of them. All are excludes.
 
 | group | rules |
 |---|---|
-| `os` | xf `/**/{.DS_Store,Thumbs.db,desktop.ini,.nfs*}`; x `/**/{.Spotlight-V100,.Trashes,.dropbox,.dropbox.cache}` |
-| `editors` | xf `/**/{*.swp,*.swpx,*.swo,*~,4913,*.iml}`; x `/**/.idea` |
-| `temp` | xf `/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}` |
-| `logs` | xf `/**/{*.log,*.out,*.stdout,*.err,*.stderr,*.pid,*.dump}` |
-| `build` | x `/**/{build,dist,out}/*`, `/**/target/{debug,release}`, `/**/{.build,DerivedData}`; xf `/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}`, `/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}` |
-| `deps` | x `/**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,.gradle}` |
-| `caches` | x `/**/{.cache,.next,.nuxt,.output,.pytest_cache,.playwright-mcp,playwright-report,test-results}` |
-| `data` | x `/**/{pgdata,*.pgdb}`; xf `/**/*.wal` |
-| `vcs` | x `/**/{.hg,.svn,.cvs}`, `/**/*.git` (bare repositories) |
+| `os` | `f:/**/{.DS_Store,Thumbs.db,desktop.ini,.nfs*}`, `/**/{.Spotlight-V100,.Trashes,.dropbox,.dropbox.cache}` |
+| `editors` | `f:/**/{*.swp,*.swpx,*.swo,*~,4913,*.iml}`, `/**/.idea` |
+| `temp` | `f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}` |
+| `logs` | `f:/**/{*.log,*.out,*.stdout,*.err,*.stderr,*.pid,*.dump}` |
+| `build` | `/**/{build,dist,out}/*`, `/**/target/{debug,release}`, `/**/{.build,DerivedData}`, `f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}`, `f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}` |
+| `deps` | `/**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,.gradle}` |
+| `caches` | `/**/{.cache,.next,.nuxt,.output,.pytest_cache,.playwright-mcp,playwright-report,test-results}` |
+| `data` | `/**/{pgdata,*.pgdb}`, `f:/**/*.wal` |
+| `vcs` | `/**/{.hg,.svn,.cvs,*.git}` (`*.git`: bare repositories) |
 | `default` | `use os editors temp logs build deps caches data vcs` |
 
-- **File-only rules:** suffix and file-name rules are `exclude-files`, as
-  today. A folder named `x.old`, `x.log` or `conf.d` is kept.
+- **File rules (`f:`):** suffixes and file names, as today. A folder named
+  `x.old`, `x.log` or `conf.d` is kept.
 - **Folder rules:** they leave out the whole folder, and the scan never
-  enters it. Their names are never file names in practice.
-- **`build`, `dist` and `out`** use `/x/*`: they're common words, so a
-  file with that name stays.
-- **Shared data:** group contents are data, kept next to the conformance
-  suite so that ownit and autoversion can share them, with a commit noted
-  when copied.
+  enters it. These names are never file names in practice.
+- **`build`, `dist` and `out`** use `/x/*`. They're common words, so a file
+  with that name stays.
+- **Data, not code:** groups are defined as data (e.g.
+  `filterrules/groups.json`, embedded), so they can be shared with ownit
+  later.
 
 ### Translation from today's regexes
 
@@ -234,91 +305,193 @@ Today's patterns are regexes on the absolute path. A pattern ending with
 
 | today | new | change |
 |---|---|---|
-| `\.(log\|dump\|swp\|swpx\|swo\|pid\|lock\|beam\|bea#)$` | xf `logs`: `*.log` `*.dump` `*.pid`; `editors`: `*.swp` `*.swpx` `*.swo`; `build`: `*.beam` | `*.lock` dropped: today `Cargo.lock`, `uv.lock` and `flake.lock` are left out of the projects backup (a bug). `*.bea#` dropped (origin unknown) |
-| `/\d+$` (file names made only of digits) | xf `editors`: `4913` | Not expressible. `4913` is Vim's write test file, the real case. A file named `2024` is no longer left out |
-| `[~]$` | xf `editors`: `*~` | |
+| `\.(log\|dump\|swp\|swpx\|swo\|pid\|lock\|beam\|bea#)$` | `logs`: `f:*.log` `f:*.dump` `f:*.pid`; `editors`: `f:*.swp` `f:*.swpx` `f:*.swo`; `build`: `f:*.beam` | `*.lock` dropped: today `Cargo.lock`, `uv.lock` and `flake.lock` are left out of the projects backup (a bug). `*.bea#` dropped (origin unknown) |
+| `/\d+$` (file names made only of digits) | `editors`: `f:4913` | Not expressible. `4913` is Vim's write test file, the real case. A file named `2024` is no longer left out |
+| `[~]$` | `editors`: `f:*~` | |
 | `^(\.\|\.\.)$` | — | never matched an absolute path |
-| `\.(out\|stdout\|err\|stderr\|depend\|dropbox)` (anywhere in the path) | xf `logs`: `*.out` `*.stdout` `*.err` `*.stderr`; xf `build`: `*.depend`; x `os`: `.dropbox` `.dropbox.cache` | Suffixes and names only: `notes.output.md` and `x.errors/` are now kept |
-| `\.(log\|old\|temp\|bak\|tmp)$` | xf `temp`: `*.old` `*.temp` `*.bak` `*.tmp` | |
-| `\.(DS_Store\|nfs)$` | xf `os`: `.DS_Store` `.nfs*` | `.nfs*` is the real NFS temp name (`.nfs0000…`); `*.nfs` matched nothing |
-| `\.(o\|obj\|…\|pch\|d)$` | xf `build` | |
-| `\.(class\|jar\|war\|ear)$` | xf `build` | |
-| `\.(git\|hg\|svn\|cvs)(/\|$)` | always `/**/.git`; x `vcs`: `.hg` `.svn` `.cvs` `*.git` | |
-| `\.tmp\.\d+$`, `\.tmp\.\d+\.\d+$` | xf `temp`: `*.tmp.*` | Broader: any suffix after `.tmp.` (atomic writes like `PLAN.md.tmp.18812.1760578375713`) |
-| `\.(venv\|pytest_cache\|playwright-mcp)/` | x `deps`: `.venv`; `caches`: `.pytest_cache` `.playwright-mcp` | |
-| `node_modules/`, `__pycache__`, `pgdata/` (anywhere) | x `/**/node_modules`, `/**/__pycache__`, `/**/pgdata` | Exact names: `my_node_modules/` is now kept |
-| `target/debug/`, `target/release/` | x `build`: `/**/target/{debug,release}` | |
+| `\.(out\|stdout\|err\|stderr\|depend\|dropbox)` (anywhere in the path) | `logs`: `f:*.out` `f:*.stdout` `f:*.err` `f:*.stderr`; `build`: `f:*.depend`; `os`: `.dropbox` `.dropbox.cache` | Suffixes and names only: `notes.output.md` and `x.errors/` are now kept |
+| `\.(log\|old\|temp\|bak\|tmp)$` | `temp`: `f:*.old` `f:*.temp` `f:*.bak` `f:*.tmp` | |
+| `\.(DS_Store\|nfs)$` | `os`: `f:.DS_Store` `f:.nfs*` | `.nfs*` is the real NFS temp name (`.nfs0000…`); `*.nfs` matched nothing |
+| `\.(o\|obj\|…\|pch\|d)$` | `build`: `f:` rules | |
+| `\.(class\|jar\|war\|ear)$` | `build`: `f:` rules | |
+| `\.(git\|hg\|svn\|cvs)(/\|$)` | always `/**/.git`; `vcs`: `.hg` `.svn` `.cvs` `*.git` | |
+| `\.tmp\.\d+$`, `\.tmp\.\d+\.\d+$` | `temp`: `f:*.tmp.*` | Broader: any suffix after `.tmp.` (atomic writes like `PLAN.md.tmp.18812.1760578375713`) |
+| `\.(venv\|pytest_cache\|playwright-mcp)/` | `deps`: `.venv`; `caches`: `.pytest_cache` `.playwright-mcp` | |
+| `node_modules/`, `__pycache__`, `pgdata/` (anywhere) | `/**/node_modules`, `/**/__pycache__`, `/**/pgdata` | Exact names: `my_node_modules/` is now kept |
+| `target/debug/`, `target/release/` | `build`: `/**/target/{debug,release}` | |
 | `/\.xcworkspace/` | — | Matched only a folder named exactly `.xcworkspace`: never in practice |
-| `/\.gradle/` `/DerivedData/` `/\.build/` | x `deps`, `build` | |
-| `/dist/` `/build/` `/out/` | x `build`: `/**/{build,dist,out}/*` | Same meaning: folder content only |
-| `/\.cache/` `/\.next/` `/\.nuxt/` `/\.output/` `/playwright-report/` `/test-results/` | x `caches` | A file named like these is now left out too (unlikely) |
-| `/\.npm/` `/bower_components/` `/\.pnpm-store/` `/venv/` | x `deps` | |
+| `/\.gradle/` `/DerivedData/` `/\.build/` | `deps`, `build` | |
+| `/dist/` `/build/` `/out/` | `build`: `/**/{build,dist,out}/*` | Same meaning: folder content only |
+| `/\.cache/` `/\.next/` `/\.nuxt/` `/\.output/` `/playwright-report/` `/test-results/` | `caches` | A file named like these is now left out too (unlikely) |
+| `/\.npm/` `/bower_components/` `/\.pnpm-store/` `/venv/` | `deps` | |
 | `/\.yarn/`, `/\.vscode/` | — | No longer excluded: `.yarn/releases` and `.vscode/settings.json` are often committed project files |
-| `/\.idea/`, `\.iml$` | x/xf `editors` | |
-| `Thumbs\.db$` `desktop\.ini$` | xf `os` | |
-| `/\.Spotlight-V100/` `/\.Trashes/` | x `os` | |
-| `\.(pyc\|wal)$` | xf `build`: `*.pyc`; `data`: `*.wal` | |
-| `\.pgdb/` | x `data`: `*.pgdb` | |
+| `/\.idea/`, `\.iml$` | `editors` | |
+| `Thumbs\.db$` `desktop\.ini$` | `os`: `f:` rules | |
+| `/\.Spotlight-V100/` `/\.Trashes/` | `os` | |
+| `\.(pyc\|wal)$` | `build`: `f:*.pyc`; `data`: `f:*.wal` | |
+| `\.pgdb/` | `data`: `*.pgdb` | |
 
-With `exclude-files`, nothing is left out that isn't today, apart from the
-broader `*.tmp.*` and the folder rules also matching a file of the same name
-(unlikely names). Everything else leaves out the same or less.
+Nothing is left out that isn't today, apart from the broader `*.tmp.*` and
+folder rules also matching a file of the same name (unlikely names).
+Everything else leaves out the same or less.
 
 ## Implementation
 
-- **A package inside autoversion:** `filterrules/`, its own Go package in
-  this module, with no dependency on autoversion's code. It can move to a
-  shared module when another project needs it.
-  - `Parse`: rules and filter files, sugar expanded, errors with the spec's
-    codes
-  - `Rules`: groups and `use`
-  - `Decide(entry, isFile) (kept bool, level int, rule)`: the closest-match
-    walk, with `exclude-files` at the entry's level only
-  - `CanMatchBelow(folder)`: the walker rule from the spec
-  - validation: `whole-root`, `contradiction`, includes that change
-    nothing, dead literal rules
-  - tests: ownit's `tests/filter_conformance.json`, copied unchanged with
-    its commit noted, plus the group data and `exclude-files` cases
-- **autoversion:**
-  - The rules replace `matchesPathFilters`, `IsExcludedPath`,
-    `IsExcludedDir`, `excludePatterns`, `includeExtensions`, `excludeDirs`
-    and `includeFiles`. `ShouldTrack` keeps the symlink, folder,
-    vanished-file and size checks.
-  - The scan, `expandDirChanges` and the Linux watcher use
-    `CanMatchBelow` to skip folders. The macOS watcher drops events with
-    `Decide` before any file access (a removed entry's type is unknown, so
-    `exclude-files` rules are assumed to apply to it).
-  - The marker reads and writes the new fields. `init` and `filter set`
-    write the filter file. `ValidateSourceAndDestination` returns both.
-  - `generatePlist` drops the rule flags and adds the config hash.
-- **Speed:** an entry costs depth × rules. To keep watch events cheap,
-  literal rules sit in a map by path, and only wildcard rules are tried one
-  by one.
-- **Tests:**
-  - the conformance suite
-  - the `~/.claude` table above
-  - the translation table (one case per row)
-  - the marker and filter-file cases (missing file means `use default`)
-  - `init`, `filter set`, `filter check`, `filter scan --explain`
-  - the plist reload on a rule change
-  - `check_watch.sh` with an allowlist mode
-- **Size:** the matcher about 400 lines plus tests; autoversion's side about
-  300.
+Four milestones. Each ends with `make test` and `make docker-go-test`
+passing, `gofmt` clean, and a commit when the user asks.
 
-## Migration
+### M1: the `filterrules` package
+
+A new folder `filterrules/`: its own Go package in this module, standard
+library only, with no dependency on autoversion's code. It can move to a
+shared module when another project needs it.
+
+Suggested API (paths are relative to the root, `/`-separated, no leading
+`/`; the root itself is `""` and always kept):
+
+```go
+type Kind int  // Include, Exclude
+type Type int  // Path (no prefix: files and folders), File ("f:"); "d:" is reserved
+
+type Rule struct {
+	Kind Kind
+	Type Type
+	Text string // as written, after sugar expansion
+	// parsed segments, literal flag, ** position
+}
+
+type Error struct{ Code, Rule, Reason string } // codes from the shared spec
+
+func ParseRule(kind Kind, text string) ([]Rule, error) // sugar may give several rules
+func ParseFile(r io.Reader) (*File, error)            // version, root, use, rules
+func Group(name string) ([]Rule, error)               // built-in groups, "default" included
+
+type Rules struct{ /* literal rules in a map by path, wildcard rules in a list */ }
+
+func New(rules []Rule, uses []string) (*Rules, error)  // resolves groups, validates (whole-root, contradiction)
+func (r *Rules) Decide(rel string, isFile bool) Decision // Kept, Level, Rule: the closest-match walk
+func (r *Rules) CanMatchBelow(relDir string) bool        // an include can match below this folder
+func (r *Rules) SkipDir(relDir string) bool              // left out, and nothing below can be kept
+func (r *Rules) Warnings(list func(rel string) ([]string, error)) []Warning // dead rules, includes that change nothing
+func (r *Rules) Dump() string                            // expanded rules, for filter dump
+```
+
+Tests:
+- the conformance suite (`testdata/filter_conformance.json`)
+- every row of the `~/.claude` table
+- one case per row of the translation table
+- `f:` cases: a file matched at its level; a folder of the same name not
+  matched; a folder level of an entry below it ignored
+- parse errors with their codes, `contradiction`, `whole-root`
+
+### M2: configuration in the destination
+
+`destination.go`:
+- The marker gets `git`, `restic` and `max_file_size_mb`. Missing fields
+  mean the defaults. Unknown fields are kept when it's rewritten (decode
+  into a `map[string]json.RawMessage` alongside the typed fields).
+- `.autoversion.filter`: read (missing means `use default`), write, commit
+  with the marker.
+- `initDestination` writes both. `--force-new-source` and
+  `--force-obliterate-yes-i-am-sure` keep their meaning. It also handles
+  `--update-settings` as described in "Changing settings", including the
+  refused switch from git to a plain mirror.
+- `ValidateSourceAndDestination` returns the settings and the parsed
+  rules, and adds rule errors to its problems.
+
+`main.go`:
+- Rule input (`--filter`, `--include`, `--exclude`, `--use`) on `init`,
+  `filter scan`, `filter dump`, `filter set` and `watch --report-only`.
+- The `filter` command becomes `filter scan`, `dump`, `set`, `check` and
+  `groups`.
+- `filter check` and `filter set` restart the installed job, through the
+  same steps as `install`'s reload.
+
+### M3: use the rules everywhere
+
+- **`filter.go`:** remove `excludePatterns`, `includeExtensions`,
+  `excludeDirs`, `includeFiles`, `SetIncludeExtensions`, `SetExcludeDirs`,
+  `SetIncludeFiles`, `IsExcludedPath`, `IsExcludedDir`,
+  `matchesPathFilters` and their helpers.
+  - Add `SetFilter(root string, rules *filterrules.Rules)` in place of
+    `SetSourceRoot`, plus `trackedPath(path string, isFile bool) bool` and
+    `skipDir(path string) bool`. They apply the always-applied rules first.
+  - `ShouldTrack` keeps its symlink, folder, vanished-file and size checks,
+    with the size limit taken from the marker.
+- **Callers:**
+  - `scanPaths`, `expandDirChanges`, the `filter scan` walk and
+    `addRecursive` (`watcher_other.go`) use `skipDir`.
+  - The watch loop and the macOS watcher's early filter use `trackedPath`.
+    A delete event is decided with `isFile` true.
+  - `EventDirChanged` uses `skipDir`.
+- **Removed flags:** `--exclude-dir`, `--only-include-extensions`,
+  `--only-include-file`. `sync`, `watch` and `install` reject rule flags,
+  `--no-git`, `--restic` and `--max-file-size`, and read the marker
+  instead. `--no-git`, `--restic` and `--max-file-size` stay on `init`.
+
+### M4: install, docs, checks
+
+- **`launchd.go`:** `generatePlist` drops the rule flags, `--no-git`,
+  `--restic` and `--max-file-size`, and adds the config hash in
+  `EnvironmentVariables`. `parsePlistPaths` is unchanged.
+- **README:**
+  - rewrite "File Filtering", "Excluding directories", "Single files",
+    "Directory Mirroring" and the Configuration table
+  - document the `filter` subcommands and the filter file
+  - add the `~/.claude` example
+- **`scripts/check_watch.sh`:** create the destination with `init` and
+  rules, and add an allowlist run (`exclude /*` and a few includes). The
+  Makefile targets run it.
+- **Plans:** mark this plan done and note any differences from it.
+
+### Tests to update or remove
+
+- `filter_test.go`: rewrite on top of `trackedPath`/`skipDir`. Remove the
+  tests of the removed functions. Keep the symlink, size, vanished-file and
+  marker cases.
+- `main_test.go`:
+  - `TestScanPaths_IncludeFiles` becomes an allowlist test.
+  - `TestExpandDirChanges` keeps its cases (`node_modules`, `*.log`).
+- `watcher_other_test.go`: `TestWatcher_IncludeFilesWatchOnlyTheirDirectories`
+  becomes an allowlist test of `skipDir`.
+- `launchd_test.go`: the new `generatePlist` arguments and the hash.
+- `destination_test.go`: the marker fields (defaults, unknown fields kept),
+  the filter file, `init` with rules.
+
+### Done when
+
+- The conformance suite and every table in this plan pass as tests.
+- `make test`, `make docker-go-test` and `make docker-watch-check` pass.
+  The user runs `make watch-check` on macOS.
+- `filter scan --summary` on the `~/.claude` example shows about 250
+  folders visited.
+- The README documents every command and flag in this plan.
+
+## Migration (run by the user after M4)
 
 1. Build. Every running job fails at its next restart until it's
-   reinstalled, because the rule flags are gone from the plist.
-2. `claude_settings`: `filter set --filter FILE` with the `~/.claude` file
-   above. The next sync adds the skills and memory files. Keep or rename
-   the destination (its history is only `settings.json` so far).
-3. `dropbox-projects`: the marker gets `"git": false` (`init` or by hand).
-4. The other jobs need nothing: no filter file means `use default`.
-5. The job script loses its rule flags. `./autoversion-install.sh install`,
-   then `jobs`.
-6. NAS: rebuild. `watch --report-only` takes `--filter FILE` or rule flags.
+   reinstalled, because its plist flags are gone.
+2. `claude_settings`: `filter set --destination … --filter FILE` with the
+   `~/.claude` file above. The next sync adds the skills and memory files.
+3. The other jobs need nothing:
+   - no filter file means `use default`
+   - `dropbox-projects` has no `.git`, so its missing `git` field reads as
+     a plain mirror
+4. The job script loses its rule flags, `--no-git` and `--max-file-size`
+   (they live in the destination now). Then
+   `./autoversion-install.sh install` and `jobs`.
+5. NAS: rebuild. `watch --report-only` takes `--filter FILE` or rule flags.
 
-## Open question
+## Decisions (2026-10-29)
 
-`exclude-files` in the shared spec: propose it to ownit as written above
-(keyword, matching, converters)?
+- No prefix means a path rule (files and folders). `f:` means files only.
+  `d:` (folders only) is reserved and not implemented; `/dir/*` covers its
+  use today.
+- `f:` with a `!` exception: check the shared spec, and raise it with the
+  user if it isn't addressed.
+- Settings of an existing destination change with
+  `init --update-settings`. Switching from git to a plain mirror is always
+  refused.
+- `.yarn` and `.vscode` are no longer excluded. `*.lock` is dropped.
+- The matcher is built in `filterrules/` here, and moved out when another
+  project needs it.
