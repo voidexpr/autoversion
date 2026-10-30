@@ -12,9 +12,12 @@ import (
 func TestGeneratePlist_ParsePlistPaths(t *testing.T) {
 	source := "/Users/me/src & 'docs'"
 	dest := "/Volumes/backup/<dest>"
-	plist := generatePlist("projects.autoversion.job", "/bin/autoversion", source, dest, "/tmp/logs", 3, true, false)
+	plist := generatePlist("projects.autoversion.job", "/bin/autoversion", source, dest, "/tmp/logs", "0123abcd", 3, true, false)
 	if !strings.Contains(plist, "<string>--buffer-time</string>\n\t\t<string>3</string>") || !strings.Contains(plist, "<string>--debug</string>") {
 		t.Errorf("plist misses --buffer-time 3 or --debug:\n%s", plist)
+	}
+	if !strings.Contains(plist, "<key>AUTOVERSION_CONFIG</key>\n\t\t<string>0123abcd</string>") {
+		t.Errorf("plist misses the config hash:\n%s", plist)
 	}
 	// Settings and rules are the destination's
 	for _, flag := range movedFlags {
@@ -42,6 +45,30 @@ func TestGeneratePlist_ParsePlistPaths(t *testing.T) {
 	}
 	if _, _, err := parsePlistPaths(path); err == nil {
 		t.Error("expected an error for a plist without --source")
+	}
+}
+
+func TestConfigHash(t *testing.T) {
+	dest := resolvedTempDir(t)
+	if _, err := configHash(dest); err == nil {
+		t.Error("a destination without a marker has a hash")
+	}
+	writeOldMarker(t, dest, "/src")
+	withoutRules, err := configHash(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No rules file means use default: writing it out changes nothing
+	writeFile(t, filepath.Join(dest, filterFileName), defaultRules)
+	if hash, _ := configHash(dest); hash != withoutRules {
+		t.Errorf("hash %s with the default rules written, %s without a rules file", hash, withoutRules)
+	}
+	writeFile(t, filepath.Join(dest, filterFileName), defaultRules+"exclude /Backup\n")
+	withRule, _ := configHash(dest)
+	writeOldMarker(t, dest, "/other")
+	withOtherSource, _ := configHash(dest)
+	if withRule == withoutRules || withOtherSource == withRule {
+		t.Errorf("hashes %s, %s, %s: a change to the rules or the marker must change it", withoutRules, withRule, withOtherSource)
 	}
 }
 

@@ -1,9 +1,9 @@
 # Plan: filter rules in the shared syntax, stored with the destination
 
-**Status: in implementation (v5, 2026-10-29).** v5 follows the shared spec
-v3: `d:` is implemented, the `types` line is accepted, and rule changes get
-safety checks (see Decisions). Breaking change: jobs are re-migrated (see
-Migration).
+**Status: done (v5, 2026-10-30)**, see Progress. Left: the migration, run
+by the user (see Migration). v5 follows the shared spec v3: `d:` is
+implemented, the `types` line is accepted, and rule changes get safety
+checks (see Decisions).
 
 ## For the implementer: read first
 
@@ -503,26 +503,52 @@ Tests:
 ### Done when
 
 - The conformance suite and every table in this plan pass as tests.
+  Done.
 - `make test`, `make docker-go-test` and `make docker-watch-check` pass.
-  The user runs `make watch-check` on macOS.
+  The user runs `make watch-check` on macOS. Done; the allowlist run on
+  macOS waits for the user.
 - `filter scan --summary` on the `~/.claude` example shows about 250
-  folders visited.
-- The README documents every command and flag in this plan.
+  folders visited. Done: 212.
+- The README documents every command and flag in this plan. Done.
 
 ## Migration (run by the user after M4)
 
-1. Build. Every running job fails at its next restart until it's
-   reinstalled, because its plist flags are gone.
-2. `claude_settings`: `filter set --destination … --filter FILE` with the
-   `~/.claude` file above. The next sync adds the skills and memory files.
-3. The other jobs need nothing:
-   - no filter file means `use default`
-   - `dropbox-projects` has no `.git`, so its missing `git` field reads as
-     a plain mirror
-4. The job script loses its rule flags, `--no-git` and `--max-file-size`
-   (they live in the destination now). Then
-   `./autoversion-install.sh install` and `jobs`.
-5. NAS: rebuild. `watch --report-only` takes `--filter FILE` or rule flags.
+The 7 installed jobs (from their plists, 2026-10-30) all pass
+`--max-file-size 10`, the default. Besides that:
+- `claude_settings` (`~/SyncDatabox/nicmac/.claude`):
+  `--only-include-file settings.json`
+- `projects` to `~/Dropbox/Backup/autoversion/projects`: `--no-git`
+- `projects` (to `~/Data/…`), `dotfiles`, `notes`, `Sync`, `Sublime`:
+  nothing
+
+The order matters. If `claude_settings` restarts on the new binary before
+it has its rules, it gets `use default` and its first sync copies all of
+`.claude` (about 40000 files) into its repository.
+
+0. Optional preview with a test binary (`go build -o build/dev/autoversion .`),
+   which leaves `./autoversion` and the jobs alone:
+   - `build/dev/autoversion check-paths --source S --destination D` for each
+     job: the markers and rules are valid
+   - `build/dev/autoversion filter set --destination ~/Data/Backup/autoversion/claude_settings --filter claude.filter --dry-run`:
+     what will be kept, added and removed
+   - `ls -a ~/Dropbox/Backup/autoversion/projects`: no `.git`, so its
+     marker reads as a plain mirror
+1. In `autoversion-install.sh`, remove `--only-include-file settings.json`,
+   `--no-git` and any `--max-file-size` from the install commands.
+2. `make build`. The running jobs keep their old process; each one fails
+   at its next restart until step 4 reinstalls it.
+3. `claude_settings`: `./autoversion filter set --destination ~/Data/Backup/autoversion/claude_settings --filter claude.filter`
+   (the `~/.claude` file of the Motivation section). It commits the rules
+   and restarts the job, which fails on its old plist flags until step 4:
+   expected.
+4. `./autoversion-install.sh install`: each `install` writes a plist
+   without the old flags and with the config hash, and reloads the
+   service. `claude_settings`' first sync adds the skills and memories.
+5. Check: `./autoversion status`, and each job's `stderr.log`. With
+   `default`, the `projects` backups now take lock files (`Cargo.lock`,
+   `uv.lock`), `.vscode/` and names made only of digits (translation
+   table).
+6. NAS: rebuild. `watch --report-only` takes `--filter FILE` or rule flags.
 
 ## Decisions (2026-10-29)
 
@@ -567,7 +593,20 @@ Tests:
 ## Progress
 
 - **M1 done** (b28a18f, 22cff06).
-- **M3 done.** `make watch-check` (macOS) and `make docker-watch-check`
+- **M4 done.**
+  - The plist carries the config hash (`AUTOVERSION_CONFIG`), as
+    planned. Besides, `init --update-settings` restarts a running
+    service, like `filter set` and `filter check`: the hash alone only
+    helps when `install` is run again.
+  - `check_watch.sh --allowlist`: a third run, with `exclude /*`, an
+    include, an exception and a wildcard include. 12 checks: only the
+    kept files reach the destination, in new and moved-in folders too,
+    and `default` still applies inside a kept folder. `make watch-check`
+    and `make docker-watch-check` run it.
+  - README: the `~/.claude` walkthrough and a migration section.
+    Migration (below) has the steps for the 7 installed jobs, from their
+    plists.
+- **M3 done** (c54b2ce). `make watch-check` (macOS) and `make docker-watch-check`
   pass, with git and `--no-git` (2026-10-29). Differences from the plan:
   - Pulled in from M4, so each commit works on its own: the plist has
     the runtime flags only (the config hash stays in M4),

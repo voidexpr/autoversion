@@ -530,6 +530,7 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 
 	t.Run("initialized: settings change only with --update-settings", func(t *testing.T) {
 		source, dest := initFresh(t, initOptions{})
+		restartedJobs = nil
 		marker, _ := readMarker(dest)
 		marker.other["remotes"] = []byte(`["nas"]`)
 		if err := writeMarker(dest, marker); err != nil {
@@ -545,9 +546,15 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "max file size 10 MB → 50 MB") || !strings.Contains(err.Error(), "--update-settings") {
 			t.Errorf("error %v, want the change and --update-settings", err)
 		}
+		if len(restartedJobs) != 0 {
+			t.Fatalf("restarted %v without a change", restartedJobs)
+		}
 		opts.updateSettings = true
 		if err := initDestination(source, dest, opts); err != nil {
 			t.Fatal(err)
+		}
+		if len(restartedJobs) != 1 || restartedJobs[0] != [2]string{source, dest} {
+			t.Errorf("restarted %v, want the service of %s", restartedJobs, dest)
 		}
 		marker, _ = readMarker(dest)
 		var remotes bytes.Buffer

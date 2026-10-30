@@ -29,7 +29,7 @@ make build
 The `install` command automatically:
 - Creates `~/Applications/Autoversion.app`, a small signed launcher that runs the autoversion binary (built by `make-fda-app.sh`, needs clang from the Xcode Command Line Tools)
 - Creates and starts the launchd service, which runs autoversion through the app so it inherits the app's Full Disk Access
-- On subsequent runs: reloads the service if the binary or flags changed
+- On subsequent runs: reloads the service if the binary, its flags, or the destination's settings or rules changed
 
 Rebuilding the binary in place keeps the app and its Full Disk Access grant. The app is only rebuilt, and needs a new grant, if the binary moves to another path.
 
@@ -52,7 +52,7 @@ When modifying autoversion with running services:
 make build && ./autoversion install --source ~/projects/myapp --destination ~/repos/myapp
 ```
 
-The install command detects when the binary or configuration flags have changed and automatically reloads running services.
+The install command detects when the binary, its flags, or the destination's settings or rules have changed and automatically reloads running services.
 
 ### Build and test
 
@@ -62,7 +62,7 @@ make test
 make clean
 make install    # copies binary to /usr/local/bin
 make uninstall  # removes from /usr/local/bin
-make watch-check  # real watch on a temp source (git and --no-git): file and directory changes, no copy loop
+make watch-check  # real watch on a temp source (git, --no-git, allowlist): file and directory changes, rules, no copy loop
 ```
 
 To try the Linux (inotify) watcher from macOS, `make docker-test` builds the image, then runs `init` and `watch` in a container. `SOURCE` (default `test_watch`) is mounted read-only at `/source`, `DESTINATION` (default: a new `/tmp/autoversion_docker_test/<timestamp>-<random>` directory) at `/destination`. Stop it with Ctrl+C.
@@ -134,6 +134,54 @@ The rules are stored in the destination (see **filter**). Common cases:
 
 A folder the rules leave out, with nothing kept below it, is skipped entirely: scans don't enter it, on Linux it uses no inotify watch, and its events are only logged (with `--debug` or `--report-only`).
 
+### Example: a few things of `~/.claude`
+
+`~/.claude` is large and busy (about 6000 folders and 40000 files, most changing in `file-history/` and session transcripts). Only the instructions, settings, skills and memories are worth versioning. The rules file (`claude.filter`), as in **filter**:
+
+```
+version 1
+use default
+
+exclude /*
+/CLAUDE.md
+/settings.json
+/settings.local.json
+/skills/!synced
+/projects/*/memory
+```
+
+```bash
+# What the rules keep, and the folders a watch visits (about 200, not 6000)
+./autoversion filter scan --source ~/.claude --filter claude.filter
+./autoversion filter scan --source ~/.claude --filter claude.filter --summary
+# Why an entry is kept or left out
+./autoversion filter scan --source ~/.claude --filter claude.filter --explain plugins/cache/x/CLAUDE.md
+
+# A new destination
+./autoversion init --filter claude.filter --source ~/.claude --destination ~/backup/claude
+./autoversion install --source ~/.claude --destination ~/backup/claude
+
+# Or an existing one: check, then apply (commits the rules, restarts the service)
+./autoversion filter set --destination ~/backup/claude --filter claude.filter --dry-run
+./autoversion filter set --destination ~/backup/claude --filter claude.filter
+```
+
+Later edits go in `~/backup/claude/.autoversion.filter`, followed by `filter check --destination ~/backup/claude`.
+
+### Migrating from the flags of earlier versions
+
+The rules and settings moved from command line flags to the destination. `sync`, `watch` and `install` refuse the old flags with a hint. Existing destinations keep working: without a rules file their rules are `use default`, and a marker without settings describes the destination as it is (git when it has a `.git` folder, 10 MB).
+
+| earlier flag | now |
+|---|---|
+| `--exclude-dir X` | `filter set --use default --exclude /X` |
+| `--only-include-extensions md,csv` | `filter set --use default --exclude '/*' --include 'f:/**/*.{md,csv}'` |
+| `--only-include-file F` | `filter set --use default --exclude '/*' --include /F` |
+| `--max-file-size N` (not 10) | `init --update-settings --max-file-size N` |
+| `--no-git`, `--restic` | nothing, when the destination has no `.git` folder, or has its restic repository |
+
+Then run `install` again: the plist loses the old flags, and the service is reloaded. Differences in the built-in exclusions are listed in `plans/feature_include_exclude_rules.md` (translation table): lock files such as `Cargo.lock`, `.vscode/` and names made only of digits are now tracked.
+
 ## Commands
 
 ### install
@@ -146,7 +194,7 @@ Install as a launchd background service. The destination must be initialized for
 
 Flags: `--buffer-time SECONDS`, `--no-login`, `--dry-run`, `--debug`. The settings (git, restic, max file size) and the rules are the destination's: the service reads them when it starts, and `filter set` / `filter check` restart it.
 
-`install` prints the same path resolution and checks as **check-paths**, runs an initial sync, then writes and loads the plist (`watch --source SOURCE_PATH --destination DEST_PATH --buffer-time … --log-dir …`). The job ID is built from the source and destination paths. The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
+`install` prints the same path resolution and checks as **check-paths**, runs an initial sync, then writes and loads the plist (`watch --source SOURCE_PATH --destination DEST_PATH --buffer-time … --log-dir …`). The plist also holds a hash of the marker and the rules file (`AUTOVERSION_CONFIG`), so a change to either changes the plist. The job ID is built from the source and destination paths. The command is idempotent — run it again after rebuilding or changing flags, settings or rules to update and reload the service. `filter set`, `filter check` and `init --update-settings` restart a running service themselves.
 
 **Logs.** The service writes `~/Library/Logs/autoversion/<job>/stdout.log` and `stderr.log` (`watch --log-dir`, set by `install`). Each file is rotated once it reaches 10 MB, keeping 5 old copies (`stdout.log.1` … `stdout.log.5`, `.1` being the most recent). Sizes are checked every minute. A log file removed by hand is recreated within a minute. Reloading the service through `install` clears `stderr.log` and its rotated copies. Filtered-out events are only logged with `--debug`, and a file over the size limit is reported once per run.
 
@@ -263,7 +311,7 @@ With git, both are committed on their own (`init: source SOURCE_PATH`). Invalid 
 
 On a destination already initialized for the source:
 - Settings that are not given, or equal to the marker's, change nothing. A missing git or restic repository the settings ask for is created.
-- Different settings are an error listing them, unless `--update-settings`: then the marker is updated and committed. From a plain mirror to git, `git init` runs and the next sync commits every file.
+- Different settings are an error listing them, unless `--update-settings`: then the marker is updated and committed, and a running service is restarted. From a plain mirror to git, `git init` runs and the next sync commits every file.
 - Switching from git to a plain mirror (`--no-git` on a git destination) is always refused: the `.git` history would stay while files stop being committed. To do it on purpose, remove `DEST_PATH/.git` by hand, or start over with `--force-obliterate-yes-i-am-sure`.
 - Rules are an error: they change with `filter set`.
 

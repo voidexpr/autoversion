@@ -21,14 +21,16 @@ test:
 test-verbose:
 	go test -v ./...
 
-# Runs a real watch on a temp source, with git and with --no-git, and checks
-# file and directory changes and no copy loop (scripts/check_watch.sh).
-# Built under build/, so the ./autoversion run by installed jobs isn't replaced
+# Runs a real watch on a temp source, with git, with --no-git and with an
+# allowlist, and checks file and directory changes, the rules and no copy
+# loop (scripts/check_watch.sh). Built under build/, so the ./autoversion run
+# by installed jobs isn't replaced
 WATCH_CHECK_BINARY = build/watch-check/$(BINARY)
 watch-check:
 	go build -o $(WATCH_CHECK_BINARY) .
 	scripts/check_watch.sh $(WATCH_CHECK_BINARY)
 	scripts/check_watch.sh $(WATCH_CHECK_BINARY) --no-git
+	scripts/check_watch.sh $(WATCH_CHECK_BINARY) --allowlist
 
 lint:
 	go vet ./...
@@ -94,4 +96,4 @@ docker-sh:
 
 # watch-check on Linux (inotify)
 docker-watch-check:
-	$(DOCKER_DEV_RUN) sh -c 'go build -o /tmp/autoversion . && scripts/check_watch.sh /tmp/autoversion && scripts/check_watch.sh /tmp/autoversion --no-git'
+	$(DOCKER_DEV_RUN) sh -c 'go build -o /tmp/autoversion . && scripts/check_watch.sh /tmp/autoversion && scripts/check_watch.sh /tmp/autoversion --no-git && scripts/check_watch.sh /tmp/autoversion --allowlist'

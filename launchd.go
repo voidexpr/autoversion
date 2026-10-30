@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -102,9 +104,26 @@ func promptPath(prompt string, mustExist bool) (string, error) {
 	}
 }
 
+// configHash returns a hash of a destination's marker and rules file. The
+// plist carries it, so install sees a changed plist, and reloads the service,
+// after a change to either.
+func configHash(destPath string) (string, error) {
+	marker, err := os.ReadFile(filepath.Join(destPath, markerFileName))
+	if err != nil {
+		return "", err
+	}
+	rules, err := readRulesText(destPath)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(string(marker) + "\x00" + rules))
+	return hex.EncodeToString(sum[:8]), nil
+}
+
 // generatePlist creates the launchd plist content. It has the runtime flags
-// only: the settings and the rules are read from the destination.
-func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, bufferTime int, debug, noLogin bool) string {
+// only: the settings and the rules are read from the destination, and their
+// hash is in AUTOVERSION_CONFIG (see configHash).
+func generatePlist(jobID, execPath, sourcePath, destPath, logDir, hash string, bufferTime int, debug, noLogin bool) string {
 	stdoutLog := filepath.Join(logDir, stdoutLogName)
 	stderrLog := filepath.Join(logDir, stderrLogName)
 
@@ -158,9 +177,14 @@ func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, bufferT
 	<string>%s</string>
 	<key>WorkingDirectory</key>
 	<string>%s</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>AUTOVERSION_CONFIG</key>
+		<string>%s</string>
+	</dict>
 </dict>
 </plist>
-`, jobID, argsXML.String(), runAtLoad, stdoutLog, stderrLog, sourcePath)
+`, jobID, argsXML.String(), runAtLoad, stdoutLog, stderrLog, sourcePath, hash)
 
 	return plist
 }
@@ -417,6 +441,10 @@ var installCmd = &cobra.Command{
 
 		sourcePath := result.SourceResolved
 		destPath := result.DestinationResolved
+		hash, err := configHash(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to read the destination's configuration: %v", err)
+		}
 
 		// The service runs through the launcher app that holds Full Disk Access
 		if err := ensureAppBundle(); err != nil {
@@ -444,10 +472,10 @@ var installCmd = &cobra.Command{
 				return fmt.Errorf("job ID collision: %s\n  Existing install:\n    source:      %s\n    destination: %s\n  New install:\n    source:      %s\n    destination: %s\nThese paths produce the same sanitized job ID.\nRename one of the directories to avoid the collision.", jobID, existingSource, existingDest, sourcePath, destPath)
 			}
 
-			// Check if plist content needs updating (flag changes, launcher path changes)
+			// Check if plist content needs updating (flag, settings or rules changes, launcher path changes)
 			bufTime, _ := cmd.Flags().GetInt("buffer-time")
 			logDirPath, _ := logDir(jobID)
-			newPlist := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, bufTime, debug, noLogin)
+			newPlist := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, hash, bufTime, debug, noLogin)
 			existingPlist, _ := os.ReadFile(plist)
 
 			needsReload := needsServiceReload(plist) || string(existingPlist) != newPlist
@@ -504,7 +532,7 @@ var installCmd = &cobra.Command{
 		}
 		bufTime, _ := cmd.Flags().GetInt("buffer-time")
 
-		plistContent := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, bufTime, debug, noLogin)
+		plistContent := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, hash, bufTime, debug, noLogin)
 
 		if dryRun {
 			fmt.Println("=== Generated plist (dry-run) ===")

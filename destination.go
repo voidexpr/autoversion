@@ -650,5 +650,5 @@ func updateSettings(destPath string, marker *destinationMarker, opts initOptions
 	if settings.Git && !wasGit {
 		fmt.Println("The next sync commits every file")
 	}
-	return nil
+	return restartJob(marker.Source, destPath)
 }
