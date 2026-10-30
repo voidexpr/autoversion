@@ -590,6 +590,21 @@ it has its rules, it gets `use default` and its first sync copies all of
 - `make watch-check` builds into `build/watch-check/`, so it no longer
   replaces the `./autoversion` that installed jobs run.
 
+## Decisions (2026-10-30)
+
+- `version 1` is optional in a rules file; when given, it comes first and
+  is `1`. The shared spec is to follow (the user asks ownit). Meanwhile
+  the conformance test accepts the one `invalid_files` case it changes
+  (`exclude /x` without a version line), see `pendingSpecChanges`.
+- `--filter -` reads the rules from stdin, wherever `--filter` is taken
+  (`init`, `filter scan`, `dump`, `set`, `watch --report-only`).
+- `--filter` combines with `--use`, `--include` and `--exclude` in every
+  command, `init` and `filter set` included: the file is stored as
+  written, with the flags' `use` lines after its version line and their
+  rules at the end. An input with no rule and no `use` is an error.
+- The "no group used" note goes to stderr, so `filter scan` output stays
+  a plain file list.
+
 ## Progress
 
 - **M1 done** (b28a18f, 22cff06).
@@ -631,11 +646,10 @@ it has its rules, it gets `use default` and its first sync copies all of
     mirror to git checks it too. The missing restic repository check
     uses the marker's `restic`.
 - **M2 done** (0d240c5). Differences from the plan:
-  - `init` and `filter set` take a `--filter` file or rule flags, not
-    both. A file is stored as written, comments kept (a `root` line is
-    removed once checked). Flags are written one per line. Combining them
-    would lose the file's comments. `filter scan` and `dump` still combine
-    them.
+  - A `--filter` file is stored as written, comments kept (a `root` line
+    is removed once checked); flags alone are written one per line. (M2
+    refused a file with flags in `init` and `filter set`; since
+    2026-10-30 they combine, see Decisions.)
   - Rule flags without `--use` give no group, as the plan says ("nothing
     is implied"). `init` and `filter set` print a note about it.
   - `filter set` and `filter check` also print how many kept files aren't

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -26,7 +27,7 @@ var errDestinationRules = errors.New("the destination has its own rules: give --
 
 // addRuleFlags adds the flags that give rules on the command line
 func addRuleFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&filterFileFlag, "filter", "", "rules file, in the shared filter syntax (see filter --help)")
+	cmd.Flags().StringVar(&filterFileFlag, "filter", "", "rules file (- for stdin), in the shared filter syntax (see filter --help)")
 	cmd.Flags().StringArrayVar(&includeFlags, "include", nil, "include rule, e.g. /notes or 'f:/**/*.md' (repeatable)")
 	cmd.Flags().StringArrayVar(&excludeFlags, "exclude", nil, "exclude rule, e.g. /Backup or 'f:/**/*.old' (repeatable)")
 	cmd.Flags().StringArrayVar(&useFlags, "use", nil, "built-in group, e.g. default (repeatable, see filter groups)")
@@ -56,85 +57,132 @@ func addFlagRules(f *filterrules.File) error {
 	return nil
 }
 
-// readFilterFlag reads the --filter file. A root line in it must name the
-// source, when sourcePath is given, and is removed: a destination's rules
-// apply to its marker's source.
-func readFilterFlag(sourcePath string) (string, error) {
-	data, err := os.ReadFile(filterFileFlag)
+// readFilterFlag reads the --filter file, or stdin for "-", and parses it. A
+// root line in it must name the source, when sourcePath is given, and is
+// removed: a destination's rules apply to its marker's source.
+func readFilterFlag(sourcePath string) (string, *filterrules.File, error) {
+	name := filterFileFlag
+	var data []byte
+	var err error
+	if filterFileFlag == "-" {
+		name = "stdin"
+		data, err = io.ReadAll(os.Stdin)
+	} else {
+		data, err = os.ReadFile(filterFileFlag)
+	}
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	text := string(data)
 	f, err := filterrules.ParseFile(strings.NewReader(text))
 	if err != nil {
-		return "", fmt.Errorf("%s: %v", filterFileFlag, err)
+		return "", nil, fmt.Errorf("%s: %v", name, err)
 	}
 	if f.Root == "" {
-		return text, nil
+		return text, f, nil
 	}
 	if sourcePath != "" {
 		root := f.Root
 		if root == "~" || strings.HasPrefix(root, "~/") {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
 			root = filepath.Join(home, root[1:])
 		}
 		if resolved, err := resolvePath(root); err != nil || resolved != sourcePath {
-			return "", fmt.Errorf("%s: root %s is not the source %s", filterFileFlag, f.Root, sourcePath)
+			return "", nil, fmt.Errorf("%s: root %s is not the source %s", name, f.Root, sourcePath)
 		}
 	}
+	f.Root = ""
 	lines := strings.SplitAfter(text, "\n")
 	for i, line := range lines {
 		if fields := strings.Fields(line); len(fields) > 0 && fields[0] == "root" {
-			return strings.Join(slices.Delete(lines, i, i+1), ""), nil
+			return strings.Join(slices.Delete(lines, i, i+1), ""), f, nil
 		}
 	}
-	return text, nil
+	return text, f, nil
 }
 
-// rulesText returns the rules file to store for the rules given on the
-// command line: the --filter file as written (comments kept), or the --use,
-// --include and --exclude flags, one per line. "" when none were given.
+// addFlagLines adds the --use, --include and --exclude flags to a rules
+// file's text, its lines and comments kept: the use lines after its version
+// line, if any (directives come before rules), the rules at the end. uses
+// are the file's own, not repeated.
+func addFlagLines(text string, uses []string) string {
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	lines := strings.SplitAfter(text, "\n")
+	at := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.Fields(trimmed)[0] == "version" {
+			at = i + 1
+		}
+		break
+	}
+	var useLines []string
+	for _, name := range useFlags {
+		if !slices.Contains(uses, name) {
+			useLines = append(useLines, "use "+name+"\n")
+		}
+	}
+	out := slices.Concat(lines[:at], useLines, lines[at:])
+	for _, rule := range includeFlags {
+		out = append(out, filterrules.Line{Kind: filterrules.Include, Text: rule}.String()+"\n")
+	}
+	for _, rule := range excludeFlags {
+		out = append(out, filterrules.Line{Kind: filterrules.Exclude, Text: rule}.String()+"\n")
+	}
+	return strings.Join(out, "")
+}
+
+// rulesText returns the rules given on the command line as a rules file: the
+// --filter file (stdin for -) as written, comments kept, plus the --use,
+// --include and --exclude flags; or the flags alone, one per line. "" when no
+// rules were given.
 func rulesText(sourcePath string) (string, error) {
-	flags := len(useFlags)+len(includeFlags)+len(excludeFlags) > 0
-	switch {
-	case filterFileFlag != "" && flags:
-		return "", errors.New("give the rules with --filter, or with --use, --include and --exclude, not both: add them to the file")
-	case filterFileFlag != "":
-		return readFilterFlag(sourcePath)
-	case flags:
-		var f filterrules.File
-		if err := addFlagRules(&f); err != nil {
-			return "", err
-		}
-		if len(f.Uses) == 0 {
-			fmt.Println("note: no --use, so the built-in groups don't apply (--use default for all of them)")
-		}
-		return f.Format(), nil
+	if !ruleFlagsGiven() {
+		return "", nil
 	}
-	return "", nil
-}
-
-// rulesFromFlags returns the rules given on the command line, a --filter
-// file and the flags combined. Without any, the rules are use default.
-func rulesFromFlags(sourcePath string) (*filterrules.Rules, error) {
-	text := defaultRules
-	if ruleFlagsGiven() {
-		text = "version 1\n"
-	}
+	text, f := "", &filterrules.File{}
 	if filterFileFlag != "" {
 		var err error
-		if text, err = readFilterFlag(sourcePath); err != nil {
-			return nil, err
+		if text, f, err = readFilterFlag(sourcePath); err != nil {
+			return "", err
 		}
 	}
-	f, err := filterrules.ParseFile(strings.NewReader(text))
+	fileUses := slices.Clone(f.Uses)
+	if err := addFlagRules(f); err != nil {
+		return "", err
+	}
+	if len(f.Lines) == 0 && len(f.Uses) == 0 {
+		return "", fmt.Errorf("no rules in --filter %s", filterFileFlag)
+	}
+	if len(f.Uses) == 0 {
+		fmt.Fprintln(os.Stderr, "note: no use line or --use, so the built-in groups don't apply (use default for all of them)")
+	}
+	if filterFileFlag == "" {
+		return f.Format(), nil
+	}
+	return addFlagLines(text, fileUses), nil
+}
+
+// rulesFromFlags returns the rules given on the command line (see
+// rulesText). Without any, the rules are use default.
+func rulesFromFlags(sourcePath string) (*filterrules.Rules, error) {
+	text, err := rulesText(sourcePath)
 	if err != nil {
 		return nil, err
 	}
-	if err := addFlagRules(f); err != nil {
+	if text == "" {
+		text = defaultRules
+	}
+	f, err := filterrules.ParseFile(strings.NewReader(text))
+	if err != nil {
 		return nil, err
 	}
 	return filterrules.New(f)
@@ -165,9 +213,16 @@ shared with ownit. Without the file, they are "use default". Example, for
   exclude. Line order means nothing.
 - Always applied: ` + alwaysAppliedText + `.
 
-Rules on the command line (init, filter scan, dump and set):
-  --filter FILE                                 a rules file
-  --include RULE, --exclude RULE, --use GROUP   repeatable`,
+Rules on the command line (init, filter scan, dump and set, watch
+--report-only), combined:
+  --filter FILE                                 a rules file, - for stdin
+  --include RULE, --exclude RULE, --use GROUP   repeatable
+The version 1 line is optional. Without a use line or --use, the built-in
+groups don't apply. Example:
+  autoversion filter scan --source ~/.claude --use default --filter - <<'EOF'
+  exclude /*
+  /CLAUDE.md
+  EOF`,
 }
 
 var filterScanCmd = &cobra.Command{
@@ -344,8 +399,9 @@ var filterGroupsCmd = &cobra.Command{
 var filterSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Replace a destination's rules",
-	Long: `Replaces the destination's rules with the ones given: a --filter file is
-stored as written, flags one per line. Then the same as filter check.`,
+	Long: `Replaces the destination's rules with the ones given: a --filter file
+(- for stdin) is stored as written, with the flags added; flags alone are
+written one per line. Then the same as filter check.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := rulesDestination()

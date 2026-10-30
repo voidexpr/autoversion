@@ -336,7 +336,17 @@ exclude /*              # an allowlist: only what is listed below
 - The closest match wins: the entry itself is checked first, then each folder above it. On one level, a literal rule beats a wildcard, then an include beats an exclude. Line order means nothing. Nothing is implied: an allowlist says `exclude /*`.
 - Always applied: `/**/.git`, symlinks, and `/.autoversion` and `/.autoversion.filter` at the source root.
 
-Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`): `--filter FILE` (a rules file; a `root` line must name the source), or `--use GROUP`, `--include RULE` and `--exclude RULE` (repeatable). Without `--use`, the built-in groups don't apply. `init` and `filter set` take a file or flags, not both; `scan` and `dump` combine them.
+Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`, `watch --report-only`): `--filter FILE` (a rules file, `-` for stdin; a `root` line must name the source), and `--use GROUP`, `--include RULE` and `--exclude RULE` (repeatable). They combine: `init` and `filter set` store the file as written, comments kept, with the `use` lines of the flags after its version line and their rules at the end. Without a `use` line or `--use`, the built-in groups don't apply. The `version 1` line is optional. For example:
+
+```bash
+./autoversion filter scan --source ~/.claude --use default --summary --filter - <<'EOF'
+exclude /*
+/CLAUDE.md
+/skills/!synced
+EOF
+```
+
+Quote `'EOF'`, so the shell leaves `$`, `*` and backticks alone.
 
 ```bash
 # List the files the rules keep (the destination's, or the ones given; none: use default)
@@ -356,7 +366,7 @@ Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`): 
 ./autoversion filter check --destination DEST_PATH [--dry-run]
 ```
 
-`filter set` stores a `--filter` file as written (comments kept), or the flags one per line, then does what `filter check` does:
+`filter set` stores a `--filter` file as written (comments kept) with the flags added, or the flags alone one per line, then does what `filter check` does:
 - validates the rules and prints the warnings: dead rules (no such path under the source), includes that change nothing, non-ASCII names
 - prints how many files the rules keep, and the files the next sync removes from the destination (kept in git history, or, on a plain mirror, not kept anywhere)
 - refuses rules that keep no file while the destination has files, and an allowlist none of whose includes exists (both usually a typo)

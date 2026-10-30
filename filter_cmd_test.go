@@ -177,13 +177,46 @@ func TestRulesText(t *testing.T) {
 	})
 	t.Run("a file and flags", func(t *testing.T) {
 		writeFile(t, file, written)
-		setRuleFlags(t, file, nil, nil, []string{"/x"})
-		if _, err := rulesText(source); err == nil {
-			t.Error("a file and flags together are accepted")
+		setRuleFlags(t, file, []string{"os", "default"}, []string{"/x/y"}, []string{"/x"})
+		want := "version 1\nuse os\nuse default   # the groups\n\nexclude /*\n/notes   # kept\ninclude /x/y\nexclude /x\n"
+		if text, err := rulesText(source); text != want || err != nil {
+			t.Errorf("rules %q (error %v), want %q", text, err, want)
 		}
 		rules, err := rulesFromFlags(source)
 		if err != nil || rules.Decide("x", false).Kept || !rules.Decide("notes", true).Kept {
 			t.Errorf("scan and dump combine them: error %v", err)
+		}
+	})
+	t.Run("no version line, use from a flag", func(t *testing.T) {
+		writeFile(t, file, "# notes only\nexclude /*\n/notes")
+		setRuleFlags(t, file, []string{"default"}, nil, nil)
+		want := "use default\n# notes only\nexclude /*\n/notes\n"
+		if text, err := rulesText(source); text != want || err != nil {
+			t.Errorf("rules %q (error %v), want %q", text, err, want)
+		}
+	})
+	t.Run("stdin", func(t *testing.T) {
+		stdin := filepath.Join(resolvedTempDir(t), "stdin")
+		writeFile(t, stdin, "exclude /*\n/notes\n")
+		f, err := os.Open(stdin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		oldStdin := os.Stdin
+		os.Stdin = f
+		defer func() { os.Stdin = oldStdin }()
+		setRuleFlags(t, "-", []string{"default"}, nil, nil)
+		rules, err := rulesFromFlags(source)
+		if err != nil || rules.Decide("other", true).Kept || !rules.Decide("notes", true).Kept || rules.Decide("notes/x.log", false).Kept {
+			t.Errorf("rules from stdin: error %v", err)
+		}
+	})
+	t.Run("an empty file", func(t *testing.T) {
+		writeFile(t, file, "# nothing yet\n")
+		setRuleFlags(t, file, nil, nil, nil)
+		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "no rules") {
+			t.Errorf("error %v, want no rules", err)
 		}
 	})
 	t.Run("invalid rule", func(t *testing.T) {

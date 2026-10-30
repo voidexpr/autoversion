@@ -53,6 +53,23 @@ f:/**/*.md
 	}
 }
 
+func TestParseFileVersionOptional(t *testing.T) {
+	for text, want := range map[string][]string{
+		"":                                 nil,
+		"# only a comment\n":               nil,
+		"use default\nexclude /*\n/a\n":    {"exclude /*", "include /a"},
+		"# rules\nversion 1\nexclude /x\n": {"exclude /x"},
+	} {
+		f := parseFile(t, text)
+		if got := ruleStrings(f.Rules); !slices.Equal(got, want) {
+			t.Errorf("%q: rules %q, want %q", text, got, want)
+		}
+	}
+	if f := parseFile(t, "use default\n/a\n"); !slices.Equal(f.Uses, []string{"default"}) {
+		t.Errorf("uses %q, want default", f.Uses)
+	}
+}
+
 func TestParseFileRoot(t *testing.T) {
 	for _, root := range []string{"~", "~/Dropbox", "/Users/x"} {
 		if f := parseFile(t, "version 1\nroot "+root+"\n"); f.Root != root {
@@ -70,9 +87,8 @@ func TestParseFileErrors(t *testing.T) {
 		code string
 		line int
 	}{
-		{"", "bad-directive", 0},
-		{"# only a comment\n", "bad-directive", 0},
-		{"use default\nversion 1\n", "bad-directive", 1},
+		{"use default\nversion 1\n", "bad-directive", 2},
+		{"/a\nversion 1\n", "bad-directive", 2},
 		{"version 2\n", "bad-version", 1},
 		{"version\n", "bad-version", 1},
 		{"version 1\nversion 1\n", "bad-directive", 2},

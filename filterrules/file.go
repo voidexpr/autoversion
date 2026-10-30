@@ -75,12 +75,13 @@ func (f *File) Format() string {
 
 var directiveWord = regexp.MustCompile(`^[a-z][a-z-]*$`)
 
-// ParseFile reads a rules file: "version 1" first, then the directives
-// (root, types, use), then the rule lines ("exclude RULE", "include RULE",
-// or a bare RULE, which is an include). Line order means nothing else.
+// ParseFile reads a rules file: an optional "version 1" first, then the
+// directives (root, types, use), then the rule lines ("exclude RULE",
+// "include RULE", or a bare RULE, which is an include). Line order means
+// nothing else.
 func ParseFile(r io.Reader) (*File, error) {
 	f := &File{}
-	seenVersion := false
+	first, seenVersion := true, false
 	sc := bufio.NewScanner(r)
 	for n := 1; sc.Scan(); n++ {
 		line := stripComment(sc.Text())
@@ -91,26 +92,27 @@ func ParseFile(r io.Reader) (*File, error) {
 			return &Error{Code: code, Rule: line, Reason: reason, Line: n}
 		}
 		word, rest, _ := strings.Cut(line, " ")
-		if !seenVersion {
-			if word != "version" {
-				return nil, fail("bad-directive", "version 1 comes first")
-			}
-			if rest != "1" {
+		if word == "version" {
+			switch {
+			case seenVersion:
+				return nil, fail("bad-directive", "version twice")
+			case !first:
+				return nil, fail("bad-directive", "version comes first")
+			case rest != "1":
 				return nil, fail("bad-version", "only version 1 is known")
 			}
-			seenVersion = true
+			first, seenVersion = false, true
 			continue
 		}
+		first = false
 		switch word {
-		case "version", "root", "types", "use":
+		case "root", "types", "use":
 			if len(f.Lines) > 0 {
 				return nil, fail("bad-directive", "directives come before the rules")
 			}
 		}
 		var err error
 		switch word {
-		case "version":
-			return nil, fail("bad-directive", "version twice")
 		case "root":
 			if f.Root != "" {
 				return nil, fail("bad-directive", "root twice")
@@ -148,9 +150,6 @@ func ParseFile(r io.Reader) (*File, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
-	}
-	if !seenVersion {
-		return nil, &Error{Code: "bad-directive", Reason: "version 1 comes first"}
 	}
 	return f, nil
 }
