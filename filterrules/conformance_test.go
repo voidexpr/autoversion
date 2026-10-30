@@ -11,9 +11,7 @@ import (
 )
 
 // testdata/filter_conformance.json is ownit's tests/filter_conformance.json,
-// copied unchanged. ownit hasn't committed it yet: this is its working copy
-// of 2026-10-29 (ownit at 6464d7d). Copy it again, and name the commit here,
-// once ownit commits it.
+// copied unchanged from ownit commit d721a7f.
 func TestConformance(t *testing.T) {
 	data, err := os.ReadFile("testdata/filter_conformance.json")
 	if err != nil {
@@ -33,6 +31,21 @@ func TestConformance(t *testing.T) {
 			Rule string `json:"rule"`
 			Code string `json:"code"`
 		} `json:"invalid"`
+		Sugar []struct {
+			Kind     string   `json:"kind"`
+			Rule     string   `json:"rule"`
+			Expanded []string `json:"expanded"`
+		} `json:"sugar"`
+		InvalidFiles []struct {
+			Text string `json:"text"`
+			Code string `json:"code"`
+			Line int    `json:"line"`
+		} `json:"invalid_files"`
+		InvalidFilters []struct {
+			Exclude []string `json:"exclude"`
+			Include []string `json:"include"`
+			Codes   []string `json:"codes"` // errors only, warnings not counted
+		} `json:"invalid_filters"`
 	}
 	if err := json.Unmarshal(data, &suite); err != nil {
 		t.Fatal(err)
@@ -62,12 +75,48 @@ func TestConformance(t *testing.T) {
 		t.Fatal("no case for the native matcher")
 	}
 
+	if len(suite.Invalid) == 0 || len(suite.Sugar) == 0 || len(suite.InvalidFiles) == 0 || len(suite.InvalidFilters) == 0 {
+		t.Fatal("a section of the suite is missing or empty")
+	}
 	for _, inv := range suite.Invalid {
 		for _, kind := range []Kind{Exclude, Include} {
 			_, err := ParseRule(kind, inv.Rule)
 			if got := errorCodes(err); !slices.Equal(got, []string{inv.Code}) {
 				t.Errorf("%s %q: codes %q, want %s", kind, inv.Rule, got, inv.Code)
 			}
+		}
+	}
+	for _, s := range suite.Sugar {
+		kind := Exclude
+		if s.Kind == "include" {
+			kind = Include
+		}
+		rules, err := ParseRule(kind, s.Rule)
+		if got := ruleStrings(rules); err != nil || !slices.Equal(got, s.Expanded) {
+			t.Errorf("%s %q: expanded %q (error %v), want %q", s.Kind, s.Rule, got, err, s.Expanded)
+		}
+	}
+	for _, inv := range suite.InvalidFiles {
+		_, err := ParseFile(strings.NewReader(inv.Text))
+		if e, ok := err.(*Error); !ok || e.Code != inv.Code || e.Line != inv.Line {
+			t.Errorf("file %q: error %v, want %s on line %d", inv.Text, err, inv.Code, inv.Line)
+		}
+	}
+	for _, inv := range suite.InvalidFilters {
+		var f File
+		for _, text := range inv.Exclude {
+			if err := f.Add(Exclude, text); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, text := range inv.Include {
+			if err := f.Add(Include, text); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, err := New(&f)
+		if got := errorCodes(err); !slices.Equal(got, inv.Codes) {
+			t.Errorf("exclude %q include %q: codes %q, want %q", inv.Exclude, inv.Include, got, inv.Codes)
 		}
 	}
 }

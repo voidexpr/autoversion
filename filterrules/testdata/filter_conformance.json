@@ -125,6 +125,44 @@
     {"rule": "/a/{b,{c,d}}", "code": "bad-brace"},
     {"rule": "/a/{b,}", "code": "bad-brace"},
     {"rule": "x:/a", "code": "bad-type"},
-    {"rule": "f:/a/!b", "code": "bad-except"}
+    {"rule": "f:/a/!b", "code": "bad-except"},
+    {"rule": "/", "code": "trailing-slash"},
+    {"rule": "foo:/a", "code": "no-root"},
+    {"rule": "C:/a", "code": "bad-type"},
+    {"rule": "/a}/{b}", "code": "forbidden-char"}
+  ],
+  "sugar": [
+    {"kind": "include", "rule": "/a/!b", "expanded": ["include /a", "exclude /a/b"]},
+    {"kind": "include", "rule": "/!{Pictures,Movies}", "expanded": ["exclude /Pictures", "exclude /Movies"]},
+    {"kind": "include", "rule": "/Dropbox/!{Borg,Articles}", "expanded": ["include /Dropbox", "exclude /Dropbox/Borg", "exclude /Dropbox/Articles"]},
+    {"kind": "exclude", "rule": "/Library/Containers/!net.whatsapp.WhatsApp", "expanded": ["exclude /Library/Containers/*", "include /Library/Containers/net.whatsapp.WhatsApp"]},
+    {"kind": "exclude", "rule": "/!{Sync,Travel/Older Trips/x}", "expanded": ["exclude /*", "include /Sync", "include /Travel/Older Trips/x"]},
+    {"kind": "exclude", "rule": "/{a,b}/{c,d}", "expanded": ["exclude /a/c", "exclude /a/d", "exclude /b/c", "exclude /b/d"]},
+    {"kind": "exclude", "rule": "f:/**/{*.old,*.bak}", "expanded": ["exclude f:/**/*.old", "exclude f:/**/*.bak"]},
+    {"kind": "include", "rule": "/{one}", "expanded": ["include /one"]},
+    {"kind": "exclude", "rule": "d:/**/build", "expanded": ["exclude d:/**/build"]}
+  ],
+  "invalid_files": [
+    {"text": "version 2\n", "code": "bad-version", "line": 1},
+    {"text": "exclude /x\n", "code": "bad-directive", "line": 1},
+    {"text": "version 1\nversion 1\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nroot ~\nroot ~\n", "code": "bad-directive", "line": 3},
+    {"text": "version 1\nroot relative\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\ntypes maybe\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nexclude /x\nroot ~\n", "code": "bad-directive", "line": 3},
+    {"text": "version 1\nexclude-if-present pyvenv.cfg\n", "code": "unknown-directive", "line": 2},
+    {"text": "version 1\nfoo\n", "code": "unknown-directive", "line": 2},
+    {"text": "version 1\nuse nothing-known\n", "code": "unknown-rules", "line": 2},
+    {"text": "version 1\nnode_modules\n", "code": "no-root", "line": 2},
+    {"text": "version 1\n# comment\n\nexclude /a/\n", "code": "trailing-slash", "line": 4}
+  ],
+  "invalid_filters": [
+    {"exclude": ["/*"], "include": [], "codes": ["whole-root"]},
+    {"exclude": ["/**/*"], "include": ["/a"], "codes": ["whole-root"]},
+    {"exclude": ["/a/b"], "include": ["/a/b"], "codes": ["contradiction"]},
+    {"exclude": ["f:/a/b"], "include": ["d:/a/b"], "codes": ["contradiction"]},
+    {"exclude": ["f:/*"], "include": [], "codes": []},
+    {"exclude": ["/*"], "include": ["/a"], "codes": []},
+    {"exclude": ["/**/x"], "include": ["/a/*"], "codes": []}
   ]
 }

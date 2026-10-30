@@ -57,7 +57,8 @@ func compile(all []Rule) *Rules {
 func (r *Rules) validate() error {
 	var errs []error
 	for _, rule := range r.all {
-		if rule.Kind != Exclude {
+		// A typed /* or /**/* keeps every folder (f:) or every file (d:)
+		if rule.Kind != Exclude || rule.Type != TypeAny {
 			continue
 		}
 		switch {
@@ -220,7 +221,7 @@ func (r *Rules) Check(list ListFunc) []Problem {
 	allowlist, literalInclude, aliveInclude, wildcardInclude := false, false, false, false
 	for i := range r.all {
 		rule := &r.all[i]
-		if rule.Kind == Exclude && rule.Text == "/*" {
+		if rule.Kind == Exclude && rule.Type == TypeAny && rule.Text == "/*" {
 			allowlist = true
 		}
 		if !rule.Literal() {

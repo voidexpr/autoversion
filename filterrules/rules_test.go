@@ -170,6 +170,7 @@ func TestNewErrors(t *testing.T) {
 		{[]string{"f:/a"}, []string{"d:/a"}, nil, []string{"contradiction"}},
 		{[]string{"/**/*", "/a"}, []string{"/a"}, nil, []string{"whole-root", "contradiction"}},
 		{[]string{"/*"}, []string{"/a"}, nil, nil},
+		{[]string{"f:/*", "d:/**/*"}, nil, nil, nil},
 		{[]string{"/a/*"}, []string{"/a/*"}, nil, nil},
 	}
 	for _, tt := range tests {
@@ -199,6 +200,7 @@ func TestCheck(t *testing.T) {
 		{"exclude /*\n/CLAUDE.md\n/missing", []string{"warning: dead-rule: include /missing"}},
 		{"exclude /*\n/CLAUD.md", []string{"warning: dead-rule: include /CLAUD.md", "error: whole-root"}},
 		{"exclude /*\n/CLAUD.md\nf:/**/*.md", []string{"warning: dead-rule: include /CLAUD.md"}},
+		{"exclude f:/*\n/CLAUD.md", []string{"warning: dead-rule: include /CLAUD.md"}},
 		{"exclude /Library/caches", []string{"warning: dead-rule: exclude /Library/caches"}},
 		{"/skills", []string{"warning: changes-nothing: no include changes anything"}},
 		{"exclude /x\n/skills\n/x/y", []string{"warning: changes-nothing: include /skills changes nothing"}},

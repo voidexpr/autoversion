@@ -549,9 +549,13 @@ Tests:
   path, whatever their types, as in ownit's reference matcher.
 - "Changes nothing" for a literal include is checked for each type the
   include applies to: as a file for `f:`, as a folder for `d:`, both for
-  an untyped include. ownit's matcher always checks as a folder, so it
-  warns wrongly for `include /debug.log` or `include f:/debug.log` next to
-  `exclude f:/**/*.log`: to report.
+  an untyped include. ownit did the same in f1aa055, and the spec says so.
+- `whole-root` is only for an untyped `/*` without any include and an
+  untyped `/**/*`: `f:/*` keeps every folder, `d:/*` every file (spec,
+  f1aa055). Likewise, only an untyped `exclude /*` makes an allowlist for
+  the "nothing alive" check.
+- The conformance suite is copied from ownit d721a7f. It now also has the
+  `sugar`, `invalid_files` and `invalid_filters` sections, all tested.
 - Name patterns are matched by a precompiled matcher (1.6 µs per entry
   with `default`, about half of today's regexes), tested against
   `path.Match`.
