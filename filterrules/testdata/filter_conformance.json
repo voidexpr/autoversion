@@ -78,7 +78,7 @@
     },
     {
       "name": "tie: a literal exclude beats a wildcard include",
-      "tools": ["native"],
+      "tools": ["native", "autoversion"],
       "tree": [
         "projects/", "projects/abc/", "projects/abc/memory/", "projects/abc/memory/x.md", "projects/abc/other.jsonl",
         "projects/old/", "projects/old/memory/", "projects/old/memory/y.md"
@@ -89,7 +89,7 @@
     },
     {
       "name": "typed rules: files only and folders only",
-      "tools": ["native", "rsync", "gitignore"],
+      "tools": ["native", "rsync", "gitignore", "autoversion"],
       "tree": ["a.old", "b.old/", "b.old/x", "build", "c/", "c/d.old", "c/e.old/", "c/e.old/y", "keep.txt", "w/", "w/build/", "w/build/o"],
       "exclude": ["f:/**/*.old", "d:/**/build"],
       "include": [],
@@ -97,7 +97,7 @@
     },
     {
       "name": "typed rules decay to both types on restic and borg",
-      "tools": ["restic", "borg"],
+      "tools": ["restic", "borg", "syncthing"],
       "types": "decay",
       "tree": ["a.old", "b.old/", "b.old/x", "build", "c/", "c/d.old", "c/e.old/", "c/e.old/y", "keep.txt", "w/", "w/build/", "w/build/o"],
       "exclude": ["f:/**/*.old", "d:/**/build"],
