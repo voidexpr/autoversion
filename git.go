@@ -35,6 +35,18 @@ func runGit(repoPath string, args ...string) (string, error) {
 	return outputStr, nil
 }
 
+// gitOutput runs a git command that changes nothing and returns its output,
+// without printing it
+func gitOutput(repoPath string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("%w (repo=%s args=%v output=%q)", err, repoPath, args, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
+}
+
 // Target argv size per git invocation. Well under Darwin ARG_MAX (~1 MB)
 // so env and prefix flags fit with plenty of headroom.
 const gitArgBytesBudget = 256 * 1024

@@ -50,6 +50,29 @@ func (f *File) Use(name string) error {
 	return nil
 }
 
+// Format writes the file in the rules file format: the directives, then one
+// rule per line as written. Comments are not kept.
+func (f *File) Format() string {
+	var b strings.Builder
+	b.WriteString("version 1\n")
+	if f.Root != "" {
+		b.WriteString("root " + f.Root + "\n")
+	}
+	if f.Types != "" {
+		b.WriteString("types " + f.Types + "\n")
+	}
+	for _, name := range f.Uses {
+		b.WriteString("use " + name + "\n")
+	}
+	if len(f.Lines) > 0 {
+		b.WriteString("\n")
+	}
+	for _, l := range f.Lines {
+		b.WriteString(l.String() + "\n")
+	}
+	return b.String()
+}
+
 var directiveWord = regexp.MustCompile(`^[a-z][a-z-]*$`)
 
 // ParseFile reads a rules file: "version 1" first, then the directives

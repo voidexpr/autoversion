@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -43,6 +45,14 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// writeOldMarker writes a marker as made before settings were stored in it
+func writeOldMarker(t *testing.T, destPath, source string) {
+	t.Helper()
+	writeFile(t, filepath.Join(destPath, markerFileName), `{"source": "`+source+`"}`+"\n")
 }
 
 func markerSourceOf(t *testing.T, destPath string) string {
@@ -131,9 +141,7 @@ func TestValidateSourceAndDestination(t *testing.T) {
 	t.Run("marker names the source", func(t *testing.T) {
 		source := resolvedTempDir(t)
 		dest := resolvedTempDir(t)
-		if err := writeMarker(dest, source); err != nil {
-			t.Fatal(err)
-		}
+		writeOldMarker(t, dest, source)
 		result := validate(t, source, dest)
 		if result.Marker != MarkerMatches {
 			t.Errorf("Marker = %v, want MarkerMatches", result.Marker)
@@ -146,9 +154,7 @@ func TestValidateSourceAndDestination(t *testing.T) {
 	t.Run("marker names another source", func(t *testing.T) {
 		source := resolvedTempDir(t)
 		dest := resolvedTempDir(t)
-		if err := writeMarker(dest, "/other/source"); err != nil {
-			t.Fatal(err)
-		}
+		writeOldMarker(t, dest, "/other/source")
 		result := validate(t, source, dest)
 		if result.Marker != MarkerOtherSource || result.MarkerSource != "/other/source" {
 			t.Errorf("Marker = %v, MarkerSource = %q", result.Marker, result.MarkerSource)
@@ -196,17 +202,13 @@ func TestValidateSourceAndDestination(t *testing.T) {
 
 	t.Run("source has a marker (swapped flags)", func(t *testing.T) {
 		source := resolvedTempDir(t)
-		if err := writeMarker(source, "/some/source"); err != nil {
-			t.Fatal(err)
-		}
+		writeOldMarker(t, source, "/some/source")
 		expectError(t, validate(t, source, filepath.Join(resolvedTempDir(t), "dest")), "swapped")
 	})
 
 	t.Run("parent of destination has a marker", func(t *testing.T) {
 		outer := resolvedTempDir(t)
-		if err := writeMarker(outer, "/some/source"); err != nil {
-			t.Fatal(err)
-		}
+		writeOldMarker(t, outer, "/some/source")
 		expectError(t, validate(t, resolvedTempDir(t), filepath.Join(outer, "inner")), "inside another autoversion destination")
 	})
 
@@ -232,7 +234,7 @@ func TestInitDestination(t *testing.T) {
 	t.Run("missing destination", func(t *testing.T) {
 		source := resolvedTempDir(t)
 		dest := filepath.Join(resolvedTempDir(t), "dest")
-		if err := initDestination(source, dest, false, false); err != nil {
+		if err := initDestination(source, dest, initOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		if !IsGitRepo(dest) {
@@ -250,7 +252,7 @@ func TestInitDestination(t *testing.T) {
 		source := resolvedTempDir(t)
 		dest := resolvedTempDir(t)
 		for i := 0; i < 2; i++ {
-			if err := initDestination(source, dest, false, false); err != nil {
+			if err := initDestination(source, dest, initOptions{}); err != nil {
 				t.Fatalf("init #%d: %v", i+1, err)
 			}
 		}
@@ -263,15 +265,15 @@ func TestInitDestination(t *testing.T) {
 		oldSource := resolvedTempDir(t)
 		newSource := resolvedTempDir(t)
 		dest := filepath.Join(resolvedTempDir(t), "dest")
-		if err := initDestination(oldSource, dest, false, false); err != nil {
+		if err := initDestination(oldSource, dest, initOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		writeFile(t, filepath.Join(dest, "kept.txt"), "kept")
 
-		if err := initDestination(newSource, dest, false, false); err == nil {
+		if err := initDestination(newSource, dest, initOptions{}); err == nil {
 			t.Fatal("expected an error without --force-new-source")
 		}
-		if err := initDestination(newSource, dest, true, false); err != nil {
+		if err := initDestination(newSource, dest, initOptions{forceNewSource: true}); err != nil {
 			t.Fatalf("--force-new-source: %v", err)
 		}
 		if got := markerSourceOf(t, dest); got != newSource {
@@ -300,10 +302,10 @@ func TestInitDestination(t *testing.T) {
 		}
 		writeFile(t, filepath.Join(dest, "old.txt"), "uncommitted change")
 
-		if err := initDestination(source, dest, false, false); err == nil {
+		if err := initDestination(source, dest, initOptions{}); err == nil {
 			t.Fatal("expected an error without --force-new-source")
 		}
-		if err := initDestination(source, dest, true, false); err != nil {
+		if err := initDestination(source, dest, initOptions{forceNewSource: true}); err != nil {
 			t.Fatalf("--force-new-source: %v", err)
 		}
 		if got := markerSourceOf(t, dest); got != source {
@@ -321,12 +323,12 @@ func TestInitDestination(t *testing.T) {
 	t.Run("obliterate", func(t *testing.T) {
 		source := resolvedTempDir(t)
 		dest := resolvedTempDir(t)
-		if err := initDestination("/old/source", dest, false, false); err != nil {
+		if err := initDestination("/old/source", dest, initOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		writeFile(t, filepath.Join(dest, "sub", "gone.txt"), "gone")
 
-		if err := initDestination(source, dest, false, true); err != nil {
+		if err := initDestination(source, dest, initOptions{obliterate: true}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(filepath.Join(dest, "sub")); !os.IsNotExist(err) {
@@ -341,11 +343,9 @@ func TestInitDestination(t *testing.T) {
 	})
 
 	t.Run("no-git", func(t *testing.T) {
-		noGit = true
-		defer func() { noGit = false }()
 		source := resolvedTempDir(t)
 		dest := filepath.Join(resolvedTempDir(t), "dest")
-		if err := initDestination(source, dest, false, false); err != nil {
+		if err := initDestination(source, dest, initOptions{settings: settingsFlags{git: ptr(false)}}); err != nil {
 			t.Fatal(err)
 		}
 		if IsGitRepo(dest) {
@@ -353,6 +353,248 @@ func TestInitDestination(t *testing.T) {
 		}
 		if got := markerSourceOf(t, dest); got != source {
 			t.Errorf("marker source = %q, want %q", got, source)
+		}
+	})
+}
+
+func TestMarker_SettingsAndUnknownFields(t *testing.T) {
+	t.Run("old marker: settings describe the destination", func(t *testing.T) {
+		mirror := resolvedTempDir(t)
+		writeOldMarker(t, mirror, "/src")
+		versioned := resolvedTempDir(t)
+		writeOldMarker(t, versioned, "/src")
+		if err := os.Mkdir(filepath.Join(versioned, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		for dest, git := range map[string]bool{mirror: false, versioned: true} {
+			marker, err := readMarker(dest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := destinationSettings{Git: git, MaxFileSizeMB: defaultMaxFileSizeMB}
+			if marker.destinationSettings != want {
+				t.Errorf("settings %+v, want %+v", marker.destinationSettings, want)
+			}
+		}
+	})
+
+	t.Run("unknown fields are kept", func(t *testing.T) {
+		dest := resolvedTempDir(t)
+		writeFile(t, filepath.Join(dest, markerFileName),
+			`{"remotes": [{"host": "nas", "path": "/b"}], "source": "/src", "git": false, "max_file_size_mb": 50}`)
+		marker, err := readMarker(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if marker.Git || marker.MaxFileSizeMB != 50 {
+			t.Errorf("settings %+v", marker.destinationSettings)
+		}
+		marker.MaxFileSizeMB = 20
+		if err := writeMarker(dest, marker); err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(filepath.Join(dest, markerFileName))
+		want := `{
+  "source": "/src",
+  "git": false,
+  "restic": false,
+  "max_file_size_mb": 20,
+  "remotes": [
+    {
+      "host": "nas",
+      "path": "/b"
+    }
+  ]
+}
+`
+		if string(data) != want {
+			t.Errorf("marker\n%s\nwant\n%s", data, want)
+		}
+	})
+
+	t.Run("invalid fields", func(t *testing.T) {
+		for _, text := range []string{`{"source": "/src", "git": "yes"}`, `{"source": "/src", "max_file_size_mb": -1}`,
+			`{"source": "/src", "max_file_size_mb": 1.5}`, `{"git": true}`, `[]`} {
+			dest := resolvedTempDir(t)
+			writeFile(t, filepath.Join(dest, markerFileName), text)
+			if _, err := readMarker(dest); err == nil || !strings.Contains(err.Error(), "invalid marker") {
+				t.Errorf("%s: error %v, want invalid marker", text, err)
+			}
+		}
+	})
+}
+
+func TestValidateSourceAndDestination_Rules(t *testing.T) {
+	setGlobals(t, false)
+	source := resolvedTempDir(t)
+	dest := resolvedTempDir(t)
+	writeOldMarker(t, dest, source)
+
+	result, err := ValidateSourceAndDestination(source, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Rules == nil || result.RulesErr != nil || len(result.problems()) != 0 {
+		t.Errorf("without a rules file: rules %v, error %v, problems %v", result.Rules, result.RulesErr, result.problems())
+	}
+	if result.Rules.Decide("node_modules", true).Kept {
+		t.Error("without a rules file, the rules are not use default")
+	}
+
+	writeFile(t, filepath.Join(dest, filterFileName), "version 1\nexclude /a/\n")
+	result, err = ValidateSourceAndDestination(source, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := result.problems(); len(problems) != 1 || !strings.Contains(problems[0], "trailing-slash") {
+		t.Errorf("problems %v, want the rules error", problems)
+	}
+}
+
+func TestInitDestination_RulesAndSettings(t *testing.T) {
+	setGlobals(t, true)
+	readText := func(t *testing.T, path string) string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	initFresh := func(t *testing.T, opts initOptions) (source, dest string) {
+		t.Helper()
+		source = resolvedTempDir(t)
+		writeFile(t, filepath.Join(source, "notes", "a.md"), "a")
+		dest = filepath.Join(resolvedTempDir(t), "dest")
+		if err := initDestination(source, dest, opts); err != nil {
+			t.Fatal(err)
+		}
+		return source, dest
+	}
+
+	t.Run("new destination: settings and default rules, one commit", func(t *testing.T) {
+		_, dest := initFresh(t, initOptions{})
+		marker, err := readMarker(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if marker.destinationSettings != defaultSettings {
+			t.Errorf("settings %+v, want %+v", marker.destinationSettings, defaultSettings)
+		}
+		if got := readText(t, filepath.Join(dest, filterFileName)); got != defaultRules {
+			t.Errorf("rules %q, want %q", got, defaultRules)
+		}
+		if n := gitLogCount(t, dest, filterFileName); n != 1 || gitLogCount(t, dest, "") != 1 {
+			t.Errorf("commits: %d of the rules, %d in all, want 1 and 1", n, gitLogCount(t, dest, ""))
+		}
+	})
+
+	t.Run("rules and settings given", func(t *testing.T) {
+		rules := "version 1\nuse default\n\n# notes only\nexclude /*\n/notes\n"
+		_, dest := initFresh(t, initOptions{rules: rules,
+			settings: settingsFlags{git: ptr(false), maxFileSizeMB: ptr(int64(50))}})
+		if got := readText(t, filepath.Join(dest, filterFileName)); got != rules {
+			t.Errorf("rules %q, want %q", got, rules)
+		}
+		marker, _ := readMarker(dest)
+		if want := (destinationSettings{MaxFileSizeMB: 50}); marker.destinationSettings != want || IsGitRepo(dest) {
+			t.Errorf("settings %+v, want %+v without git", marker.destinationSettings, want)
+		}
+	})
+
+	t.Run("invalid rules create nothing", func(t *testing.T) {
+		for rules, reason := range map[string]string{
+			"version 1\nexclude /a/\n":           "trailing-slash",
+			"version 1\nexclude /*\n/CLAUD.md\n": "none of the includes exists",
+		} {
+			source := resolvedTempDir(t)
+			dest := filepath.Join(resolvedTempDir(t), "dest")
+			err := initDestination(source, dest, initOptions{rules: rules})
+			if err == nil || !strings.Contains(err.Error(), reason) {
+				t.Errorf("%q: error %v, want %s", rules, err, reason)
+			}
+			if _, err := os.Stat(dest); !os.IsNotExist(err) {
+				t.Errorf("%q: destination created", rules)
+			}
+		}
+	})
+
+	t.Run("initialized: rules go through filter set", func(t *testing.T) {
+		source, dest := initFresh(t, initOptions{})
+		err := initDestination(source, dest, initOptions{rules: "version 1\n"})
+		if err == nil || !strings.Contains(err.Error(), "filter set") {
+			t.Errorf("error %v, want one pointing to filter set", err)
+		}
+	})
+
+	t.Run("initialized: settings change only with --update-settings", func(t *testing.T) {
+		source, dest := initFresh(t, initOptions{})
+		marker, _ := readMarker(dest)
+		marker.other["remotes"] = []byte(`["nas"]`)
+		if err := writeMarker(dest, marker); err != nil {
+			t.Fatal(err)
+		}
+		commits := gitLogCount(t, dest, "")
+
+		if err := initDestination(source, dest, initOptions{settings: settingsFlags{maxFileSizeMB: ptr(int64(10))}}); err != nil {
+			t.Errorf("same settings: %v", err)
+		}
+		opts := initOptions{settings: settingsFlags{maxFileSizeMB: ptr(int64(50)), restic: ptr(false)}}
+		err := initDestination(source, dest, opts)
+		if err == nil || !strings.Contains(err.Error(), "max file size 10 MB → 50 MB") || !strings.Contains(err.Error(), "--update-settings") {
+			t.Errorf("error %v, want the change and --update-settings", err)
+		}
+		opts.updateSettings = true
+		if err := initDestination(source, dest, opts); err != nil {
+			t.Fatal(err)
+		}
+		marker, _ = readMarker(dest)
+		var remotes bytes.Buffer
+		json.Compact(&remotes, marker.other["remotes"])
+		if marker.MaxFileSizeMB != 50 || remotes.String() != `["nas"]` {
+			t.Errorf("marker %+v, remotes %s", marker.destinationSettings, marker.other["remotes"])
+		}
+		if n := gitLogCount(t, dest, ""); n != commits+1 {
+			t.Errorf("commits %d, want %d", n, commits+1)
+		}
+	})
+
+	t.Run("git to plain mirror is refused", func(t *testing.T) {
+		source, dest := initFresh(t, initOptions{})
+		for _, update := range []bool{false, true} {
+			err := initDestination(source, dest, initOptions{updateSettings: update, settings: settingsFlags{git: ptr(false)}})
+			if err == nil || !strings.Contains(err.Error(), "remove "+filepath.Join(dest, ".git")+" by hand") {
+				t.Errorf("--update-settings %v: error %v", update, err)
+			}
+		}
+		other := resolvedTempDir(t)
+		err := initDestination(other, dest, initOptions{forceNewSource: true, settings: settingsFlags{git: ptr(false)}})
+		if err == nil || !strings.Contains(err.Error(), "versioned with git") {
+			t.Errorf("--force-new-source --no-git: error %v", err)
+		}
+	})
+
+	t.Run("plain mirror to git", func(t *testing.T) {
+		source, dest := initFresh(t, initOptions{settings: settingsFlags{git: ptr(false)}})
+		if err := initDestination(source, dest, initOptions{updateSettings: true, settings: settingsFlags{git: ptr(true)}}); err != nil {
+			t.Fatal(err)
+		}
+		marker, _ := readMarker(dest)
+		if !marker.Git || !IsGitRepo(dest) || gitLogCount(t, dest, markerFileName) != 1 {
+			t.Errorf("git %v, repo %v", marker.Git, IsGitRepo(dest))
+		}
+	})
+
+	t.Run("a new source keeps the rules", func(t *testing.T) {
+		rules := "version 1\nexclude /*\n/notes\n"
+		_, dest := initFresh(t, initOptions{rules: rules})
+		newSource := resolvedTempDir(t)
+		writeFile(t, filepath.Join(newSource, "notes", "b.md"), "b")
+		if err := initDestination(newSource, dest, initOptions{forceNewSource: true}); err != nil {
+			t.Fatal(err)
+		}
+		if got := readText(t, filepath.Join(dest, filterFileName)); got != rules {
+			t.Errorf("rules %q, want %q", got, rules)
 		}
 	})
 }
@@ -385,15 +627,11 @@ func TestValidatePaths_RequiresMatchingMarker(t *testing.T) {
 	if _, _, err := validatePaths(source, dest); err == nil || !strings.Contains(err.Error(), "not initialized") {
 		t.Errorf("without marker: err = %v", err)
 	}
-	if err := writeMarker(dest, "/other/source"); err != nil {
-		t.Fatal(err)
-	}
+	writeOldMarker(t, dest, "/other/source")
 	if _, _, err := validatePaths(source, dest); err == nil || !strings.Contains(err.Error(), "belongs to source") {
 		t.Errorf("marker for another source: err = %v", err)
 	}
-	if err := writeMarker(dest, source); err != nil {
-		t.Fatal(err)
-	}
+	writeOldMarker(t, dest, source)
 	if _, _, err := validatePaths(source, dest); err != nil {
 		t.Errorf("matching marker: err = %v", err)
 	}
@@ -403,12 +641,13 @@ func TestScanPaths_KeepsDestinationMarker(t *testing.T) {
 	setGlobals(t, false)
 	source := resolvedTempDir(t)
 	dest := resolvedTempDir(t)
-	if err := initDestination(source, dest, false, false); err != nil {
+	if err := initDestination(source, dest, initOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(source, "a.txt"), "a")
-	// A marker at the source root must not be copied over the destination's
+	// A marker or rules file at the source root must not be copied over the destination's
 	writeFile(t, filepath.Join(source, markerFileName), `{"source": "/elsewhere"}`)
+	writeFile(t, filepath.Join(source, filterFileName), "version 1\n")
 
 	SetSourceRoot(source)
 	if err := scanPaths(source, dest, 0, false); err != nil {
@@ -419,6 +658,9 @@ func TestScanPaths_KeepsDestinationMarker(t *testing.T) {
 	}
 	if got := markerSourceOf(t, dest); got != source {
 		t.Errorf("destination marker source = %q, want %q (deleted or overwritten)", got, source)
+	}
+	if data, err := os.ReadFile(filepath.Join(dest, filterFileName)); err != nil || string(data) != defaultRules {
+		t.Errorf("destination rules %q (%v), want %q (deleted or overwritten)", data, err, defaultRules)
 	}
 }
 

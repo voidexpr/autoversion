@@ -79,7 +79,7 @@ To run the Go tests, or any command, on Linux against the current source (mounte
 make docker-dev-build
 make docker-go-test                                   # go test ./... on Linux
 make docker-go-test GOTEST_ARGS='-v -run TestShouldTrack'
-make docker-sh CMD='go build -o /tmp/av . && /tmp/av filter --source /src'
+make docker-sh CMD='go build -o /tmp/av . && /tmp/av filter scan --source /src'
 make docker-watch-check                               # watch-check on Linux
 ```
 
@@ -248,30 +248,85 @@ One-time sync without watching:
 Initialize a destination for a source. Files under `SOURCE_PATH` are mirrored directly into `DEST_PATH` (`SOURCE_PATH/rel` → `DEST_PATH/rel`):
 
 ```bash
-./autoversion init --source SOURCE_PATH --destination DEST_PATH [--no-git] [--restic]
-    [--force-new-source | --force-obliterate-yes-i-am-sure]
+./autoversion init --source SOURCE_PATH --destination DEST_PATH [--no-git] [--restic] [--max-file-size MB]
+    [--filter FILE | --use GROUP --include RULE --exclude RULE ...]
+    [--force-new-source | --force-obliterate-yes-i-am-sure] [--update-settings]
 ```
 
-`init` creates the destination if needed, runs `git init` (unless `--no-git`), initializes restic (with `--restic`), and writes the `.autoversion` marker naming the source (see **Destination Marker**). With git, the marker is committed on its own (`init: source SOURCE_PATH`).
+`init` creates the destination if needed, runs `git init` (unless `--no-git`), initializes restic (with `--restic`), and writes two files (see **Destination Marker**):
+- `.autoversion`, the marker: the source and the settings (`--no-git`, `--restic`, `--max-file-size`)
+- `.autoversion.filter`, the rules (see **filter**): the `--filter` file as written, or the rule flags one per line. Without rules: `use default`.
+
+With git, both are committed on their own (`init: source SOURCE_PATH`). Invalid rules, or an allowlist none of whose includes exists, stop `init` before anything is created.
 
 | destination | default | `--force-new-source` | `--force-obliterate-yes-i-am-sure` |
 |---|---|---|---|
 | missing or empty | initialize | initialize | initialize |
-| marker names this source | nothing to do | nothing to do | wipe, initialize |
-| marker names another source | error | rewrite the marker, keep contents and `.git` | wipe, initialize |
+| marker names this source | settings check (below) | settings check (below) | wipe, initialize |
+| marker names another source | error | rewrite the marker, keep contents, rules and `.git` | wipe, initialize |
 | not empty, no marker | error | write the marker, keep contents and `.git` | wipe, initialize |
 
 - After `--force-new-source` the next sync makes the destination match the source: files not in the source are removed (`git rm`, kept in history; with `--no-git` deleted for good).
 - `--force-obliterate-yes-i-am-sure` removes everything inside the destination, `.git` included. The restic repository next to it is not touched.
 - The two flags are mutually exclusive.
 
+On a destination already initialized for the source:
+- Settings that are not given, or equal to the marker's, change nothing. A missing git or restic repository the settings ask for is created.
+- Different settings are an error listing them, unless `--update-settings`: then the marker is updated and committed. From a plain mirror to git, `git init` runs and the next sync commits every file.
+- Switching from git to a plain mirror (`--no-git` on a git destination) is always refused: the `.git` history would stay while files stop being committed. To do it on purpose, remove `DEST_PATH/.git` by hand, or start over with `--force-obliterate-yes-i-am-sure`.
+- Rules are an error: they change with `filter set`.
+
 ### filter
 
-List files that would be tracked:
+A destination's rules say which files of its source are tracked. They are stored in `DEST_PATH/.autoversion.filter`, in the filter syntax shared with ownit (`~/projects/ownit/plans/spec_filter_syntax.md`). Without that file the rules are `use default`. Example, versioning a few things of `~/.claude`:
+
+```
+version 1
+use default             # the built-in groups, see filter groups
+
+exclude /*              # an allowlist: only what is listed below
+/CLAUDE.md
+/settings.json
+/settings.local.json
+/skills/!synced         # include /skills, exclude /skills/synced
+/projects/*/memory
+```
+
+- Every rule starts at the source root (`/`). `*` matches within a name, a `/**/` segment any number of folders. `f:` makes a rule match files only (`f:/**/*.old` keeps a folder named `x.old`).
+- A bare line is an include. `{a,b}` gives one rule per name. `P/!Q` is an exception: in an include, `P` minus `P/Q`; in an exclude, `P`'s content except `P/Q`.
+- The closest match wins: the entry itself is checked first, then each folder above it. On one level, a literal rule beats a wildcard, then an include beats an exclude. Line order means nothing. Nothing is implied: an allowlist says `exclude /*`.
+- Always applied: `/**/.git`, symlinks, and `/.autoversion` and `/.autoversion.filter` at the source root.
+
+Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`): `--filter FILE` (a rules file; a `root` line must name the source), or `--use GROUP`, `--include RULE` and `--exclude RULE` (repeatable). Without `--use`, the built-in groups don't apply. `init` and `filter set` take a file or flags, not both; `scan` and `dump` combine them.
 
 ```bash
-./autoversion filter --source SOURCE_PATH [--max-file-size MB]
+# List the files the rules keep (the destination's, or the ones given; none: use default)
+./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] [--max-file-size MB]
+# What decides one entry: the result, the rule (and its group) and the level it matches
+./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] --explain PATH
+# Number of kept files and of folders visited (on Linux, the inotify watches a watcher needs)
+./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] --summary
+
+# The rules expanded, groups included
+./autoversion filter dump [--destination DEST_PATH | rules]
+# The built-in groups and their rules, ready to copy into a file
+./autoversion filter groups
+
+# Replace a destination's rules, or check them after editing the file by hand
+./autoversion filter set --destination DEST_PATH rules [--dry-run]
+./autoversion filter check --destination DEST_PATH [--dry-run]
 ```
+
+`filter set` stores a `--filter` file as written (comments kept), or the flags one per line, then does what `filter check` does:
+- validates the rules and prints the warnings: dead rules (no such path under the source), includes that change nothing, non-ASCII names
+- prints how many files the rules keep, and the files the next sync removes from the destination (kept in git history, or, on a plain mirror, not kept anywhere)
+- refuses rules that keep no file while the destination has files, and an allowlist none of whose includes exists (both usually a typo)
+- prints the change since the last commit and commits it (`filter: update rules`)
+- restarts the installed service, if it runs
+
+With `--dry-run`, only the checks and counts.
+
+Note: in this version `sync`, `watch` and `install` don't use the rules yet, they still use the flags of **File Filtering**.
 
 ### check-paths
 
@@ -290,15 +345,23 @@ Shows symlink resolution and the marker status, and validates:
 
 ## Destination Marker
 
-`init` writes `DEST_PATH/.autoversion`, a small JSON file naming the source (absolute path, symlinks resolved):
+`init` writes `DEST_PATH/.autoversion`, a small JSON file naming the source (absolute path, symlinks resolved) and the settings:
 
 ```json
 {
-  "source": "/Users/me/projects/myapp"
+  "source": "/Users/me/projects/myapp",
+  "git": true,
+  "restic": false,
+  "max_file_size_mb": 10
 }
 ```
 
-`sync`, `watch` and `install` refuse to copy anything unless the marker exists and names their source. This catches typos in either path (a mistyped destination is never silently created) and prevents two sources from syncing into the same destination. The marker is never deleted or overwritten by a sync, and a `.autoversion` file at the root of a source is not tracked. With git, the marker is versioned like the other files, so `git log -p .autoversion` shows which source the destination belonged to over time.
+`sync`, `watch` and `install` refuse to copy anything unless the marker exists and names their source. This catches typos in either path (a mistyped destination is never silently created) and prevents two sources from syncing into the same destination.
+
+- Settings missing from a marker (markers written before settings were stored) describe the destination as it is: `git` when it has a `.git` folder, `restic` when it has a restic repository, 10 MB.
+- Fields autoversion doesn't know are kept when the marker is rewritten.
+- The marker and the rules file (`.autoversion.filter`) are never deleted or overwritten by a sync, and files with these names at the root of a source are not tracked.
+- With git, both are versioned like the other files: `git log -p .autoversion` shows which source the destination belonged to over time, and `git log -p .autoversion.filter` every rule change.
 
 ## File Filtering
 
@@ -324,10 +387,15 @@ Directories matched by these exclusions or by `--exclude-dir` are skipped entire
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--source` | (none) | Source directory to track (all commands except `bundle`/`unbundle`; optional for `status`) |
-| `--destination` | (none) | Destination directory, initialized by `init` (not used by `filter` and `watch --report-only`) |
+| `--destination` | (none) | Destination directory, initialized by `init` (optional for `filter scan` and `filter dump`, not used by `watch --report-only`) |
 | `--force-new-source` | false | `init`: use a non-empty destination, or one initialized for another source, keeping its contents and history |
 | `--force-obliterate-yes-i-am-sure` | false | `init`: remove everything in the destination, `.git` included, then initialize it |
-| `--max-file-size` | 10 MB | Maximum file size to track |
+| `--update-settings` | false | `init`: on an initialized destination, write settings different from the marker's |
+| `--filter` | (none) | Rules file (`init`, `filter scan`, `dump`, `set`) |
+| `--include`, `--exclude` | (none) | Include or exclude rule, repeatable (`init`, `filter scan`, `dump`, `set`) |
+| `--use` | (none) | Built-in group, repeatable (`init`, `filter scan`, `dump`, `set`; see `filter groups`) |
+| `--explain`, `--summary` | (none) | `filter scan`: what decides one entry; the counts only |
+| `--max-file-size` | 10 MB | Maximum file size to track (`init` stores it in the marker) |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--report-only` | false | Only print file events, copy nothing (watch only, no `--destination` needed) |

@@ -28,17 +28,18 @@ var (
 	errLogFlag string
 
 	// Command-specific flags
-	maxFileSize      int64
-	bufferTime       int
-	dryRun           bool
-	reportOnly       bool
-	noLogin          bool
-	logDirFlag       string
-	forceNewSource   bool
-	forceObliterate  bool
-	includeExtsFlag  string
-	excludeDirsFlag  []string
-	includeFilesFlag []string
+	maxFileSize        int64
+	bufferTime         int
+	dryRun             bool
+	reportOnly         bool
+	noLogin            bool
+	logDirFlag         string
+	forceNewSource     bool
+	forceObliterate    bool
+	updateSettingsFlag bool
+	includeExtsFlag    string
+	excludeDirsFlag    []string
+	includeFilesFlag   []string
 )
 
 // requirePaths returns an error unless --source, and --destination when
@@ -192,69 +193,30 @@ Automatically tracks changes to files and commits them to git repositories,
 making it easy to see what changed and restore files to any point in time.`,
 }
 
-var filterCmd = &cobra.Command{
-	Use:   "filter",
-	Short: "List files that would be tracked",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := requirePaths(false); err != nil {
-			return err
-		}
-
-		absSourcePath, err := resolveSourcePath(sourceFlag)
-		if err != nil {
-			return err
-		}
-
-		SetSourceRoot(absSourcePath)
-
-		// Walk and print matching files
-		filepath.Walk(absSourcePath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-				return nil
-			}
-
-			if info.IsDir() {
-				if IsExcludedDir(path) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-
-			// Skip all symlinks (both file and directory symlinks)
-			if info.Mode()&os.ModeSymlink != 0 {
-				return nil
-			}
-
-			if shouldTrack, _ := ShouldTrack(path, maxFileSize, false); shouldTrack {
-				if relPath, err := filepath.Rel(absSourcePath, path); err == nil {
-					fmt.Println(relPath)
-				}
-			}
-
-			return nil
-		})
-
-		return nil
-	},
-}
-
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a destination for a source",
 	Long: `Creates the destination if needed, initializes git (unless --no-git) and
-restic (with --restic), and writes the .autoversion marker naming the source.
+restic (with --restic), and writes two files, committed with git:
+  .autoversion         the marker: the source and the settings (git, restic,
+                       max file size)
+  .autoversion.filter  the rules: --filter FILE, or --use, --include and
+                       --exclude (none: use default). See filter --help.
 Commands that copy files (sync, watch, install) refuse a destination without
 a marker naming their source.
 
 The destination must be missing, empty, or already initialized for the source:
   --force-new-source                use a non-empty destination, or one whose marker
-                                    names another source, keeping its contents and
-                                    git history. The next sync makes it match the
-                                    source.
+                                    names another source, keeping its contents,
+                                    rules and git history. The next sync makes it
+                                    match the source.
   --force-obliterate-yes-i-am-sure  remove everything in the destination, .git
-                                    included, then initialize it`,
+                                    included, then initialize it
+
+On a destination already initialized for the source, settings different from
+the marker's are an error, unless --update-settings: then they are written to
+the marker. Switching from git to a plain mirror is always refused. Rules
+change with filter set.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requirePaths(true); err != nil {
@@ -269,7 +231,28 @@ The destination must be missing, empty, or already initialized for the source:
 			return fmt.Errorf("path validation failed: %s", result.Errors[0])
 		}
 
-		return initDestination(result.SourceResolved, result.DestinationResolved, forceNewSource, forceObliterate)
+		rules, err := rulesText(result.SourceResolved)
+		if err != nil {
+			return err
+		}
+		var settings settingsFlags
+		if cmd.Flags().Changed("no-git") {
+			git := !noGit
+			settings.git = &git
+		}
+		if cmd.Flags().Changed("restic") {
+			settings.restic = &useRestic
+		}
+		if cmd.Flags().Changed("max-file-size") {
+			settings.maxFileSizeMB = &maxFileSize
+		}
+		return initDestination(result.SourceResolved, result.DestinationResolved, initOptions{
+			forceNewSource: forceNewSource,
+			obliterate:     forceObliterate,
+			updateSettings: updateSettingsFlag,
+			settings:       settings,
+			rules:          rules,
+		})
 	},
 }
 
@@ -524,13 +507,13 @@ func init() {
 	rootCmd.PersistentFlags().StringArrayVar(&excludeDirsFlag, "exclude-dir", nil, "exclude a directory relative to source (repeatable, e.g. --exclude-dir Backup --exclude-dir tmp)")
 	rootCmd.PersistentFlags().StringArrayVar(&includeFilesFlag, "only-include-file", nil, "only track this file, relative to source (repeatable); bypasses the built-in exclusions, --max-file-size still applies")
 
-	// Filter command flags
-	filterCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
-
 	// Init command flags
 	initCmd.Flags().BoolVar(&forceNewSource, "force-new-source", false, "use a non-empty destination or one initialized for another source, keeping its contents and git history")
 	initCmd.Flags().BoolVar(&forceObliterate, "force-obliterate-yes-i-am-sure", false, "remove everything in the destination, .git included, then initialize it")
 	initCmd.MarkFlagsMutuallyExclusive("force-new-source", "force-obliterate-yes-i-am-sure")
+	initCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB, stored in the marker (0: no limit)")
+	initCmd.Flags().BoolVar(&updateSettingsFlag, "update-settings", false, "on an initialized destination, write settings different from the marker's")
+	addRuleFlags(initCmd)
 
 	// Sync command flags
 	syncCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
@@ -544,7 +527,6 @@ func init() {
 	watchCmd.Flags().StringVar(&logDirFlag, "log-dir", "", "write stdout.log and stderr.log in this directory, rotated by size (set by install)")
 
 	// Add commands to root
-	rootCmd.AddCommand(filterCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(watchCmd)
@@ -667,26 +649,11 @@ func scanPaths(source, dest string, maxFileSize int64, dryRun bool) error {
 
 	// Find and process deleted files
 	var filesToDelete []string
-	filepath.Walk(dest, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info.IsDir() {
-			if info != nil && info.IsDir() && info.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(dest, path)
-		if relPath == markerFileName {
-			return nil
-		}
-		sourcePath := filepath.Join(source, relPath)
-
-		if _, exists := filesToCopyMap[sourcePath]; !exists {
-			fmt.Printf("remove '%s'\n", path)
+	walkDestination(dest, "", func(relPath string) {
+		if _, exists := filesToCopyMap[filepath.Join(source, relPath)]; !exists {
+			fmt.Printf("remove '%s'\n", filepath.Join(dest, relPath))
 			filesToDelete = append(filesToDelete, relPath)
 		}
-
-		return nil
 	})
 
 	changeCount := len(filesToCopy) + len(filesToUpdate) + len(filesToDelete)
@@ -794,25 +761,11 @@ func expandDirChanges(events []PendingFileChanges, absSourcePath, absDestPath st
 		if err != nil || !filepath.IsLocal(relDir) {
 			continue
 		}
-		filepath.Walk(filepath.Join(absDestPath, relDir), func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if info.IsDir() {
-				if info.Name() == ".git" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			relPath, _ := filepath.Rel(absDestPath, path)
-			if relPath == markerFileName {
-				return nil
-			}
+		walkDestination(absDestPath, relDir, func(relPath string) {
 			sourcePath := filepath.Join(absSourcePath, relPath)
 			if track, _ := ShouldTrack(sourcePath, maxFileSize, false); !track {
 				add(sourcePath, EventDeleted)
 			}
-			return nil
 		})
 	}
 	return result

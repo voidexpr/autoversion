@@ -563,3 +563,36 @@ Tests:
   "Safety checks on rule changes".
 - `make watch-check` builds into `build/watch-check/`, so it no longer
   replaces the `./autoversion` that installed jobs run.
+
+## Progress
+
+- **M1 done** (b28a18f, 22cff06).
+- **M2 done.** Differences from the plan:
+  - `init` and `filter set` take a `--filter` file or rule flags, not
+    both. A file is stored as written, comments kept (a `root` line is
+    removed once checked). Flags are written one per line. Combining them
+    would lose the file's comments. `filter scan` and `dump` still combine
+    them.
+  - Rule flags without `--use` give no group, as the plan says ("nothing
+    is implied"). `init` and `filter set` print a note about it.
+  - `filter set` and `filter check` also print how many kept files aren't
+    in the destination yet.
+  - `filter check` without a rules file is an error: there is nothing to
+    check or commit.
+  - `--force-new-source` keeps the destination's rules file, like its
+    contents. `--no-git` on a destination with a `.git` folder is refused
+    there too.
+  - The restart only touches a running service; an installed but stopped
+    one stays stopped.
+  - The rule flags on `watch --report-only` move to M3, with the watcher
+    wiring they need.
+  - The delete passes of `sync` and `watch` keep `.autoversion.filter`
+    already, since `init` writes it. Their filters are still the old ones
+    until M3, and so is the README's File Filtering section.
+  - The new walk (`filter scan`, the counts) tracks regular files only:
+    sockets and FIFOs are skipped, besides symlinks. M3 uses it for sync.
+  - Test binaries go to `build/dev/autoversion`: `.gitignore` ignores
+    files named `autoversion`, not `build/autoversion-dev`.
+  - `~/.claude` with the example rules (2026-10-29): 81 files kept, 212
+    folders visited (plan: about 250), 0.09 s. With `default` only: 39551
+    files, 6124 folders.

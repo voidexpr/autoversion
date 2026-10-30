@@ -98,6 +98,24 @@ func TestParseFileErrors(t *testing.T) {
 	}
 }
 
+func TestFileFormat(t *testing.T) {
+	var f File
+	f.Use("default")
+	f.Add(Exclude, "/*")
+	f.Add(Include, "/skills/!synced")
+	want := "version 1\nuse default\n\nexclude /*\ninclude /skills/!synced\n"
+	if got := f.Format(); got != want {
+		t.Errorf("Format()\n%s\nwant\n%s", got, want)
+	}
+	again := parseFile(t, f.Format())
+	if !slices.Equal(ruleStrings(again.Rules), ruleStrings(f.Rules)) || !slices.Equal(again.Uses, f.Uses) {
+		t.Errorf("read back: uses %q rules %q", again.Uses, ruleStrings(again.Rules))
+	}
+	if got := (&File{}).Format(); got != "version 1\n" {
+		t.Errorf("empty file: %q", got)
+	}
+}
+
 func TestFileAddAndUse(t *testing.T) {
 	var f File
 	if err := f.Add(Exclude, "/a/"); errorCodes(err)[0] != "trailing-slash" {

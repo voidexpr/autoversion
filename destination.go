@@ -1,20 +1,48 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/nicolas/autoversion/filterrules"
 )
 
 // markerFileName marks a directory as an autoversion destination and names its source
 const markerFileName = ".autoversion"
 
-type destinationMarker struct {
-	Source string `json:"source"`
+// filterFileName holds a destination's rules, in the shared filter syntax
+// (filterrules)
+const filterFileName = ".autoversion.filter"
+
+// defaultRules are the rules of a destination without a rules file
+const defaultRules = "version 1\nuse default\n"
+
+// destinationSettings are what a destination's marker says besides its source
+type destinationSettings struct {
+	Git           bool
+	Restic        bool
+	MaxFileSizeMB int64 // 0: no limit
 }
 
-// readMarker returns the marker of a destination, or nil if it has none
+var defaultSettings = destinationSettings{Git: true, MaxFileSizeMB: defaultMaxFileSizeMB}
+
+type destinationMarker struct {
+	Source string
+	destinationSettings
+	other map[string]json.RawMessage // fields autoversion doesn't know, kept when it's rewritten
+}
+
+// readMarker returns the marker of a destination, or nil if it has none.
+// Settings missing from it describe the destination as it is: git when it
+// has a .git folder, restic when it has a restic repository, and the default
+// size limit.
 func readMarker(destPath string) (*destinationMarker, error) {
 	path := filepath.Join(destPath, markerFileName)
 	data, err := os.ReadFile(path)
@@ -24,19 +52,162 @@ func readMarker(destPath string) (*destinationMarker, error) {
 		}
 		return nil, fmt.Errorf("failed to read marker: %v", err)
 	}
-	var marker destinationMarker
-	if err := json.Unmarshal(data, &marker); err != nil || marker.Source == "" {
-		return nil, fmt.Errorf("invalid marker %s, fix or remove it", path)
+	invalid := func(reason string) error {
+		return fmt.Errorf("invalid marker %s (%s), fix or remove it", path, reason)
 	}
-	return &marker, nil
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, invalid(err.Error())
+	}
+	marker := &destinationMarker{
+		destinationSettings: destinationSettings{
+			Git:           IsGitRepo(destPath),
+			Restic:        IsResticRepo(destPath),
+			MaxFileSizeMB: defaultMaxFileSizeMB,
+		},
+		other: map[string]json.RawMessage{},
+	}
+	for key, raw := range fields {
+		var err error
+		switch key {
+		case "source":
+			err = json.Unmarshal(raw, &marker.Source)
+		case "git":
+			err = json.Unmarshal(raw, &marker.Git)
+		case "restic":
+			err = json.Unmarshal(raw, &marker.Restic)
+		case "max_file_size_mb":
+			err = json.Unmarshal(raw, &marker.MaxFileSizeMB)
+			if err == nil && marker.MaxFileSizeMB < 0 {
+				err = errors.New("negative")
+			}
+		default:
+			marker.other[key] = raw
+		}
+		if err != nil {
+			return nil, invalid(key + ": " + err.Error())
+		}
+	}
+	if marker.Source == "" {
+		return nil, invalid("no source")
+	}
+	return marker, nil
 }
 
-func writeMarker(destPath, sourcePath string) error {
-	data, err := json.MarshalIndent(destinationMarker{Source: sourcePath}, "", "  ")
-	if err != nil {
+// writeMarker writes a marker with all its settings, and the fields
+// autoversion doesn't know as they were
+func writeMarker(destPath string, marker *destinationMarker) error {
+	type field struct {
+		key   string
+		value any
+	}
+	fields := []field{
+		{"source", marker.Source},
+		{"git", marker.Git},
+		{"restic", marker.Restic},
+		{"max_file_size_mb", marker.MaxFileSizeMB},
+	}
+	for _, key := range slices.Sorted(maps.Keys(marker.other)) {
+		fields = append(fields, field{key, marker.other[key]})
+	}
+
+	var compact bytes.Buffer
+	compact.WriteByte('{')
+	for i, f := range fields {
+		key, _ := json.Marshal(f.key)
+		value, err := json.Marshal(f.value)
+		if err != nil {
+			return err
+		}
+		if i > 0 {
+			compact.WriteByte(',')
+		}
+		compact.Write(key)
+		compact.WriteByte(':')
+		compact.Write(value)
+	}
+	compact.WriteByte('}')
+
+	var out bytes.Buffer
+	if err := json.Indent(&out, compact.Bytes(), "", "  "); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(destPath, markerFileName), append(data, '\n'), 0644)
+	out.WriteByte('\n')
+	return os.WriteFile(filepath.Join(destPath, markerFileName), out.Bytes(), 0644)
+}
+
+// readRulesText returns a destination's rules file, or defaultRules when it
+// has none (destinations made before rules files)
+func readRulesText(destPath string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(destPath, filterFileName))
+	if os.IsNotExist(err) {
+		return defaultRules, nil
+	}
+	return string(data), err
+}
+
+// parseRules parses a destination's rules file and combines its rules. It
+// has no root line: the root is the marker's source.
+func parseRules(text string) (*filterrules.File, *filterrules.Rules, error) {
+	f, err := filterrules.ParseFile(strings.NewReader(text))
+	if err != nil {
+		return nil, nil, err
+	}
+	if f.Root != "" {
+		return nil, nil, errors.New("no root line in a destination's rules: the root is the marker's source")
+	}
+	rules, err := filterrules.New(f)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, rules, nil
+}
+
+// readRules returns a destination's rules
+func readRules(destPath string) (*filterrules.Rules, error) {
+	text, err := readRulesText(destPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read rules: %v", err)
+	}
+	_, rules, err := parseRules(text)
+	if err != nil {
+		return nil, fmt.Errorf("invalid rules in %s: %v", filepath.Join(destPath, filterFileName), err)
+	}
+	return rules, nil
+}
+
+// listDir lists a folder of a tree for filterrules' checks
+func listDir(root string) filterrules.ListFunc {
+	return func(rel string) ([]string, error) {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(rel)))
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		return names, err
+	}
+}
+
+// checkRules validates rules before they are stored for a source and
+// prints the warnings. An allowlist none of whose includes exists is an
+// error: the next sync would remove every file of the destination.
+func checkRules(sourcePath, text string) (*filterrules.Rules, error) {
+	_, rules, err := parseRules(text)
+	if err != nil {
+		return nil, fmt.Errorf("invalid rules: %v", err)
+	}
+	var errs []string
+	for _, p := range rules.Check(listDir(sourcePath)) {
+		if p.Error {
+			errs = append(errs, p.Message)
+		} else {
+			fmt.Println(p)
+		}
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("invalid rules for %s: %s", sourcePath, strings.Join(errs, "; "))
+	}
+	return rules, nil
 }
 
 // MarkerStatus tells whether a destination's marker names the source
@@ -58,11 +229,16 @@ type PathValidationResult struct {
 	Marker              MarkerStatus
 	MarkerSource        string // source named by the marker, when it names another source
 	Errors              []string
+
+	// When the marker names the source
+	Settings destinationSettings
+	Rules    *filterrules.Rules
+	RulesErr error // the rules file can't be read or is invalid
 }
 
 // ValidateSourceAndDestination validates that source and destination paths are
-// compatible and reads the destination marker. The destination doesn't have
-// to exist yet (init creates it).
+// compatible and reads the destination marker and rules. The destination
+// doesn't have to exist yet (init creates it).
 func ValidateSourceAndDestination(sourcePath, destPath string) (*PathValidationResult, error) {
 	result := &PathValidationResult{
 		SourceInput:      sourcePath,
@@ -130,6 +306,8 @@ func ValidateSourceAndDestination(sourcePath, destPath string) (*PathValidationR
 			result.Marker = MarkerMissing
 		case marker.Source == resolvedSource:
 			result.Marker = MarkerMatches
+			result.Settings = marker.destinationSettings
+			result.Rules, result.RulesErr = readRules(resolvedDest)
 		default:
 			result.Marker = MarkerOtherSource
 			result.MarkerSource = marker.Source
@@ -155,11 +333,14 @@ func (r *PathValidationResult) markerError() error {
 }
 
 // problems returns the validation errors plus what prevents copying files:
-// the marker not naming the source, or a missing restic repository
+// the marker not naming the source, invalid rules, or a missing restic
+// repository
 func (r *PathValidationResult) problems() []string {
 	problems := append([]string{}, r.Errors...)
 	if err := r.markerError(); err != nil {
 		problems = append(problems, err.Error())
+	} else if r.RulesErr != nil {
+		problems = append(problems, r.RulesErr.Error())
 	} else if useRestic && !IsResticRepo(r.DestinationResolved) {
 		problems = append(problems, fmt.Sprintf("no restic repository for %s (run: autoversion init --restic --source %s --destination %s)",
 			r.DestinationResolved, r.SourceResolved, r.DestinationResolved))
@@ -190,7 +371,8 @@ func printResolved(name, input, resolved string) {
 }
 
 // checkPaths validates source and destination for a command that copies
-// files, printing the path resolution and all problems found
+// files, printing the path resolution, the rules' warnings and all problems
+// found
 func checkPaths(sourcePath, destPath string) (*PathValidationResult, error) {
 	result, err := ValidateSourceAndDestination(sourcePath, destPath)
 	if err != nil {
@@ -203,7 +385,26 @@ func checkPaths(sourcePath, destPath string) (*PathValidationResult, error) {
 	fmt.Printf("  %-25s %s\n", "marker:", result.markerText())
 	fmt.Println()
 
-	if problems := result.problems(); len(problems) > 0 {
+	problems := result.problems()
+	if result.Rules != nil {
+		var warnings []string
+		for _, p := range result.Rules.Check(listDir(result.SourceResolved)) {
+			if p.Error {
+				problems = append(problems, "rules: "+p.Message)
+			} else {
+				warnings = append(warnings, p.String())
+			}
+		}
+		if len(warnings) > 0 {
+			fmt.Println("Rules:")
+			for _, w := range warnings {
+				fmt.Printf("  %s\n", w)
+			}
+			fmt.Println()
+		}
+	}
+
+	if len(problems) > 0 {
 		fmt.Println("Validation Errors:")
 		for _, p := range problems {
 			fmt.Printf("  ✗ %s\n", p)
@@ -226,22 +427,115 @@ func validatePaths(sourcePath, destPath string) (absSourcePath, absDestPath stri
 	return result.SourceResolved, result.DestinationResolved, nil
 }
 
+// settingsFlags are the settings given to init, nil when not given
+type settingsFlags struct {
+	git           *bool
+	restic        *bool
+	maxFileSizeMB *int64
+}
+
+// apply returns s with the given settings
+func (f settingsFlags) apply(s destinationSettings) destinationSettings {
+	if f.git != nil {
+		s.Git = *f.git
+	}
+	if f.restic != nil {
+		s.Restic = *f.restic
+	}
+	if f.maxFileSizeMB != nil {
+		s.MaxFileSizeMB = *f.maxFileSizeMB
+	}
+	return s
+}
+
+// changes lists how the given settings change s
+func (f settingsFlags) changes(s destinationSettings) []string {
+	onOff := map[bool]string{true: "on", false: "off"}
+	n := f.apply(s)
+	var changes []string
+	if n.Git != s.Git {
+		changes = append(changes, "git "+onOff[s.Git]+" → "+onOff[n.Git])
+	}
+	if n.Restic != s.Restic {
+		changes = append(changes, "restic "+onOff[s.Restic]+" → "+onOff[n.Restic])
+	}
+	if n.MaxFileSizeMB != s.MaxFileSizeMB {
+		changes = append(changes, fmt.Sprintf("max file size %d MB → %d MB", s.MaxFileSizeMB, n.MaxFileSizeMB))
+	}
+	return changes
+}
+
+// initOptions are the init command's flags
+type initOptions struct {
+	forceNewSource bool
+	obliterate     bool
+	updateSettings bool
+	settings       settingsFlags
+	rules          string // rules file text, "" when no rules were given
+}
+
+// gitToMirrorError refuses to stop versioning a git destination: its .git
+// folder and history would stay while files stop being committed
+func gitToMirrorError(destPath string) error {
+	return fmt.Errorf("destination %s is versioned with git: --no-git would keep its history while files stop being committed (on purpose: remove %s by hand, or start over with --force-obliterate-yes-i-am-sure)",
+		destPath, filepath.Join(destPath, ".git"))
+}
+
 // initDestination creates or adopts destPath as the destination of
-// sourcePath (both resolved) and writes its marker, see the init command
-func initDestination(sourcePath, destPath string, forceNewSource, obliterate bool) error {
+// sourcePath (both resolved), and writes its marker and rules, see the init
+// command
+func initDestination(sourcePath, destPath string, opts initOptions) error {
 	entries, err := os.ReadDir(destPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to read destination: %v", err)
 	}
 
 	marker, markerErr := readMarker(destPath)
-	if markerErr != nil && !obliterate {
+	if markerErr != nil && !opts.obliterate {
 		return markerErr
+	}
+	if marker != nil && marker.Source == sourcePath && !opts.obliterate {
+		if opts.rules != "" {
+			return fmt.Errorf("destination %s is already initialized: change its rules with filter set --destination %s", destPath, destPath)
+		}
+		return updateSettings(destPath, marker, opts)
 	}
 
 	keptContents := false
 	switch {
-	case obliterate:
+	case opts.obliterate:
+	case marker != nil:
+		if !opts.forceNewSource {
+			return fmt.Errorf("destination %s belongs to source %s (--force-new-source switches it to %s, keeping its contents and history)", destPath, marker.Source, sourcePath)
+		}
+		keptContents = true
+	case len(entries) > 0:
+		if !opts.forceNewSource {
+			return fmt.Errorf("destination %s is not empty and has no %s marker (--force-new-source uses it for %s, keeping its contents and history)", destPath, markerFileName, sourcePath)
+		}
+		keptContents = true
+	}
+
+	settings := opts.settings.apply(defaultSettings)
+	if !settings.Git && keptContents && IsGitRepo(destPath) {
+		return gitToMirrorError(destPath)
+	}
+
+	// A destination kept for a new source keeps its rules
+	rules := opts.rules
+	if rules == "" {
+		rules = defaultRules
+		if keptContents {
+			if rules, err = readRulesText(destPath); err != nil {
+				return fmt.Errorf("failed to read rules: %v", err)
+			}
+		}
+	}
+	if _, err := checkRules(sourcePath, rules); err != nil {
+		return err
+	}
+
+	if opts.obliterate {
 		for _, e := range entries {
 			if err := os.RemoveAll(filepath.Join(destPath, e.Name())); err != nil {
 				return fmt.Errorf("failed to remove %s: %v", filepath.Join(destPath, e.Name()), err)
@@ -251,59 +545,98 @@ func initDestination(sourcePath, destPath string, forceNewSource, obliterate boo
 			fmt.Printf("Removed everything in %s (%d entries)\n", destPath, len(entries))
 		}
 		marker = nil
-	case marker != nil && marker.Source == sourcePath:
-		// Already initialized, only a missing git or restic repository is added
-	case marker != nil:
-		if !forceNewSource {
-			return fmt.Errorf("destination %s belongs to source %s (--force-new-source switches it to %s, keeping its contents and history)", destPath, marker.Source, sourcePath)
-		}
-		keptContents = true
-	case len(entries) > 0:
-		if !forceNewSource {
-			return fmt.Errorf("destination %s is not empty and has no %s marker (--force-new-source uses it for %s, keeping its contents and history)", destPath, markerFileName, sourcePath)
-		}
-		keptContents = true
 	}
 
 	if err := EnsureDir(destPath); err != nil {
 		return fmt.Errorf("failed to create destination: %v", err)
 	}
-	if !noGit && !IsGitRepo(destPath) {
+	if settings.Git && !IsGitRepo(destPath) {
 		if err := Init(destPath, debug); err != nil {
 			return err
 		}
 		fmt.Printf("Initialized git repository at %s\n", destPath)
 	}
-	if useRestic && !IsResticRepo(destPath) {
+	if settings.Restic && !IsResticRepo(destPath) {
 		if err := InitRestic(destPath, debug); err != nil {
 			return fmt.Errorf("failed to initialize restic: %v", err)
 		}
 	}
 
-	if marker != nil && marker.Source == sourcePath {
-		fmt.Printf("Destination %s is already initialized for %s\n", destPath, sourcePath)
-		return nil
+	newMarker := &destinationMarker{Source: sourcePath, destinationSettings: settings}
+	if marker != nil {
+		newMarker.other = marker.other
 	}
-
-	if err := writeMarker(destPath, sourcePath); err != nil {
+	if err := writeMarker(destPath, newMarker); err != nil {
 		return fmt.Errorf("failed to write marker: %v", err)
 	}
-	if !noGit {
-		if err := Add(destPath, []string{markerFileName}, debug); err != nil {
+	if err := os.WriteFile(filepath.Join(destPath, filterFileName), []byte(rules), 0644); err != nil {
+		return fmt.Errorf("failed to write rules: %v", err)
+	}
+	if settings.Git {
+		if err := Add(destPath, []string{markerFileName, filterFileName}, debug); err != nil {
 			return err
 		}
-		if err := CommitPaths(destPath, "init: source "+sourcePath, markerFileName); err != nil {
+		if err := CommitPaths(destPath, "init: source "+sourcePath, markerFileName, filterFileName); err != nil {
 			return err
 		}
 	}
 	fmt.Printf("Initialized destination %s for source %s\n", destPath, sourcePath)
 
 	if keptContents {
-		if noGit {
-			fmt.Printf("The next sync makes %s match %s: files not in the source are deleted\n", destPath, sourcePath)
-		} else {
+		if settings.Git {
 			fmt.Printf("The next sync makes %s match %s: files not in the source are removed (kept in git history)\n", destPath, sourcePath)
+		} else {
+			fmt.Printf("The next sync makes %s match %s: files not in the source are deleted\n", destPath, sourcePath)
 		}
+	}
+	return nil
+}
+
+// updateSettings is init on a destination already initialized for the
+// source: the settings given must be the marker's, unless --update-settings
+func updateSettings(destPath string, marker *destinationMarker, opts initOptions) error {
+	settings := opts.settings.apply(marker.destinationSettings)
+	if marker.Git && !settings.Git {
+		return gitToMirrorError(destPath)
+	}
+	changes := opts.settings.changes(marker.destinationSettings)
+	if len(changes) > 0 && !opts.updateSettings {
+		return fmt.Errorf("destination %s has other settings: %s (--update-settings changes them)", destPath, strings.Join(changes, ", "))
+	}
+
+	// A repository the settings ask for, missing or new, is created
+	if settings.Git && !IsGitRepo(destPath) {
+		if err := Init(destPath, debug); err != nil {
+			return err
+		}
+		fmt.Printf("Initialized git repository at %s\n", destPath)
+	}
+	if settings.Restic && !IsResticRepo(destPath) {
+		if err := InitRestic(destPath, debug); err != nil {
+			return fmt.Errorf("failed to initialize restic: %v", err)
+		}
+	}
+
+	if len(changes) == 0 {
+		fmt.Printf("Destination %s is already initialized for %s\n", destPath, marker.Source)
+		return nil
+	}
+	wasGit := marker.Git
+	marker.destinationSettings = settings
+	if err := writeMarker(destPath, marker); err != nil {
+		return fmt.Errorf("failed to write marker: %v", err)
+	}
+	if settings.Git {
+		if err := Add(destPath, []string{markerFileName}, debug); err != nil {
+			return err
+		}
+		if err := CommitPaths(destPath, "init: "+strings.Join(changes, ", "), markerFileName); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("Updated the settings of %s: %s\n", destPath, strings.Join(changes, ", "))
+	if settings.Git && !wasGit {
+		fmt.Println("The next sync commits every file")
 	}
 	return nil
 }

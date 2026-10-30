@@ -357,6 +357,58 @@ func ensureAppBundle() error {
 	return nil
 }
 
+// reloadJob unloads a launchd job if it is loaded, clears its stderr log so
+// stale errors don't persist across reloads, and loads it
+func reloadJob(jobID, plist, logDirPath string) error {
+	if isJobLoaded(jobID) {
+		unloadCmd := exec.Command("launchctl", "unload", plist)
+		if output, err := unloadCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to unload launchd job: %v\n%s", err, output)
+		}
+	}
+
+	if err := removeLogs(filepath.Join(logDirPath, stderrLogName)); err != nil {
+		logError("failed to remove stderr log: %v", err)
+	}
+
+	loadCmd := exec.Command("launchctl", "load", plist)
+	if output, err := loadCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to load launchd job: %v\n%s", err, output)
+	}
+	return nil
+}
+
+// restartJob restarts the running launchd job of a source and destination,
+// if there is one, so it reads the destination's new rules. A variable, so
+// tests never run launchctl.
+var restartJob = func(sourcePath, destPath string) error {
+	if runtime.GOOS != "darwin" {
+		fmt.Println("Restart the watch of this destination, if one runs, to apply the rules")
+		return nil
+	}
+	jobID := jobIdentifier(sourcePath, destPath)
+	plist, err := plistPath(jobID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(plist); err != nil {
+		return nil
+	}
+	if !isJobLoaded(jobID) {
+		fmt.Printf("Service %s is installed but not running: the rules apply when it starts\n", jobID)
+		return nil
+	}
+	logDirPath, err := logDir(jobID)
+	if err != nil {
+		return err
+	}
+	if err := reloadJob(jobID, plist, logDirPath); err != nil {
+		return err
+	}
+	fmt.Printf("Restarted service %s\n", jobID)
+	return nil
+}
+
 var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install autoversion as a launchd service (macOS only)",
@@ -420,22 +472,8 @@ var installCmd = &cobra.Command{
 					return fmt.Errorf("failed to write plist: %v", err)
 				}
 
-				isRunning := isJobLoaded(jobID)
-				if isRunning {
-					unloadCmd := exec.Command("launchctl", "unload", plist)
-					if output, err := unloadCmd.CombinedOutput(); err != nil {
-						return fmt.Errorf("failed to unload launchd job: %v\n%s", err, output)
-					}
-				}
-
-				// Clear stderr logs so stale errors don't persist across reloads
-				if err := removeLogs(filepath.Join(logDirPath, stderrLogName)); err != nil {
-					logError("failed to remove stderr log: %v", err)
-				}
-
-				loadCmd := exec.Command("launchctl", "load", plist)
-				if output, err := loadCmd.CombinedOutput(); err != nil {
-					return fmt.Errorf("failed to load launchd job: %v\n%s", err, output)
+				if err := reloadJob(jobID, plist, logDirPath); err != nil {
+					return err
 				}
 
 				fmt.Println("Updated and reloaded service")

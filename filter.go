@@ -216,6 +216,11 @@ func IsExcludedDir(path string) bool {
 	return false
 }
 
+// tooLarge reports whether a file is over the size limit (0: no limit)
+func tooLarge(size, maxSizeMB int64) bool {
+	return maxSizeMB > 0 && size > maxSizeMB*1024*1024
+}
+
 // ShouldTrack returns true if the file should be tracked based on filters.
 // maxSizeMB is the maximum file size in megabytes (0 = no limit)
 // isDelete should be true if checking a deleted file (skips file existence checks)
@@ -249,16 +254,13 @@ func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
 	}
 
 	// Check file size
-	if maxSizeMB > 0 {
-		maxBytes := maxSizeMB * 1024 * 1024
-		if info.Size() > maxBytes {
-			if !reportedLargeFiles[path] {
-				reportedLargeFiles[path] = true
-				logSkip("[%s] skipping large file: %s (%d MB > %d MB)\n",
-					nowTS(), path, info.Size()/1024/1024, maxSizeMB)
-			}
-			return false, nil
+	if tooLarge(info.Size(), maxSizeMB) {
+		if !reportedLargeFiles[path] {
+			reportedLargeFiles[path] = true
+			logSkip("[%s] skipping large file: %s (%d MB > %d MB)\n",
+				nowTS(), path, info.Size()/1024/1024, maxSizeMB)
 		}
+		return false, nil
 	}
 
 	return true, nil
@@ -272,8 +274,8 @@ func matchesPathFilters(path string) bool {
 		return false
 	}
 
-	// A marker at the source root would overwrite the destination's marker
-	if sourceRoot != "" && path == filepath.Join(sourceRoot, markerFileName) {
+	// A marker or rules file at the source root would overwrite the destination's
+	if sourceRoot != "" && (path == filepath.Join(sourceRoot, markerFileName) || path == filepath.Join(sourceRoot, filterFileName)) {
 		return false
 	}
 
