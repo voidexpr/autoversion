@@ -33,6 +33,12 @@ type destinationSettings struct {
 
 var defaultSettings = destinationSettings{Git: true, MaxFileSizeMB: defaultMaxFileSizeMB}
 
+var onOff = map[bool]string{true: "on", false: "off"}
+
+func (s destinationSettings) String() string {
+	return fmt.Sprintf("git %s, restic %s, max file size %d MB", onOff[s.Git], onOff[s.Restic], s.MaxFileSizeMB)
+}
+
 type destinationMarker struct {
 	Source string
 	destinationSettings
@@ -470,7 +476,6 @@ func (f settingsFlags) inferredIn(marker *destinationMarker) bool {
 
 // changes lists how the given settings change s
 func (f settingsFlags) changes(s destinationSettings) []string {
-	onOff := map[bool]string{true: "on", false: "off"}
 	n := f.apply(s)
 	var changes []string
 	if n.Git != s.Git {
@@ -488,11 +493,18 @@ func (f settingsFlags) changes(s destinationSettings) []string {
 // initOptions are the init command's flags
 type initOptions struct {
 	forceNewSource bool
-	obliterate     bool
-	updateSettings bool
-	settings       settingsFlags
-	rules          string // rules file text, "" when no rules were given
+	// with forceNewSource on a destination whose marker names another
+	// source, what its settings become: the marker's (keep) or the
+	// defaults (replace), the settings flags applied to either
+	keepMarkerSettings    bool
+	replaceMarkerSettings bool
+	obliterate            bool
+	updateSettings        bool
+	settings              settingsFlags
+	rules                 string // rules file text, "" when no rules were given
 }
+
+const markerSettingsFlags = "--force-keep-marker-settings or --force-replace-marker-settings"
 
 // gitToMirrorError refuses to stop versioning a git destination: its .git
 // folder and history would stay while files stop being committed
@@ -522,11 +534,18 @@ func initDestination(sourcePath, destPath string, opts initOptions) error {
 	}
 
 	keptContents := false
+	base := defaultSettings
 	switch {
 	case opts.obliterate:
 	case marker != nil:
 		if !opts.forceNewSource {
-			return fmt.Errorf("destination %s belongs to source %s (--force-new-source switches it to %s, keeping its contents and history)", destPath, marker.Source, sourcePath)
+			return fmt.Errorf("destination %s belongs to source %s (--force-new-source with %s switches it to %s, keeping its contents and history)", destPath, marker.Source, markerSettingsFlags, sourcePath)
+		}
+		if !opts.keepMarkerSettings && !opts.replaceMarkerSettings {
+			return fmt.Errorf("destination %s belongs to source %s: say what its settings (%s) become, %s (the defaults, then the flags given)", destPath, marker.Source, marker.destinationSettings, markerSettingsFlags)
+		}
+		if opts.keepMarkerSettings {
+			base = marker.destinationSettings
 		}
 		keptContents = true
 	case len(entries) > 0:
@@ -536,7 +555,7 @@ func initDestination(sourcePath, destPath string, opts initOptions) error {
 		keptContents = true
 	}
 
-	settings := opts.settings.apply(defaultSettings)
+	settings := opts.settings.apply(base)
 	if !settings.Git && keptContents && IsGitRepo(destPath) {
 		return gitToMirrorError(destPath)
 	}

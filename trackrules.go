@@ -3,31 +3,34 @@ package main
 import (
 	"io/fs"
 	"path/filepath"
+	"strings"
 
 	"github.com/nicolas/autoversion/filterrules"
 )
 
-// alwaysApplied are the rules no filter changes: a nested repository's .git
-// is never copied (it would break a git destination), and a destination's
-// own files at the source root are never tracked
-var alwaysApplied = func() *filterrules.Rules {
-	var f filterrules.File
-	for _, rule := range []string{"/**/.git", "/" + markerFileName, "/" + filterFileName} {
-		if err := f.Add(filterrules.Exclude, rule); err != nil {
-			panic(err)
-		}
-	}
-	rules, err := filterrules.New(&f)
-	if err != nil {
-		panic(err)
-	}
-	return rules
-}()
-
 const alwaysAppliedText = "/**/.git, symlinks, /" + markerFileName + " and /" + filterFileName
 
-// sourceRules decides what autoversion tracks in a source: the always
-// applied rules, then the destination's rules
+// alwaysExcluded reports whether an entry of the source (rel, see rel) is
+// left out whatever the rules: a .git, or anything under one (a nested
+// repository's .git would break a git destination), and a destination's
+// own files at the source root. Like the rules exclude /**/.git,
+// /.autoversion and /.autoversion.filter, applied first.
+func alwaysExcluded(rel string) bool {
+	if rel == markerFileName || rel == filterFileName {
+		return true
+	}
+	for rel != "" {
+		var name string
+		name, rel, _ = strings.Cut(rel, "/")
+		if name == ".git" {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceRules decides what autoversion tracks in a source: alwaysExcluded,
+// then the destination's rules
 type sourceRules struct {
 	root  string
 	rules *filterrules.Rules
@@ -49,14 +52,14 @@ func (s *sourceRules) rel(path string) (string, bool) {
 // tracked reports whether the rules keep an entry of the source
 func (s *sourceRules) tracked(path string, isDir bool) bool {
 	rel, ok := s.rel(path)
-	return ok && alwaysApplied.Decide(rel, isDir).Kept && s.rules.Decide(rel, isDir).Kept
+	return ok && !alwaysExcluded(rel) && s.rules.Decide(rel, isDir).Kept
 }
 
 // skipDir reports whether a walker can skip a folder of the source: it is
 // left out, and nothing below it can be kept
 func (s *sourceRules) skipDir(path string) bool {
 	rel, ok := s.rel(path)
-	return !ok || alwaysApplied.SkipDir(rel) || s.rules.SkipDir(rel)
+	return !ok || alwaysExcluded(rel) || s.rules.SkipDir(rel)
 }
 
 // walk calls fn for each file the rules keep under dir, a folder of the

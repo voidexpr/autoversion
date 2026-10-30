@@ -274,7 +274,11 @@ func TestInitDestination(t *testing.T) {
 		if err := initDestination(newSource, dest, initOptions{}); err == nil {
 			t.Fatal("expected an error without --force-new-source")
 		}
-		if err := initDestination(newSource, dest, initOptions{forceNewSource: true}); err != nil {
+		err := initDestination(newSource, dest, initOptions{forceNewSource: true})
+		if err == nil || !strings.Contains(err.Error(), "--force-keep-marker-settings or --force-replace-marker-settings") {
+			t.Fatalf("--force-new-source alone: error %v, want one asking for the marker settings flags", err)
+		}
+		if err := initDestination(newSource, dest, initOptions{forceNewSource: true, keepMarkerSettings: true}); err != nil {
 			t.Fatalf("--force-new-source: %v", err)
 		}
 		if got := markerSourceOf(t, dest); got != newSource {
@@ -654,9 +658,40 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 			}
 		}
 		other := resolvedTempDir(t)
-		err := initDestination(other, dest, initOptions{forceNewSource: true, settings: settingsFlags{git: ptr(false)}})
+		err := initDestination(other, dest, initOptions{forceNewSource: true, replaceMarkerSettings: true, settings: settingsFlags{git: ptr(false)}})
 		if err == nil || !strings.Contains(err.Error(), "versioned with git") {
 			t.Errorf("--force-new-source --no-git: error %v", err)
+		}
+	})
+
+	t.Run("a new source keeps or replaces the marker's settings", func(t *testing.T) {
+		mirror := settingsFlags{git: ptr(false), maxFileSizeMB: ptr(int64(50))}
+		_, dest := initFresh(t, initOptions{settings: mirror})
+
+		// Each init switches to a new source: the same source would be a
+		// settings update
+		if err := initDestination(resolvedTempDir(t), dest, initOptions{forceNewSource: true, keepMarkerSettings: true}); err != nil {
+			t.Fatal(err)
+		}
+		marker, _ := readMarker(dest)
+		if marker.Git || marker.MaxFileSizeMB != 50 || IsGitRepo(dest) {
+			t.Errorf("keep: settings %v, git repo %v", marker.destinationSettings, IsGitRepo(dest))
+		}
+
+		if err := initDestination(resolvedTempDir(t), dest, initOptions{forceNewSource: true, keepMarkerSettings: true, settings: settingsFlags{maxFileSizeMB: ptr(int64(20))}}); err != nil {
+			t.Fatal(err)
+		}
+		marker, _ = readMarker(dest)
+		if marker.Git || marker.MaxFileSizeMB != 20 {
+			t.Errorf("keep with a flag: settings %v", marker.destinationSettings)
+		}
+
+		if err := initDestination(resolvedTempDir(t), dest, initOptions{forceNewSource: true, replaceMarkerSettings: true}); err != nil {
+			t.Fatal(err)
+		}
+		marker, _ = readMarker(dest)
+		if marker.destinationSettings != defaultSettings || !IsGitRepo(dest) {
+			t.Errorf("replace: settings %v, git repo %v", marker.destinationSettings, IsGitRepo(dest))
 		}
 	})
 
@@ -676,7 +711,7 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 		_, dest := initFresh(t, initOptions{rules: rules})
 		newSource := resolvedTempDir(t)
 		writeFile(t, filepath.Join(newSource, "notes", "b.md"), "b")
-		if err := initDestination(newSource, dest, initOptions{forceNewSource: true}); err != nil {
+		if err := initDestination(newSource, dest, initOptions{forceNewSource: true, keepMarkerSettings: true}); err != nil {
 			t.Fatal(err)
 		}
 		if got := readText(t, filepath.Join(dest, filterFileName)); got != rules {
@@ -688,20 +723,28 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 func TestInitCmd_OverrideFlagsAreExclusive(t *testing.T) {
 	setGlobals(t, false)
 	defer func() {
-		sourceFlag, destFlag, forceNewSource, forceObliterate = "", "", false, false
+		sourceFlag, destFlag = "", ""
+		forceNewSource, forceObliterate, keepMarkerSettings, replaceSettings = false, false, false, false
 		rootCmd.SetArgs(nil)
 	}()
-
-	dest := filepath.Join(resolvedTempDir(t), "dest")
-	rootCmd.SetArgs([]string{"init", "--source", resolvedTempDir(t), "--destination", dest,
-		"--force-new-source", "--force-obliterate-yes-i-am-sure"})
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(io.Discard)
-	if err := rootCmd.Execute(); err == nil {
-		t.Fatal("expected an error for --force-new-source with --force-obliterate-yes-i-am-sure")
-	}
-	if _, err := os.Stat(dest); !os.IsNotExist(err) {
-		t.Error("destination created despite the error")
+
+	for _, flags := range [][]string{
+		{"--force-new-source", "--force-obliterate-yes-i-am-sure"},
+		{"--force-new-source", "--force-keep-marker-settings", "--force-replace-marker-settings"},
+		{"--force-keep-marker-settings"},
+		{"--force-replace-marker-settings"},
+	} {
+		forceNewSource, forceObliterate, keepMarkerSettings, replaceSettings = false, false, false, false
+		dest := filepath.Join(resolvedTempDir(t), "dest")
+		rootCmd.SetArgs(append([]string{"init", "--source", resolvedTempDir(t), "--destination", dest}, flags...))
+		if err := rootCmd.Execute(); err == nil {
+			t.Errorf("%v: expected an error", flags)
+		}
+		if _, err := os.Stat(dest); !os.IsNotExist(err) {
+			t.Errorf("%v: destination created despite the error", flags)
+		}
 	}
 }
 

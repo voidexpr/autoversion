@@ -37,6 +37,8 @@ var (
 	noLogin            bool
 	logDirFlag         string
 	forceNewSource     bool
+	keepMarkerSettings bool
+	replaceSettings    bool
 	forceObliterate    bool
 	updateSettingsFlag bool
 )
@@ -208,7 +210,11 @@ The destination must be missing, empty, or already initialized for the source:
   --force-new-source                use a non-empty destination, or one whose marker
                                     names another source, keeping its contents,
                                     rules and git history. The next sync makes it
-                                    match the source.
+                                    match the source. A marker naming another
+                                    source also needs one of:
+    --force-keep-marker-settings      keep the marker's settings
+    --force-replace-marker-settings   the defaults, then the settings flags
+                                      given
   --force-obliterate-yes-i-am-sure  remove everything in the destination, .git
                                     included, then initialize it
 
@@ -230,6 +236,9 @@ change with filter set.`,
 			return fmt.Errorf("path validation failed: %s", result.Errors[0])
 		}
 
+		if (keepMarkerSettings || replaceSettings) && !forceNewSource {
+			return errors.New(markerSettingsFlags + " needs --force-new-source")
+		}
 		rules, err := rulesText(result.SourceResolved)
 		if err != nil {
 			return err
@@ -246,11 +255,13 @@ change with filter set.`,
 			settings.maxFileSizeMB = &maxFileSize
 		}
 		return initDestination(result.SourceResolved, result.DestinationResolved, initOptions{
-			forceNewSource: forceNewSource,
-			obliterate:     forceObliterate,
-			updateSettings: updateSettingsFlag,
-			settings:       settings,
-			rules:          rules,
+			forceNewSource:        forceNewSource,
+			keepMarkerSettings:    keepMarkerSettings,
+			replaceMarkerSettings: replaceSettings,
+			obliterate:            forceObliterate,
+			updateSettings:        updateSettingsFlag,
+			settings:              settings,
+			rules:                 rules,
 		})
 	},
 }
@@ -556,8 +567,11 @@ func init() {
 	initCmd.Flags().BoolVar(&noGit, "no-git", false, "plain mirror, no git versioning (stored in the marker)")
 	initCmd.Flags().BoolVar(&useRestic, "restic", false, "restic backups (stored in the marker)")
 	initCmd.Flags().BoolVar(&forceNewSource, "force-new-source", false, "use a non-empty destination or one initialized for another source, keeping its contents and git history")
+	initCmd.Flags().BoolVar(&keepMarkerSettings, "force-keep-marker-settings", false, "with --force-new-source on a marker naming another source: keep its settings")
+	initCmd.Flags().BoolVar(&replaceSettings, "force-replace-marker-settings", false, "with --force-new-source on a marker naming another source: the default settings, then the flags given")
 	initCmd.Flags().BoolVar(&forceObliterate, "force-obliterate-yes-i-am-sure", false, "remove everything in the destination, .git included, then initialize it")
 	initCmd.MarkFlagsMutuallyExclusive("force-new-source", "force-obliterate-yes-i-am-sure")
+	initCmd.MarkFlagsMutuallyExclusive("force-keep-marker-settings", "force-replace-marker-settings")
 	initCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB, stored in the marker (0: no limit)")
 	initCmd.Flags().BoolVar(&updateSettingsFlag, "update-settings", false, "on an initialized destination, write settings different from the marker's")
 	addRuleFlags(initCmd)

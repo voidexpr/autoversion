@@ -289,7 +289,8 @@ Initialize a destination for a source. Files under `SOURCE_PATH` are mirrored di
 ```bash
 ./autoversion init --source SOURCE_PATH --destination DEST_PATH [--no-git] [--restic] [--max-file-size MB]
     [--filter FILE | --use GROUP --include RULE --exclude RULE ...]
-    [--force-new-source | --force-obliterate-yes-i-am-sure] [--update-settings]
+    [--force-new-source [--force-keep-marker-settings | --force-replace-marker-settings] | --force-obliterate-yes-i-am-sure]
+    [--update-settings]
 ```
 
 `init` creates the destination if needed, runs `git init` (unless `--no-git`), initializes restic (with `--restic`), and writes two files (see **Destination Marker**):
@@ -302,9 +303,12 @@ With git, both are committed on their own (`init: source SOURCE_PATH`). Invalid 
 |---|---|---|---|
 | missing or empty | initialize | initialize | initialize |
 | marker names this source | settings check (below) | settings check (below) | wipe, initialize |
-| marker names another source | error | rewrite the marker, keep contents, rules and `.git` | wipe, initialize |
+| marker names another source | error | rewrite the marker, keep contents, rules and `.git`; needs a settings flag (below) | wipe, initialize |
 | not empty, no marker | error | write the marker, keep contents and `.git` | wipe, initialize |
 
+- A marker naming another source also has settings. `--force-new-source` then needs one of:
+  - `--force-keep-marker-settings`: the marker's settings, then the settings flags given
+  - `--force-replace-marker-settings`: the defaults, then the settings flags given
 - After `--force-new-source` the next sync makes the destination match the source: files not in the source are removed (`git rm`, kept in history; with `--no-git` deleted for good).
 - `--force-obliterate-yes-i-am-sure` removes everything inside the destination, `.git` included. The restic repository next to it is not touched.
 - The two flags are mutually exclusive.
@@ -439,6 +443,7 @@ Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf
 | `--source` | (none) | Source directory to track (all commands except `bundle`/`unbundle`; optional for `status`) |
 | `--destination` | (none) | Destination directory, initialized by `init` (optional for `filter scan` and `filter dump`, not used by `watch --report-only`) |
 | `--force-new-source` | false | `init`: use a non-empty destination, or one initialized for another source, keeping its contents and history |
+| `--force-keep-marker-settings`, `--force-replace-marker-settings` | false | `init --force-new-source` on a marker naming another source: keep its settings, or start from the defaults (one is required) |
 | `--force-obliterate-yes-i-am-sure` | false | `init`: remove everything in the destination, `.git` included, then initialize it |
 | `--update-settings` | false | `init`: on an initialized destination, write settings different from the marker's |
 | `--filter` | (none) | Rules file (`init`, `filter scan`, `dump`, `set`) |

@@ -140,50 +140,55 @@ func addFlagLines(text string, uses []string) string {
 	return strings.Join(out, "")
 }
 
-// rulesText returns the rules given on the command line as a rules file: the
-// --filter file (stdin for -) as written, comments kept, plus the --use,
-// --include and --exclude flags; or the flags alone, one per line. "" when no
-// rules were given.
-func rulesText(sourcePath string) (string, error) {
+// flagRules returns the rules given on the command line, parsed and as a
+// rules file: the --filter file (stdin for -) as written, comments kept, plus
+// the --use, --include and --exclude flags; or the flags alone, one per line.
+// nil and "" when no rules were given.
+func flagRules(sourcePath string) (string, *filterrules.File, error) {
 	if !ruleFlagsGiven() {
-		return "", nil
+		return "", nil, nil
 	}
 	text, f := "", &filterrules.File{}
 	if filterFileFlag != "" {
 		var err error
 		if text, f, err = readFilterFlag(sourcePath); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	fileUses := slices.Clone(f.Uses)
 	if err := addFlagRules(f); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if len(f.Lines) == 0 && len(f.Uses) == 0 {
-		return "", fmt.Errorf("no rules in --filter %s", filterFileFlag)
+		return "", nil, fmt.Errorf("no rules in --filter %s", filterFileFlag)
 	}
 	if len(f.Uses) == 0 {
 		fmt.Fprintln(os.Stderr, "note: no use line or --use, so the built-in groups don't apply (use default for all of them)")
 	}
 	if filterFileFlag == "" {
-		return f.Format(), nil
+		return f.Format(), f, nil
 	}
-	return addFlagLines(text, fileUses), nil
+	return addFlagLines(text, fileUses), f, nil
+}
+
+// rulesText returns the rules given on the command line as a rules file (see
+// flagRules), "" when no rules were given
+func rulesText(sourcePath string) (string, error) {
+	text, _, err := flagRules(sourcePath)
+	return text, err
 }
 
 // rulesFromFlags returns the rules given on the command line (see
-// rulesText). Without any, the rules are use default.
+// flagRules). Without any, the rules are use default.
 func rulesFromFlags(sourcePath string) (*filterrules.Rules, error) {
-	text, err := rulesText(sourcePath)
+	_, f, err := flagRules(sourcePath)
 	if err != nil {
 		return nil, err
 	}
-	if text == "" {
-		text = defaultRules
-	}
-	f, err := filterrules.ParseFile(strings.NewReader(text))
-	if err != nil {
-		return nil, err
+	if f == nil {
+		if f, err = filterrules.ParseFile(strings.NewReader(defaultRules)); err != nil {
+			return nil, err
+		}
 	}
 	return filterrules.New(f)
 }
@@ -312,7 +317,7 @@ func explain(s *sourceRules, path string, maxSizeMB int64) error {
 	switch {
 	case err == nil && !isDir && !info.Mode().IsRegular():
 		result = "left out: not a regular file (symlinks are never tracked)"
-	case !alwaysApplied.Decide(rel, isDir).Kept:
+	case alwaysExcluded(rel):
 		result = "left out: always applied (" + alwaysAppliedText + ")"
 	default:
 		d := s.rules.Decide(rel, isDir)
