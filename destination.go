@@ -570,16 +570,8 @@ func initDestination(sourcePath, destPath string, opts initOptions) error {
 	if err := EnsureDir(destPath); err != nil {
 		return fmt.Errorf("failed to create destination: %v", err)
 	}
-	if settings.Git && !IsGitRepo(destPath) {
-		if err := Init(destPath, debug); err != nil {
-			return err
-		}
-		fmt.Printf("Initialized git repository at %s\n", destPath)
-	}
-	if settings.Restic && !IsResticRepo(destPath) {
-		if err := InitRestic(destPath, debug); err != nil {
-			return fmt.Errorf("failed to initialize restic: %v", err)
-		}
+	if err := ensureRepos(destPath, settings); err != nil {
+		return err
 	}
 
 	newMarker := &destinationMarker{Source: sourcePath, destinationSettings: settings}
@@ -612,6 +604,23 @@ func initDestination(sourcePath, destPath string, opts initOptions) error {
 	return nil
 }
 
+// ensureRepos creates the git and restic repositories the settings ask for,
+// when the destination doesn't have them yet
+func ensureRepos(destPath string, settings destinationSettings) error {
+	if settings.Git && !IsGitRepo(destPath) {
+		if err := Init(destPath, debug); err != nil {
+			return err
+		}
+		fmt.Printf("Initialized git repository at %s\n", destPath)
+	}
+	if settings.Restic && !IsResticRepo(destPath) {
+		if err := InitRestic(destPath, debug); err != nil {
+			return fmt.Errorf("failed to initialize restic: %v", err)
+		}
+	}
+	return nil
+}
+
 // updateSettings is init on a destination already initialized for the
 // source: the settings given must be the marker's, unless --update-settings
 func updateSettings(destPath string, marker *destinationMarker, opts initOptions) error {
@@ -629,17 +638,8 @@ func updateSettings(destPath string, marker *destinationMarker, opts initOptions
 		}
 	}
 
-	// A repository the settings ask for, missing or new, is created
-	if settings.Git && !IsGitRepo(destPath) {
-		if err := Init(destPath, debug); err != nil {
-			return err
-		}
-		fmt.Printf("Initialized git repository at %s\n", destPath)
-	}
-	if settings.Restic && !IsResticRepo(destPath) {
-		if err := InitRestic(destPath, debug); err != nil {
-			return fmt.Errorf("failed to initialize restic: %v", err)
-		}
+	if err := ensureRepos(destPath, settings); err != nil {
+		return err
 	}
 
 	// A setting given but only inferred is stored, with the same value: from

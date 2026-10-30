@@ -1,6 +1,7 @@
 package filterrules
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -221,6 +222,25 @@ func TestCheck(t *testing.T) {
 				t.Errorf("%q: problem %q, want %q...", tt.filter, p, tt.want[i])
 			}
 		}
+	}
+}
+
+// A folder that can't be listed (permissions) says nothing about what it
+// holds: the rules under it are not dead, and an allowlist isn't refused
+func TestCheck_UnreadableFolderIsNotDead(t *testing.T) {
+	list := func(rel string) ([]string, error) {
+		switch rel {
+		case "":
+			return []string{"Library"}, nil
+		case "Library":
+			return nil, errors.New("operation not permitted")
+		}
+		return nil, nil
+	}
+	r := newFileRules(t, "version 1\nexclude /*\n/Library/Mail/x\n/CLAUD.md\n")
+	problems := r.Check(list)
+	if len(problems) != 1 || !strings.HasPrefix(problems[0].String(), "warning: dead-rule: include /CLAUD.md") {
+		t.Errorf("problems %v, want only the dead /CLAUD.md", problems)
 	}
 }
 

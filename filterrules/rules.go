@@ -187,7 +187,8 @@ type ListFunc func(rel string) ([]string, error)
 // includes that change nothing, literal rules that name no entry of the tree
 // (dead rules), and an allowlist with nothing alive (an error). Entries are
 // looked up in listings, byte for byte: a case-insensitive file system would
-// say that Library/caches exists.
+// say that Library/caches exists. An entry under a folder that can't be
+// listed counts as alive: unknown is not dead.
 func (r *Rules) Check(list ListFunc) []Problem {
 	var problems []Problem
 	for _, rule := range r.all {
@@ -205,12 +206,16 @@ func (r *Rules) Check(list ListFunc) []Problem {
 			dir := strings.Join(path[:i], "/")
 			names, ok := listings[dir]
 			if !ok {
-				names = map[string]bool{}
-				entries, _ := list(dir)
-				for _, e := range entries {
-					names[e] = true
+				if entries, err := list(dir); err == nil {
+					names = map[string]bool{}
+					for _, e := range entries {
+						names[e] = true
+					}
 				}
 				listings[dir] = names
+			}
+			if names == nil {
+				return true
 			}
 			if !names[name] {
 				return false

@@ -354,8 +354,12 @@ var filterDumpCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			if marker, err := readMarker(destPath); err != nil || marker == nil {
-				return fmt.Errorf("destination %s is not initialized (%v)", destPath, err)
+			marker, err := readMarker(destPath)
+			if err != nil {
+				return err
+			}
+			if marker == nil {
+				return fmt.Errorf("destination %s is not initialized (see init)", destPath)
 			}
 			if rules, err = readRules(destPath); err != nil {
 				return err

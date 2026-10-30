@@ -19,24 +19,14 @@ func logAndErr(format string, args ...interface{}) error {
 // runGit runs a git command and prints its output
 func runGit(repoPath string, args ...string) (string, error) {
 	logGit("git command in %s args: %v\n", repoPath, args)
-	cmd := exec.Command("git", args...)
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
-
-	outputStr := string(output)
-	if outputStr != "" {
-		logGit("%s", outputStr)
+	output, err := gitOutput(repoPath, args...)
+	if output != "" {
+		logGit("%s", output)
 	}
-
-	if err != nil {
-		return outputStr, fmt.Errorf("%w (repo=%s args=%v output=%q)",
-			err, repoPath, args, strings.TrimSpace(outputStr))
-	}
-	return outputStr, nil
+	return output, err
 }
 
-// gitOutput runs a git command that changes nothing and returns its output,
-// without printing it
+// gitOutput runs a git command and returns its output, without printing it
 func gitOutput(repoPath string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repoPath
