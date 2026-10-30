@@ -22,10 +22,13 @@ test-verbose:
 	go test -v ./...
 
 # Runs a real watch on a temp source, with git and with --no-git, and checks
-# file and directory changes and no copy loop (scripts/check_watch.sh)
-watch-check: build
-	scripts/check_watch.sh ./$(BINARY)
-	scripts/check_watch.sh ./$(BINARY) --no-git
+# file and directory changes and no copy loop (scripts/check_watch.sh).
+# Built under build/, so the ./autoversion run by installed jobs isn't replaced
+WATCH_CHECK_BINARY = build/watch-check/$(BINARY)
+watch-check:
+	go build -o $(WATCH_CHECK_BINARY) .
+	scripts/check_watch.sh $(WATCH_CHECK_BINARY)
+	scripts/check_watch.sh $(WATCH_CHECK_BINARY) --no-git
 
 lint:
 	go vet ./...
