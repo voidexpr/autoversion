@@ -178,7 +178,7 @@ The rules and settings moved from command line flags to the destination. `sync`,
 | `--only-include-extensions md,csv` | `filter set --use default --exclude '/*' --include 'f:/**/*.{md,csv}'` |
 | `--only-include-file F` | `filter set --use default --exclude '/*' --include /F` |
 | `--max-file-size N` (not 10) | `init --update-settings --max-file-size N` |
-| `--no-git`, `--restic` | nothing, when the destination has no `.git` folder, or has its restic repository |
+| `--no-git`, `--restic` | keep them on `init`, which stores them in the marker (`init --no-git` is refused on a destination with a `.git` folder). `sync`, `watch`, `install` and `check-paths` refuse them |
 
 Then run `install` again: the plist loses the old flags, and the service is reloaded. Differences in the built-in exclusions are listed in `plans/feature_include_exclude_rules.md` (translation table): lock files such as `Cargo.lock`, `.vscode/` and names made only of digits are now tracked.
 
@@ -311,7 +311,7 @@ With git, both are committed on their own (`init: source SOURCE_PATH`). Invalid 
 
 On a destination already initialized for the source:
 - Settings that are not given, or equal to the marker's, change nothing. A missing git or restic repository the settings ask for is created.
-- Different settings are an error listing them, unless `--update-settings`: then the marker is updated and committed, and a running service is restarted. From a plain mirror to git, `git init` runs and the next sync commits every file.
+- A setting given that the marker doesn't state yet (a marker from before settings were stored) is written to it, without `--update-settings`: `init --no-git` writes `"git": false`. From then on it doesn't depend on what the destination holds.- Different settings are an error listing them, unless `--update-settings`: then the marker is updated and committed, and a running service is restarted. From a plain mirror to git, `git init` runs and the next sync commits every file.
 - Switching from git to a plain mirror (`--no-git` on a git destination) is always refused: the `.git` history would stay while files stop being committed. To do it on purpose, remove `DEST_PATH/.git` by hand, or start over with `--force-obliterate-yes-i-am-sure`.
 - Rules are an error: they change with `filter set`.
 
@@ -407,7 +407,7 @@ Shows symlink resolution and the marker status, and validates:
 
 `sync`, `watch` and `install` refuse to copy anything unless the marker exists and names their source. This catches typos in either path (a mistyped destination is never silently created) and prevents two sources from syncing into the same destination.
 
-- Settings missing from a marker (markers written before settings were stored) describe the destination as it is: `git` when it has a `.git` folder, `restic` when it has a restic repository, 10 MB.
+- Settings missing from a marker (markers written before settings were stored) describe the destination as it is: `git` when it has a `.git` folder, `restic` when it has a restic repository, 10 MB. They are worked out each time, until `init` is given the setting and stores it.
 - Fields autoversion doesn't know are kept when the marker is rewritten.
 - The marker and the rules file (`.autoversion.filter`) are never deleted or overwritten by a sync, and files with these names at the root of a source are not tracked.
 - With git, both are versioned like the other files: `git log -p .autoversion` shows which source the destination belonged to over time, and `git log -p .autoversion.filter` every rule change.

@@ -36,7 +36,8 @@ var defaultSettings = destinationSettings{Git: true, MaxFileSizeMB: defaultMaxFi
 type destinationMarker struct {
 	Source string
 	destinationSettings
-	other map[string]json.RawMessage // fields autoversion doesn't know, kept when it's rewritten
+	stored map[string]bool            // the settings its file states, the others are inferred
+	other  map[string]json.RawMessage // fields autoversion doesn't know, kept when it's rewritten
 }
 
 // readMarker returns the marker of a destination, or nil if it has none.
@@ -65,7 +66,8 @@ func readMarker(destPath string) (*destinationMarker, error) {
 			Restic:        IsResticRepo(destPath),
 			MaxFileSizeMB: defaultMaxFileSizeMB,
 		},
-		other: map[string]json.RawMessage{},
+		stored: map[string]bool{},
+		other:  map[string]json.RawMessage{},
 	}
 	for key, raw := range fields {
 		var err error
@@ -73,10 +75,13 @@ func readMarker(destPath string) (*destinationMarker, error) {
 		case "source":
 			err = json.Unmarshal(raw, &marker.Source)
 		case "git":
+			marker.stored[key] = true
 			err = json.Unmarshal(raw, &marker.Git)
 		case "restic":
+			marker.stored[key] = true
 			err = json.Unmarshal(raw, &marker.Restic)
 		case "max_file_size_mb":
+			marker.stored[key] = true
 			err = json.Unmarshal(raw, &marker.MaxFileSizeMB)
 			if err == nil && marker.MaxFileSizeMB < 0 {
 				err = errors.New("negative")
@@ -455,6 +460,14 @@ func (f settingsFlags) apply(s destinationSettings) destinationSettings {
 	return s
 }
 
+// inferredIn reports whether a given setting is only inferred in a marker,
+// which then doesn't state it (written before settings were stored)
+func (f settingsFlags) inferredIn(marker *destinationMarker) bool {
+	return f.git != nil && !marker.stored["git"] ||
+		f.restic != nil && !marker.stored["restic"] ||
+		f.maxFileSizeMB != nil && !marker.stored["max_file_size_mb"]
+}
+
 // changes lists how the given settings change s
 func (f settingsFlags) changes(s destinationSettings) []string {
 	onOff := map[bool]string{true: "on", false: "off"}
@@ -629,7 +642,10 @@ func updateSettings(destPath string, marker *destinationMarker, opts initOptions
 		}
 	}
 
-	if len(changes) == 0 {
+	// A setting given but only inferred is stored, with the same value: from
+	// now on it doesn't depend on what the destination holds (a .git folder)
+	inferred := opts.settings.inferredIn(marker)
+	if len(changes) == 0 && !inferred {
 		fmt.Printf("Destination %s is already initialized for %s\n", destPath, marker.Source)
 		return nil
 	}
@@ -638,13 +654,21 @@ func updateSettings(destPath string, marker *destinationMarker, opts initOptions
 	if err := writeMarker(destPath, marker); err != nil {
 		return fmt.Errorf("failed to write marker: %v", err)
 	}
+	message := "init: settings stored in the marker"
+	if len(changes) > 0 {
+		message = "init: " + strings.Join(changes, ", ")
+	}
 	if settings.Git {
 		if err := Add(destPath, []string{markerFileName}, debug); err != nil {
 			return err
 		}
-		if err := CommitPaths(destPath, "init: "+strings.Join(changes, ", "), markerFileName); err != nil {
+		if err := CommitPaths(destPath, message, markerFileName); err != nil {
 			return err
 		}
+	}
+	if len(changes) == 0 {
+		fmt.Printf("Stored the settings of %s in its marker\n", destPath)
+		return nil
 	}
 	fmt.Printf("Updated the settings of %s: %s\n", destPath, strings.Join(changes, ", "))
 	if settings.Git && !wasGit {

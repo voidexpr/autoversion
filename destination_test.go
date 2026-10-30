@@ -567,6 +567,84 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("a setting given but only inferred is stored", func(t *testing.T) {
+		source := resolvedTempDir(t)
+		dest := resolvedTempDir(t)
+		markerPath := filepath.Join(dest, markerFileName)
+		writeFile(t, markerPath, `{"source": "`+source+`", "remotes": ["nas"]}`)
+		noGit := initOptions{settings: settingsFlags{git: ptr(false)}}
+		restartedJobs = nil
+
+		// Without flags, an old marker stays as it is
+		before := readText(t, markerPath)
+		if err := initDestination(source, dest, initOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if got := readText(t, markerPath); got != before {
+			t.Errorf("marker rewritten without a flag: %s", got)
+		}
+
+		if err := initDestination(source, dest, noGit); err != nil {
+			t.Fatal(err)
+		}
+		stored := readText(t, markerPath)
+		if !strings.Contains(stored, `"git": false`) || !strings.Contains(stored, `"nas"`) {
+			t.Errorf("marker %s, want git false and the unknown field", stored)
+		}
+		if IsGitRepo(dest) || len(restartedJobs) != 0 {
+			t.Errorf("git repository %v, restarted %v: nothing changes for the destination", IsGitRepo(dest), restartedJobs)
+		}
+		if err := initDestination(source, dest, noGit); err != nil {
+			t.Fatal(err)
+		}
+		if got := readText(t, markerPath); got != stored {
+			t.Errorf("marker rewritten a second time: %s", got)
+		}
+
+		// A .git folder appearing later doesn't turn it into a git destination
+		if err := os.Mkdir(filepath.Join(dest, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		marker, err := readMarker(dest)
+		if err != nil || marker.Git {
+			t.Errorf("marker git %v (%v), want false", marker.Git, err)
+		}
+		if err := initDestination(source, dest, noGit); err != nil {
+			t.Errorf("--no-git with a stored git false: %v", err)
+		}
+	})
+
+	t.Run("an old marker on a git destination", func(t *testing.T) {
+		source := resolvedTempDir(t)
+		dest := resolvedTempDir(t)
+		writeOldMarker(t, dest, source)
+		if err := Init(dest, false); err != nil {
+			t.Fatal(err)
+		}
+		if err := Add(dest, []string{"."}, false); err != nil {
+			t.Fatal(err)
+		}
+		if err := Commit(dest, "old commit"); err != nil {
+			t.Fatal(err)
+		}
+		before := readText(t, filepath.Join(dest, markerFileName))
+
+		err := initDestination(source, dest, initOptions{settings: settingsFlags{git: ptr(false)}})
+		if err == nil || !strings.Contains(err.Error(), "versioned with git") {
+			t.Errorf("--no-git: error %v", err)
+		}
+		if got := readText(t, filepath.Join(dest, markerFileName)); got != before {
+			t.Errorf("marker changed by a refused --no-git: %s", got)
+		}
+
+		if err := initDestination(source, dest, initOptions{settings: settingsFlags{maxFileSizeMB: ptr(int64(defaultMaxFileSizeMB))}}); err != nil {
+			t.Fatal(err)
+		}
+		if n := gitLogCount(t, dest, markerFileName); n != 2 {
+			t.Errorf("%d commits of the marker, want 2", n)
+		}
+	})
+
 	t.Run("git to plain mirror is refused", func(t *testing.T) {
 		source, dest := initFresh(t, initOptions{})
 		for _, update := range []bool{false, true} {

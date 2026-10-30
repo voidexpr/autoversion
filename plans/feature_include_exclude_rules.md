@@ -531,24 +531,26 @@ it has its rules, it gets `use default` and its first sync copies all of
      job: the markers and rules are valid
    - `build/dev/autoversion filter set --destination ~/Data/Backup/autoversion/claude_settings --filter claude.filter --dry-run`:
      what will be kept, added and removed
-   - `ls -a ~/Dropbox/Backup/autoversion/projects`: no `.git`, so its
-     marker reads as a plain mirror
-1. In `autoversion-install.sh`, remove `--only-include-file settings.json`,
-   `--no-git` and any `--max-file-size` from the install commands.
+   - `ls -a ~/Dropbox/Backup/autoversion/projects`: no `.git`, or `init
+     --no-git` refuses it and the job isn't installed
+1. `autoversion-install.sh` (done, 2026-10-30): `--only-include-file` is
+   gone. `--no-git` stays, for `init` only: it writes `"git": false` into
+   the Dropbox marker, and without it a recreated destination would get
+   `git init`. The claude rules are hardcoded (`job_rules`) and applied by
+   `filter set --filter -`, before `install`, only when they changed.
 2. `make build`. The running jobs keep their old process; each one fails
-   at its next restart until step 4 reinstalls it.
-3. `claude_settings`: `./autoversion filter set --destination ~/Data/Backup/autoversion/claude_settings --filter claude.filter`
-   (the `~/.claude` file of the Motivation section). It commits the rules
-   and restarts the job, which fails on its old plist flags until step 4:
-   expected.
-4. `./autoversion-install.sh install`: each `install` writes a plist
-   without the old flags and with the config hash, and reloads the
-   service. `claude_settings`' first sync adds the skills and memories.
-5. Check: `./autoversion status`, and each job's `stderr.log`. With
+   at its next restart until step 3 reinstalls it.
+3. `autoversion-install.sh install`: for each job, `init`, the rules, then
+   `install`, which writes a plist without the old flags and with the
+   config hash, and reloads the service. For `claude_settings`, `filter
+   set` restarts the job first, which fails on its old plist flags until
+   its `install` runs: expected. Its first sync adds the skills and
+   memories. A failed `init` or `filter set` skips that job's `install`.
+4. Check: `./autoversion status`, and each job's `stderr.log`. With
    `default`, the `projects` backups now take lock files (`Cargo.lock`,
    `uv.lock`), `.vscode/` and names made only of digits (translation
    table).
-6. NAS: rebuild. `watch --report-only` takes `--filter FILE` or rule flags.
+5. NAS: rebuild. `watch --report-only` takes `--filter FILE` or rule flags.
 
 ## Decisions (2026-10-29)
 
@@ -604,6 +606,13 @@ it has its rules, it gets `use default` and its first sync copies all of
   rules at the end. An input with no rule and no `use` is an error.
 - The "no group used" note goes to stderr, so `filter scan` output stays
   a plain file list.
+- A setting given to `init` that the marker doesn't state yet is written
+  to it, without `--update-settings`: `init --no-git` writes `"git": false`
+  into an old marker. Otherwise a `.git` folder appearing in a plain
+  mirror would turn it into a git destination at the next restart. On an
+  old marker with a `.git` folder, `--no-git` is still refused.
+- `--no-git` stays in the job script, for `init` only. Without it, a
+  recreated mirror destination would get `git init`.
 
 ## Progress
 
