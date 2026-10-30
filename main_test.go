@@ -11,7 +11,7 @@ func TestExpandDirChanges(t *testing.T) {
 	setGlobals(t, false)
 	source := resolvedTempDir(t)
 	dest := resolvedTempDir(t)
-	SetSourceRoot(source)
+	setRules(t, source)
 	writeFile(t, filepath.Join(source, "dir", "a.txt"), "a")
 	writeFile(t, filepath.Join(source, "dir", "sub", "b.txt"), "b")
 	writeFile(t, filepath.Join(source, "dir", "node_modules", "x.js"), "x")
@@ -52,7 +52,7 @@ func TestProcessEvents_DirectoryMovedInAndOut(t *testing.T) {
 	setGlobals(t, false)
 	source := resolvedTempDir(t)
 	dest := resolvedTempDir(t)
-	SetSourceRoot(source)
+	setRules(t, source)
 	moved := filepath.Join(source, "moved")
 	writeFile(t, filepath.Join(moved, "sub", "m.txt"), "m")
 
@@ -79,19 +79,17 @@ func TestProcessEvents_DirectoryMovedInAndOut(t *testing.T) {
 	}
 }
 
-func TestScanPaths_IncludeFiles(t *testing.T) {
+func TestScanPaths_Allowlist(t *testing.T) {
 	setGlobals(t, false)
-	oldIncludeFiles := includeFiles
-	t.Cleanup(func() { includeFiles = oldIncludeFiles })
 	source := resolvedTempDir(t)
 	dest := resolvedTempDir(t)
-	SetSourceRoot(source)
-	if err := SetIncludeFiles([]string{"settings.json"}); err != nil {
-		t.Fatal(err)
+	setRules(t, source, "exclude /*", "/settings.json", "/projects/*/memory")
+	for _, file := range []string{"settings.json", "other.json", "projects/p.jsonl", "projects/a/memory/m.md",
+		"projects/a/memory/debug.log", "projects/a/x.jsonl"} {
+		writeFile(t, filepath.Join(source, file), "{}")
 	}
-	writeFile(t, filepath.Join(source, "settings.json"), "{}")
-	writeFile(t, filepath.Join(source, "other.json"), "{}")
-	writeFile(t, filepath.Join(source, "projects", "p.jsonl"), "{}")
+	// Left out by the rules now: removed by the scan
+	writeFile(t, filepath.Join(dest, "other.json"), "{}")
 
 	captureStdout(t, func() {
 		if err := scanPaths(source, dest, 0, false); err != nil {
@@ -106,8 +104,8 @@ func TestScanPaths_IncludeFiles(t *testing.T) {
 		}
 		return nil
 	})
-	if strings.Join(copied, ",") != "settings.json" {
-		t.Errorf("copied %v, want only settings.json", copied)
+	if want := "projects/a/memory/m.md,settings.json"; strings.Join(copied, ",") != want {
+		t.Errorf("destination has %v, want %s", copied, want)
 	}
 }
 
@@ -115,6 +113,7 @@ func TestProcessEvents_SkipsUnchangedFiles(t *testing.T) {
 	setGlobals(t, false)
 	source := resolvedTempDir(t)
 	dest := resolvedTempDir(t)
+	setRules(t, source)
 	file := filepath.Join(source, "a.txt")
 	writeFile(t, file, "a")
 	events := []PendingFileChanges{{Path: file, Action: EventModified}}

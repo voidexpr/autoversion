@@ -2,7 +2,7 @@
 # Runs `autoversion watch` on a temp source and checks that file and directory
 # changes reach the destination, and that autoversion's own copies don't
 # trigger more copies.
-# Usage: scripts/check_watch.sh [autoversion binary] [init/watch flags, e.g. --no-git]
+# Usage: scripts/check_watch.sh [autoversion binary] [init flags, e.g. --no-git]
 set -u
 av=${1:-./autoversion}
 shift
@@ -18,7 +18,7 @@ export GIT_COMMITTER_NAME=autoversion-check GIT_COMMITTER_EMAIL=check@localhost
 
 echo "== watch check $*"
 "$av" init "$@" --source "$src" --destination "$dst" > /dev/null || exit 1
-"$av" watch "$@" --buffer-time 1 --source "$src" --destination "$dst" > "$log" 2>&1 &
+"$av" watch --buffer-time 1 --source "$src" --destination "$dst" > "$log" 2>&1 &
 pid=$!
 sleep 2
 

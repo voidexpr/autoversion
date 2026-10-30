@@ -23,12 +23,13 @@ func resolvedTempDir(t *testing.T) string {
 	return dir
 }
 
-// setGlobals sets noGit and useRestic for a test and restores them after
+// setGlobals sets noGit and useRestic for a test and restores them, the size
+// limit and the active rules after
 func setGlobals(t *testing.T, git bool) {
 	t.Helper()
-	oldNoGit, oldUseRestic, oldSourceRoot := noGit, useRestic, sourceRoot
+	oldNoGit, oldUseRestic, oldMaxFileSize, oldRules := noGit, useRestic, maxFileSize, activeRules
 	noGit, useRestic = !git, false
-	t.Cleanup(func() { noGit, useRestic, sourceRoot = oldNoGit, oldUseRestic, oldSourceRoot })
+	t.Cleanup(func() { noGit, useRestic, maxFileSize, activeRules = oldNoGit, oldUseRestic, oldMaxFileSize, oldRules })
 	if git {
 		t.Setenv("GIT_AUTHOR_NAME", "Test")
 		t.Setenv("GIT_AUTHOR_EMAIL", "test@example.com")
@@ -624,15 +625,15 @@ func TestValidatePaths_RequiresMatchingMarker(t *testing.T) {
 	source := resolvedTempDir(t)
 	dest := resolvedTempDir(t)
 
-	if _, _, err := validatePaths(source, dest); err == nil || !strings.Contains(err.Error(), "not initialized") {
+	if _, err := validatePaths(source, dest); err == nil || !strings.Contains(err.Error(), "not initialized") {
 		t.Errorf("without marker: err = %v", err)
 	}
 	writeOldMarker(t, dest, "/other/source")
-	if _, _, err := validatePaths(source, dest); err == nil || !strings.Contains(err.Error(), "belongs to source") {
+	if _, err := validatePaths(source, dest); err == nil || !strings.Contains(err.Error(), "belongs to source") {
 		t.Errorf("marker for another source: err = %v", err)
 	}
 	writeOldMarker(t, dest, source)
-	if _, _, err := validatePaths(source, dest); err != nil {
+	if _, err := validatePaths(source, dest); err != nil {
 		t.Errorf("matching marker: err = %v", err)
 	}
 }
@@ -649,7 +650,7 @@ func TestScanPaths_KeepsDestinationMarker(t *testing.T) {
 	writeFile(t, filepath.Join(source, markerFileName), `{"source": "/elsewhere"}`)
 	writeFile(t, filepath.Join(source, filterFileName), "version 1\n")
 
-	SetSourceRoot(source)
+	setRules(t, source)
 	if err := scanPaths(source, dest, 0, false); err != nil {
 		t.Fatal(err)
 	}
@@ -707,6 +708,7 @@ func TestDestinationDisappeared(t *testing.T) {
 		setGlobals(t, false)
 		source := newSource(t)
 		dest := filepath.Join(resolvedTempDir(t), "gone")
+		setRules(t, source)
 		for _, action := range []EventType{EventModified, EventDeleted} {
 			events := []PendingFileChanges{{Path: filepath.Join(source, "sub", "nested.txt"), Action: action}}
 			expectDestMissing(t, processEvents(events, source, dest, false), dest)
@@ -717,7 +719,7 @@ func TestDestinationDisappeared(t *testing.T) {
 		setGlobals(t, false)
 		source := newSource(t)
 		dest := filepath.Join(resolvedTempDir(t), "gone")
-		SetSourceRoot(source)
+		setRules(t, source)
 		expectDestMissing(t, scanPaths(source, dest, 0, false), dest)
 	})
 }

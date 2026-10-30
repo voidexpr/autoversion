@@ -102,8 +102,9 @@ func promptPath(prompt string, mustExist bool) (string, error) {
 	}
 }
 
-// generatePlist creates the launchd plist content
-func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, maxFileSize int64, bufferTime int, noGit, useRestic, debug, noLogin bool, includeExts string, excludeDirs, includeFiles []string) string {
+// generatePlist creates the launchd plist content. It has the runtime flags
+// only: the settings and the rules are read from the destination.
+func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, bufferTime int, debug, noLogin bool) string {
 	stdoutLog := filepath.Join(logDir, stdoutLogName)
 	stderrLog := filepath.Join(logDir, stderrLogName)
 
@@ -112,27 +113,11 @@ func generatePlist(jobID, execPath, sourcePath, destPath, logDir string, maxFile
 		"watch",
 		"--source", sourcePath,
 		"--destination", destPath,
-		"--max-file-size", fmt.Sprintf("%d", maxFileSize),
 		"--buffer-time", fmt.Sprintf("%d", bufferTime),
 		"--log-dir", logDir,
 	}
-	if noGit {
-		args = append(args, "--no-git")
-	}
-	if useRestic {
-		args = append(args, "--restic")
-	}
 	if debug {
 		args = append(args, "--debug")
-	}
-	if includeExts != "" {
-		args = append(args, "--only-include-extensions", includeExts)
-	}
-	for _, d := range excludeDirs {
-		args = append(args, "--exclude-dir", d)
-	}
-	for _, f := range includeFiles {
-		args = append(args, "--only-include-file", f)
 	}
 
 	// Build ProgramArguments XML
@@ -412,7 +397,7 @@ var restartJob = func(sourcePath, destPath string) error {
 var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install autoversion as a launchd service (macOS only)",
-	Long:  "Configures launchd to run autoversion in watch mode. The destination must be initialized for the source (see init).",
+	Long:  "Configures launchd to run autoversion in watch mode. The destination must be initialized for the source (see init); the service reads its settings and rules from it.",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
@@ -428,6 +413,7 @@ var installCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		useDestination(result)
 
 		sourcePath := result.SourceResolved
 		destPath := result.DestinationResolved
@@ -459,10 +445,9 @@ var installCmd = &cobra.Command{
 			}
 
 			// Check if plist content needs updating (flag changes, launcher path changes)
-			maxSize, _ := cmd.Flags().GetInt64("max-file-size")
 			bufTime, _ := cmd.Flags().GetInt("buffer-time")
 			logDirPath, _ := logDir(jobID)
-			newPlist := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag, includeFilesFlag)
+			newPlist := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, bufTime, debug, noLogin)
 			existingPlist, _ := os.ReadFile(plist)
 
 			needsReload := needsServiceReload(plist) || string(existingPlist) != newPlist
@@ -502,14 +487,9 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("failed to create log directory: %v", err)
 		}
 
-		// Get flag values from command
-		maxSize, _ := cmd.Flags().GetInt64("max-file-size")
-
-		SetSourceRoot(sourcePath)
-
 		if !dryRun {
 			fmt.Println("Initial sync...")
-			if err := scanPaths(sourcePath, destPath, maxSize, dryRun); err != nil {
+			if err := scanPaths(sourcePath, destPath, maxFileSize, dryRun); err != nil {
 				return fmt.Errorf("initial sync failed: %v", err)
 			}
 		}
@@ -524,7 +504,7 @@ var installCmd = &cobra.Command{
 		}
 		bufTime, _ := cmd.Flags().GetInt("buffer-time")
 
-		plistContent := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, maxSize, bufTime, noGit, useRestic, debug, noLogin, includeExtsFlag, excludeDirsFlag, includeFilesFlag)
+		plistContent := generatePlist(jobID, execPath, sourcePath, destPath, logDirPath, bufTime, debug, noLogin)
 
 		if dryRun {
 			fmt.Println("=== Generated plist (dry-run) ===")
@@ -1025,8 +1005,7 @@ var installCheckCmd = &cobra.Command{
 }
 
 func init() {
-	// Install command flags (same as watch)
-	installCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+	// Install command flags (runtime ones: settings and rules are the destination's)
 	installCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	installCmd.Flags().BoolVar(&noLogin, "no-login", false, "don't start service at login")
 	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show generated plist without installing")

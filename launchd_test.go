@@ -12,10 +12,15 @@ import (
 func TestGeneratePlist_ParsePlistPaths(t *testing.T) {
 	source := "/Users/me/src & 'docs'"
 	dest := "/Volumes/backup/<dest>"
-	plist := generatePlist("projects.autoversion.job", "/bin/autoversion", source, dest, "/tmp/logs",
-		10, 3, true, false, false, false, "md", []string{"Backup"}, []string{"settings.json"})
-	if !strings.Contains(plist, "<string>--only-include-file</string>\n\t\t<string>settings.json</string>") {
-		t.Errorf("plist misses --only-include-file settings.json:\n%s", plist)
+	plist := generatePlist("projects.autoversion.job", "/bin/autoversion", source, dest, "/tmp/logs", 3, true, false)
+	if !strings.Contains(plist, "<string>--buffer-time</string>\n\t\t<string>3</string>") || !strings.Contains(plist, "<string>--debug</string>") {
+		t.Errorf("plist misses --buffer-time 3 or --debug:\n%s", plist)
+	}
+	// Settings and rules are the destination's
+	for _, flag := range movedFlags {
+		if strings.Contains(plist, "<string>--"+flag+"</string>") {
+			t.Errorf("plist has --%s:\n%s", flag, plist)
+		}
 	}
 
 	path := filepath.Join(t.TempDir(), "job.plist")

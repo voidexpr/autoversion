@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nicolas/autoversion/filterrules"
 	"github.com/spf13/cobra"
 )
 
@@ -37,9 +39,6 @@ var (
 	forceNewSource     bool
 	forceObliterate    bool
 	updateSettingsFlag bool
-	includeExtsFlag    string
-	excludeDirsFlag    []string
-	includeFilesFlag   []string
 )
 
 // requirePaths returns an error unless --source, and --destination when
@@ -256,24 +255,49 @@ change with filter set.`,
 	},
 }
 
+// movedFlags are flags of earlier versions: settings and rules are now
+// stored in the destination
+var movedFlags = []string{"no-git", "restic", "max-file-size", "exclude-dir", "only-include-extensions",
+	"only-include-file", "filter", "include", "exclude", "use"}
+
+var errDestinationSettings = errors.New("settings and rules belong to the destination, set them with init or filter set (watch takes rules and --max-file-size with --report-only only)")
+
+// useDestination sets what sync, watch and install take from the
+// destination: its settings and its rules
+func useDestination(result *PathValidationResult) {
+	noGit, useRestic, maxFileSize = !result.Settings.Git, result.Settings.Restic, result.Settings.MaxFileSizeMB
+	SetFilter(result.SourceResolved, result.Rules)
+}
+
+// printRuleWarnings prints what the rules' checks find. When a copy starts,
+// an allowlist none of whose includes exists is only a warning: the files
+// may really have been deleted from the source.
+func printRuleWarnings(sourcePath string, rules *filterrules.Rules) {
+	for _, p := range rules.Check(listDir(sourcePath)) {
+		fmt.Printf("warning: %s: %s\n", p.Code, p.Message)
+	}
+}
+
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Sync source directory to destination",
-	Args:  cobra.NoArgs,
+	Long: `Copies the files of the source the destination's rules keep, and removes
+from the destination the files they don't keep. The settings (git, restic,
+max file size) and the rules are the destination's, see init and filter.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requirePaths(true); err != nil {
 			return err
 		}
 
-		absSourcePath, destPath, err := validatePaths(sourceFlag, destFlag)
+		result, err := validatePaths(sourceFlag, destFlag)
 		if err != nil {
 			return err
 		}
+		useDestination(result)
+		printRuleWarnings(result.SourceResolved, result.Rules)
 
-		SetSourceRoot(absSourcePath)
-
-		// Sync files
-		return scanPaths(absSourcePath, destPath, maxFileSize, dryRun)
+		return scanPaths(result.SourceResolved, result.DestinationResolved, maxFileSize, dryRun)
 	},
 }
 
@@ -309,7 +333,13 @@ func logEvent(eventType EventType, path string, tracked bool) {
 var watchCmd = &cobra.Command{
 	Use:   "watch",
 	Short: "Watch for changes in real-time",
-	Args:  cobra.NoArgs,
+	Long: `Runs a sync, then copies changes as they happen. The settings and the
+rules are the destination's, see init and filter.
+
+With --report-only, only prints the file events (no --destination): the
+rules are given with --filter, --include, --exclude and --use (none: use
+default), the size limit with --max-file-size.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if logDirFlag != "" {
 			redirectLogs(logDirFlag)
@@ -320,18 +350,29 @@ var watchCmd = &cobra.Command{
 		}
 
 		var absSourcePath, destPath string
-		var err error
 		if reportOnly {
-			absSourcePath, err = resolveSourcePath(sourceFlag)
+			var err error
+			if absSourcePath, err = resolveSourcePath(sourceFlag); err != nil {
+				return err
+			}
+			rules, err := rulesFromFlags(absSourcePath)
+			if err != nil {
+				return err
+			}
+			SetFilter(absSourcePath, rules)
+			printRuleWarnings(absSourcePath, rules)
 		} else {
-			// Validate all paths and get absolute paths
-			absSourcePath, destPath, err = validatePaths(sourceFlag, destFlag)
+			if ruleFlagsGiven() || cmd.Flags().Changed("max-file-size") {
+				return errDestinationSettings
+			}
+			result, err := validatePaths(sourceFlag, destFlag)
+			if err != nil {
+				return err
+			}
+			useDestination(result)
+			printRuleWarnings(result.SourceResolved, result.Rules)
+			absSourcePath, destPath = result.SourceResolved, result.DestinationResolved
 		}
-		if err != nil {
-			return err
-		}
-
-		SetSourceRoot(absSourcePath)
 
 		// First, run scan to capture any missed changes
 		if !reportOnly {
@@ -406,7 +447,7 @@ var watchCmd = &cobra.Command{
 
 				var doPassFilter bool
 				if event.Type == EventDirChanged {
-					doPassFilter = !IsExcludedDir(event.Path)
+					doPassFilter = !skipDir(event.Path)
 				} else {
 					var err error
 					doPassFilter, err = ShouldTrack(event.Path, maxFileSize, event.Type == EventDeleted)
@@ -476,8 +517,9 @@ Checks performed:
 - Neither path can be inside the other
 - The source can't contain a .autoversion marker (swapped paths)
 - No parent of the destination can contain a .autoversion marker, or a .git
-  repository unless --no-git
+  repository unless the destination is a plain mirror
 - The destination must have a .autoversion marker naming the source (see init)
+- Its rules must be valid; their warnings are printed
 
 Also shows how symlinks are resolved.`,
 	Args: cobra.NoArgs,
@@ -500,14 +542,19 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&sourceFlag, "source", "", "source directory to track")
 	rootCmd.PersistentFlags().StringVar(&destFlag, "destination", "", "destination directory, initialized by init")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
-	rootCmd.PersistentFlags().BoolVar(&noGit, "no-git", false, "disable git versioning")
-	rootCmd.PersistentFlags().BoolVar(&useRestic, "restic", false, "enable restic backup")
 	rootCmd.PersistentFlags().StringVar(&errLogFlag, "err-log", "", "error log file path")
-	rootCmd.PersistentFlags().StringVar(&includeExtsFlag, "only-include-extensions", "", "only include files with these extensions (comma-separated, e.g. md,csv,txt)")
-	rootCmd.PersistentFlags().StringArrayVar(&excludeDirsFlag, "exclude-dir", nil, "exclude a directory relative to source (repeatable, e.g. --exclude-dir Backup --exclude-dir tmp)")
-	rootCmd.PersistentFlags().StringArrayVar(&includeFilesFlag, "only-include-file", nil, "only track this file, relative to source (repeatable); bypasses the built-in exclusions, --max-file-size still applies")
+	rootCmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		for _, name := range movedFlags {
+			if err.Error() == "unknown flag: --"+name {
+				return fmt.Errorf("%v: settings and rules belong to the destination, set them with init or filter set (see filter --help)", err)
+			}
+		}
+		return err
+	})
 
 	// Init command flags
+	initCmd.Flags().BoolVar(&noGit, "no-git", false, "plain mirror, no git versioning (stored in the marker)")
+	initCmd.Flags().BoolVar(&useRestic, "restic", false, "restic backups (stored in the marker)")
 	initCmd.Flags().BoolVar(&forceNewSource, "force-new-source", false, "use a non-empty destination or one initialized for another source, keeping its contents and git history")
 	initCmd.Flags().BoolVar(&forceObliterate, "force-obliterate-yes-i-am-sure", false, "remove everything in the destination, .git included, then initialize it")
 	initCmd.MarkFlagsMutuallyExclusive("force-new-source", "force-obliterate-yes-i-am-sure")
@@ -516,11 +563,11 @@ func init() {
 	addRuleFlags(initCmd)
 
 	// Sync command flags
-	syncCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
 	syncCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
 
 	// Watch command flags
-	watchCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB")
+	watchCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB, with --report-only")
+	addRuleFlags(watchCmd)
 	watchCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	watchCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
 	watchCmd.Flags().BoolVar(&reportOnly, "report-only", false, "only print file events: no --destination needed, no initial scan, nothing copied")
@@ -536,17 +583,6 @@ func init() {
 func main() {
 	// Use PersistentPreRunE to init error log before any command runs
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		SetIncludeExtensions(includeExtsFlag)
-		if err := SetExcludeDirs(excludeDirsFlag); err != nil {
-			return err
-		}
-		if err := SetIncludeFiles(includeFilesFlag); err != nil {
-			return err
-		}
-		// Only the listed files are tracked, so these filters could only contradict the list
-		if len(includeFilesFlag) > 0 && (len(excludeDirsFlag) > 0 || includeExtsFlag != "") {
-			return fmt.Errorf("--only-include-file can't be combined with --exclude-dir or --only-include-extensions")
-		}
 		return initErrLog(errLogFlag)
 	}
 
@@ -574,18 +610,6 @@ func formatSize(bytes int64) string {
 
 // scanPaths scans directories, prints actions, and optionally executes them
 func scanPaths(source, dest string, maxFileSize int64, dryRun bool) error {
-	// Create filter function
-	filterFunc := func(path string, info os.FileInfo) bool {
-		// Skip all symlinks (both file and directory symlinks)
-		if info.Mode()&os.ModeSymlink != 0 {
-			return false
-		}
-
-		// Apply ShouldTrack filter
-		shouldTrack, _ := ShouldTrack(path, maxFileSize, false)
-		return shouldTrack
-	}
-
 	var filesToCopy []string
 	var filesToUpdate []string
 	filesToCopyMap := make(map[string]bool)
@@ -593,19 +617,9 @@ func scanPaths(source, dest string, maxFileSize int64, dryRun bool) error {
 	var totalScannedSize int64
 	var totalChangedSize int64
 
-	// Walk source directory
-	err := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if info.IsDir() {
-			if IsExcludedDir(path) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if filterFunc != nil && !filterFunc(path, info) {
+	// Walk the files of the source the rules keep
+	_, err := rulesSet().walk(source, func(path string, info fs.FileInfo) error {
+		if tooLargeToTrack(path, info.Size(), maxFileSize) {
 			return nil
 		}
 
@@ -739,20 +753,9 @@ func expandDirChanges(events []PendingFileChanges, absSourcePath, absDestPath st
 
 	for _, dir := range dirs {
 		// Missing (moved away or removed): nothing to walk
-		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if info.IsDir() {
-				if IsExcludedDir(path) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if info.Mode()&os.ModeSymlink == 0 {
-				if track, _ := ShouldTrack(path, maxFileSize, false); track {
-					add(path, EventCreated)
-				}
+		rulesSet().walk(dir, func(path string, info fs.FileInfo) error {
+			if !tooLargeToTrack(path, info.Size(), maxFileSize) {
+				add(path, EventCreated)
 			}
 			return nil
 		})

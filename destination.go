@@ -291,11 +291,6 @@ func ValidateSourceAndDestination(sourcePath, destPath string) (*PathValidationR
 	if parent, found := findInParents(resolvedDest, markerFileName); found {
 		addError("destination path is inside another autoversion destination (%s)", parent)
 	}
-	if !noGit {
-		if parent, found := findInParents(resolvedDest, ".git"); found {
-			addError("destination path has a parent with a .git repository (%s), this would create nested git repos", parent)
-		}
-	}
 
 	if result.DestinationExists {
 		marker, err := readMarker(resolvedDest)
@@ -311,6 +306,17 @@ func ValidateSourceAndDestination(sourcePath, destPath string) (*PathValidationR
 		default:
 			result.Marker = MarkerOtherSource
 			result.MarkerSource = marker.Source
+		}
+	}
+
+	// Git: the marker's setting, or init's --no-git for a new destination
+	git := !noGit
+	if result.Marker == MarkerMatches {
+		git = git && result.Settings.Git
+	}
+	if git {
+		if parent, found := findInParents(resolvedDest, ".git"); found {
+			addError("destination path has a parent with a .git repository (%s), this would create nested git repos", parent)
 		}
 	}
 
@@ -341,8 +347,8 @@ func (r *PathValidationResult) problems() []string {
 		problems = append(problems, err.Error())
 	} else if r.RulesErr != nil {
 		problems = append(problems, r.RulesErr.Error())
-	} else if useRestic && !IsResticRepo(r.DestinationResolved) {
-		problems = append(problems, fmt.Sprintf("no restic repository for %s (run: autoversion init --restic --source %s --destination %s)",
+	} else if r.Settings.Restic && !IsResticRepo(r.DestinationResolved) {
+		problems = append(problems, fmt.Sprintf("no restic repository for %s (run: autoversion init --source %s --destination %s)",
 			r.DestinationResolved, r.SourceResolved, r.DestinationResolved))
 	}
 	return problems
@@ -415,16 +421,17 @@ func checkPaths(sourcePath, destPath string) (*PathValidationResult, error) {
 }
 
 // validatePaths validates source and destination for a command that copies
-// files and returns their resolved paths
-func validatePaths(sourcePath, destPath string) (absSourcePath, absDestPath string, err error) {
+// files: the result has their resolved paths, the destination's settings
+// and its rules
+func validatePaths(sourcePath, destPath string) (*PathValidationResult, error) {
 	result, err := ValidateSourceAndDestination(sourcePath, destPath)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if problems := result.problems(); len(problems) > 0 {
-		return "", "", fmt.Errorf("path validation failed: %s", problems[0])
+		return nil, fmt.Errorf("path validation failed: %s", problems[0])
 	}
-	return result.SourceResolved, result.DestinationResolved, nil
+	return result, nil
 }
 
 // settingsFlags are the settings given to init, nil when not given
@@ -602,6 +609,11 @@ func updateSettings(destPath string, marker *destinationMarker, opts initOptions
 	changes := opts.settings.changes(marker.destinationSettings)
 	if len(changes) > 0 && !opts.updateSettings {
 		return fmt.Errorf("destination %s has other settings: %s (--update-settings changes them)", destPath, strings.Join(changes, ", "))
+	}
+	if settings.Git && !marker.Git {
+		if parent, found := findInParents(destPath, ".git"); found {
+			return fmt.Errorf("destination path has a parent with a .git repository (%s), this would create nested git repos", parent)
+		}
 	}
 
 	// A repository the settings ask for, missing or new, is created

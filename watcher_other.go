@@ -169,12 +169,8 @@ func (w *Watcher) addRecursive(path string) error {
 		}
 
 		if info.IsDir() {
-			// Skip .git directories
-			if info.Name() == ".git" {
-				return filepath.SkipDir
-			}
-
-			if IsExcludedDir(walkPath) {
+			// Folders the rules leave out, .git included, with nothing kept below
+			if skipDir(walkPath) {
 				return filepath.SkipDir
 			}
 
@@ -206,7 +202,7 @@ func (w *Watcher) addRecursive(path string) error {
 		return err
 	}
 	if unwatched > 0 {
-		return fmt.Errorf("%w (fs.inotify.max_user_watches=%s, shared by all processes of this user): %d directories watched, %d more under %s need a watch. Raise the limit or skip directories with --exclude-dir (see README, Linux)",
+		return fmt.Errorf("%w (fs.inotify.max_user_watches=%s, shared by all processes of this user): %d directories watched, %d more under %s need a watch. Raise the limit or exclude folders with filter set (see README, Linux)",
 			errWatchLimit, inotifyWatchLimit(), len(w.watched), unwatched, path)
 	}
 	return nil

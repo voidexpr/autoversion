@@ -97,53 +97,42 @@ make docker-watch-check                               # watch-check on Linux
 
 ## Directory Mirroring (without git)
 
-Use `--no-git` to maintain a filtered copy of a directory without any git versioning. This is useful when you just want a clean mirror that excludes build artifacts, temp files, and other noise.
+Initialize the destination with `--no-git` to keep a filtered copy of a directory without git versioning: a clean mirror without build artifacts, temp files and other noise. The setting is stored in the marker, so `sync`, `watch` and `install` take no flag for it.
 
 ```bash
-# Initialize the mirror once (writes the marker, no git repository)
 ./autoversion init --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
-
-# One-time mirror
-./autoversion sync --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
-
-# Real-time mirror (watches for changes)
-./autoversion watch --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
-
-# Install as a background service
-./autoversion install --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
+./autoversion sync --source ~/projects/myapp --destination /tmp/mirror/myapp     # one-time mirror
+./autoversion watch --source ~/projects/myapp --destination /tmp/mirror/myapp    # real-time mirror
+./autoversion install --source ~/projects/myapp --destination /tmp/mirror/myapp  # background service
 ```
 
-The same file filtering rules apply — symlinks, large files, `node_modules/`, `.git/`, etc. are all excluded.
+The rules apply as with git (see **filter**). On a plain mirror, the files the rules stop keeping are deleted for good at the next sync: `filter set --dry-run` lists them first.
 
-Combine with `--only-include-extensions` to mirror only specific file types:
+### Choosing what is tracked
+
+The rules are stored in the destination (see **filter**). Common cases:
 
 ```bash
-# Mirror only documentation and data files
-./autoversion sync --no-git --only-include-extensions md,csv,txt --source ~/projects/myapp --destination /tmp/mirror/myapp
+# Everything but the built-in exclusions (the default)
+./autoversion init --source ~/SyncDatabox --destination ~/repos/SyncDatabox
+
+# Skip folders of the source: rules start at the source root (/**/ for any depth)
+./autoversion init --use default --exclude /Backup --exclude /nicmac/local_projects \
+    --source ~/SyncDatabox --destination ~/repos/SyncDatabox
+
+# Only some file types
+./autoversion init --no-git --use default --exclude '/*' --include 'f:/**/*.{md,csv,txt}' \
+    --source ~/projects/myapp --destination /tmp/mirror/myapp
+
+# Only a few files and folders of a busy tree (the ~/.claude example of filter)
+./autoversion init --filter claude.filter --source ~/.claude --destination ~/backup/claude_settings
+
+# Change the rules of a destination: check first, then apply (restarts the running service)
+./autoversion filter set --destination ~/repos/SyncDatabox --use default --exclude /Backup --exclude /archives --dry-run
+./autoversion filter set --destination ~/repos/SyncDatabox --use default --exclude /Backup --exclude /archives
 ```
 
-### Excluding directories
-
-Use `--exclude-dir` (repeatable) to skip specific subdirectories. Paths are relative to the source directory:
-
-```bash
-# Watch ~/SyncDatabox but skip Backup and archives
-./autoversion watch --exclude-dir Backup --exclude-dir archives --source ~/SyncDatabox --destination ~/repos/SyncDatabox
-
-# Nested paths work too
-./autoversion sync --exclude-dir nicmac/local_projects --exclude-dir tmp/cache --source ~/SyncDatabox --destination ~/repos/SyncDatabox
-
-# Combine with other flags
-./autoversion install --exclude-dir Backup --only-include-extensions md,csv --source ~/SyncDatabox --destination ~/repos/SyncDatabox
-```
-
-Only top-level matches are excluded: `--exclude-dir Backup` with source `~/foo` skips `~/foo/Backup` but not `~/foo/nested/Backup`. For the nested case, pass `--exclude-dir nested/Backup`.
-
-Excluded directories are skipped entirely — no files are copied, no watches are set up, and no events are processed for anything under them. The flag is persisted in launchd plists, so `install` preserves it across reboots.
-
-Re-running `install` with different `--exclude-dir` values automatically updates the service configuration and reloads it.
-
-Paths must be relative and cannot escape the source directory. Absolute paths (`/tmp`) and parent traversals (`../outside`) are rejected.
+A folder the rules leave out, with nothing kept below it, is skipped entirely: scans don't enter it, on Linux it uses no inotify watch, and its events are only logged (with `--debug` or `--report-only`).
 
 ## Commands
 
@@ -155,11 +144,11 @@ Install as a launchd background service. The destination must be initialized for
 ./autoversion install --source SOURCE_PATH --destination DEST_PATH [flags]
 ```
 
-Flags: `--max-file-size MB`, `--buffer-time SECONDS`, `--no-git`, `--restic`, `--no-login`, `--dry-run`, `--debug`, `--exclude-dir` (repeatable), `--only-include-extensions`
+Flags: `--buffer-time SECONDS`, `--no-login`, `--dry-run`, `--debug`. The settings (git, restic, max file size) and the rules are the destination's: the service reads them when it starts, and `filter set` / `filter check` restart it.
 
-`install` prints the same path resolution and checks as **check-paths**, runs an initial sync, then writes and loads the plist (`watch --source SOURCE_PATH --destination DEST_PATH --log-dir …`). The job ID is built from the source and destination paths. The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
+`install` prints the same path resolution and checks as **check-paths**, runs an initial sync, then writes and loads the plist (`watch --source SOURCE_PATH --destination DEST_PATH --buffer-time … --log-dir …`). The job ID is built from the source and destination paths. The command is idempotent — run it again after rebuilding or changing flags to update and reload the service.
 
-**Logs.** The service writes `~/Library/Logs/autoversion/<job>/stdout.log` and `stderr.log` (`watch --log-dir`, set by `install`). Each file is rotated once it reaches 10 MB, keeping 5 old copies (`stdout.log.1` … `stdout.log.5`, `.1` being the most recent). Sizes are checked every minute. A log file removed by hand is recreated within a minute. Reloading the service through `install` clears `stderr.log` and its rotated copies. Filtered-out events are only logged with `--debug`, and a file over `--max-file-size` is reported once per run.
+**Logs.** The service writes `~/Library/Logs/autoversion/<job>/stdout.log` and `stderr.log` (`watch --log-dir`, set by `install`). Each file is rotated once it reaches 10 MB, keeping 5 old copies (`stdout.log.1` … `stdout.log.5`, `.1` being the most recent). Sizes are checked every minute. A log file removed by hand is recreated within a minute. Reloading the service through `install` clears `stderr.log` and its rotated copies. Filtered-out events are only logged with `--debug`, and a file over the size limit is reported once per run.
 
 **Restart policy.** The service is configured with `KeepAlive={SuccessfulExit=false}` and `ThrottleInterval=21600`, so launchd relaunches only on non-zero exits and at most once every 6 hours. A healthy service that crashes after hours of uptime relaunches immediately (the throttle is measured spawn-to-spawn). A broken service attempting to crash-loop is capped at four auto-restart attempts per day. Explicit `launchctl unload && load` bypasses the throttle.
 
@@ -203,15 +192,15 @@ Use systemd, screen, or tmux to keep it running in the background.
 
 #### inotify watch limit
 
-On Linux, `watch` uses inotify, which needs one watch per directory (excluded directories don't use one). The number of watches per user, shared by all of that user's processes, is limited by `fs.inotify.max_user_watches` (often 8192). When the limit is reached, `watch` stops with an error giving the limit and how many directories still need a watch, at startup or when a new directory is created later. Check and raise the limit:
+On Linux, `watch` uses inotify, which needs one watch per directory (folders the rules skip don't use one; `filter scan --summary` counts the others). The number of watches per user, shared by all of that user's processes, is limited by `fs.inotify.max_user_watches` (often 8192). When the limit is reached, `watch` stops with an error giving the limit and how many directories still need a watch, at startup or when a new directory is created later. Check and raise the limit:
 
 ```bash
 cat /proc/sys/fs/inotify/max_user_watches
-find SOURCE_PATH -type d | wc -l    # upper bound, also counts excluded directories
+./autoversion filter scan --source SOURCE_PATH --destination DEST_PATH --summary   # folders visited = watches
 sudo sysctl -w fs.inotify.max_user_watches=524288
 ```
 
-Each watch in use takes about 1 KB of kernel memory. `sysctl -w` doesn't survive a reboot: put `fs.inotify.max_user_watches=524288` in `/etc/sysctl.d/`, or on Synology DSM add a triggered boot-up task in Task Scheduler (user root) that runs the `sysctl -w` command. Alternatively, skip large directories with `--exclude-dir`.
+Each watch in use takes about 1 KB of kernel memory. `sysctl -w` doesn't survive a reboot: put `fs.inotify.max_user_watches=524288` in `/etc/sysctl.d/`, or on Synology DSM add a triggered boot-up task in Task Scheduler (user root) that runs the `sysctl -w` command. Alternatively, exclude large folders with `filter set`.
 
 ### watch
 
@@ -227,13 +216,15 @@ The destination's marker is checked at startup only. If the destination disappea
 
 With `--log-dir DIR`, stdout and stderr go to `DIR/stdout.log` and `DIR/stderr.log`, rotated by size (see **Logs** under `install`). Filtered-out events (`event skip`) are only printed with `--debug`, and so are files removed before their event is handled (`skipping vanished file`, common with build outputs).
 
-Only print file events, without copying anything (no `--destination`, no initial scan). Each event is shown as `track` (passes the filters) or `skip`; add `--debug` to also see the raw FSEvents flags:
+The settings and the rules are the destination's: `watch` refuses `--max-file-size` and rule flags without `--report-only`, and prints the rules' warnings at startup.
+
+Only print file events, without copying anything (no `--destination`, no initial scan). Each event is shown as `track` (kept by the rules) or `skip`; add `--debug` to also see the raw FSEvents flags. The rules are given on the command line (none: `use default`):
 
 ```bash
-./autoversion watch --report-only --source SOURCE_PATH
+./autoversion watch --report-only --source SOURCE_PATH [--filter FILE | --use GROUP --include RULE --exclude RULE ...] [--max-file-size MB]
 ```
 
-This can be used instead of `inotifywait -m -r` (Linux) or `fswatch` (macOS) to see what changes under a directory, with autoversion's filters (`--exclude-dir`, `--only-include-extensions`, `--max-file-size`, built-in exclusions) applied, and to check what a `watch` would pick up before installing it.
+This can be used instead of `inotifywait -m -r` (Linux) or `fswatch` (macOS) to see what changes under a directory, with rules applied, and to check what a `watch` would pick up before installing it.
 
 ### sync
 
@@ -326,8 +317,6 @@ Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`): 
 
 With `--dry-run`, only the checks and counts.
 
-Note: in this version `sync`, `watch` and `install` don't use the rules yet, they still use the flags of **File Filtering**.
-
 ### check-paths
 
 Validate source and destination paths before installing:
@@ -340,8 +329,9 @@ Shows symlink resolution and the marker status, and validates:
 - Source and destination can't be the same, `$HOME` or `/`
 - Neither path can be inside the other
 - The source can't contain a `.autoversion` marker (catches swapped `--source` / `--destination`)
-- No parent of the destination can contain a `.autoversion` marker (an outer destination's sync would delete the inner one's files), or a `.git` repository unless `--no-git` (prevents nested repos)
-- The destination must have a marker naming the source (and a restic repository with `--restic`)
+- No parent of the destination can contain a `.autoversion` marker (an outer destination's sync would delete the inner one's files), or a `.git` repository unless the destination is a plain mirror (prevents nested repos)
+- The destination must have a marker naming the source (and a restic repository when the marker says restic)
+- The destination's rules must be valid, and an allowlist must have an include that exists; the other warnings are printed
 
 ## Destination Marker
 
@@ -365,22 +355,23 @@ Shows symlink resolution and the marker status, and validates:
 
 ## File Filtering
 
-Autoversion excludes:
+What is tracked is decided by the destination's rules (see **filter**), then:
+- symlinks and other files that are not regular files are never tracked
+- files over the marker's `max_file_size_mb` (10 MB by default, 0 for no limit) are skipped
+- `/**/.git`, and `/.autoversion` and `/.autoversion.filter` at the source root, are always left out
 
-**Extensions:** `.log`, `.dump`, `.swp`, `.tmp`, `.bak`, `.pyc`, `.o`, `.so`, `.DS_Store`, etc.
+The built-in groups (`filter groups` prints them all) leave out, as `use default`:
+- **os:** `.DS_Store`, `Thumbs.db`, `desktop.ini`, `.nfs*` files; `.Spotlight-V100`, `.Trashes`, `.dropbox`
+- **editors:** `*.swp`, `*~`, Vim's `4913`, `*.iml` files; `.idea`
+- **temp:** `*.tmp`, `*.tmp.*`, `*.temp`, `*.bak`, `*.old` files
+- **logs:** `*.log`, `*.out`, `*.err`, `*.pid`, `*.dump` files
+- **build:** the content of `build/`, `dist/` and `out/`; `target/debug`, `target/release`, `.build`, `DerivedData`; `*.o`, `*.so`, `*.dylib`, `*.class`, `*.jar`, `*.pyc`, … files
+- **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.npm`, `.venv`, `venv`, `__pycache__`, `.gradle`
+- **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.playwright-mcp`, `playwright-report`, `test-results`
+- **data:** `pgdata`, `*.pgdb`; `*.wal` files
+- **vcs:** `.hg`, `.svn`, `.cvs`, `*.git` (bare repositories)
 
-**Directories:** `.git/`, `node_modules/`, `__pycache__/`, `.venv/`, `target/debug/`
-
-**Other:** Symlinks, files > 10MB (configurable), vim temp files
-
-Directories matched by these exclusions or by `--exclude-dir` are skipped entirely: scans don't walk into them, and on Linux they don't use an inotify watch. With `--only-include-extensions` the built-in exclusions don't apply, so only `.git` and `--exclude-dir` directories are skipped.
-
-**Single files:** `--only-include-file PATH` (repeatable, relative to the source) tracks only those files, even if a built-in exclusion matches them; `--max-file-size` still applies. Only the directories leading to them are scanned and, on Linux, watched. It can't be combined with `--exclude-dir` or `--only-include-extensions`. Removing a file from the list removes its copy at the next sync (kept in git history). For example, to version one file of a busy directory:
-
-```bash
-./autoversion init --source ~/.claude --destination ~/backup/claude_settings
-./autoversion install --only-include-file settings.json --source ~/.claude --destination ~/backup/claude_settings
-```
+Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf.d` is kept. Lock files (`Cargo.lock`, `uv.lock`) and `.vscode/` are tracked.
 
 ## Configuration
 
@@ -395,15 +386,12 @@ Directories matched by these exclusions or by `--exclude-dir` are skipped entire
 | `--include`, `--exclude` | (none) | Include or exclude rule, repeatable (`init`, `filter scan`, `dump`, `set`) |
 | `--use` | (none) | Built-in group, repeatable (`init`, `filter scan`, `dump`, `set`; see `filter groups`) |
 | `--explain`, `--summary` | (none) | `filter scan`: what decides one entry; the counts only |
-| `--max-file-size` | 10 MB | Maximum file size to track (`init` stores it in the marker) |
+| `--max-file-size` | 10 MB | Maximum file size to track: `init` stores it in the marker; also `filter scan` and `watch --report-only` |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--report-only` | false | Only print file events, copy nothing (watch only, no `--destination` needed) |
-| `--only-include-extensions` | (none) | Only include files with these extensions (comma-separated, e.g. `md,csv,txt`) |
-| `--exclude-dir` | (none) | Exclude a directory relative to source; repeatable (e.g. `--exclude-dir Backup --exclude-dir tmp`) |
-| `--only-include-file` | (none) | Only track this file, relative to source; repeatable (see **Single files**) |
-| `--no-git` | false | Disable git entirely (plain directory mirror) |
-| `--restic` | false | Enable restic backup |
+| `--no-git` | false | `init`: plain directory mirror, no git (stored in the marker) |
+| `--restic` | false | `init`: restic backups (stored in the marker) |
 | `--no-login` | false | Don't start service at login (install only) |
 | `--debug` | false | Enable debug logging, including filtered-out events |
 | `--log-dir` | (none) | Write rotated `stdout.log` / `stderr.log` in this directory (watch; set by install) |

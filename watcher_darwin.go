@@ -238,14 +238,10 @@ func (w *Watcher) processFSEvents() {
 					continue
 				}
 
-				if IsExcludedPath(event.Path) {
-					w.printDebug("fsevents: skipping excluded path: %s", event.Path)
-					continue
-				}
-
-				// Paths the filters reject need no file check: the main loop only
-				// logs them (with --debug or --report-only)
-				if matchesPathFilters(event.Path) {
+				// The rules need no file access, and the paths they leave out need
+				// no file check: the main loop only logs them (with --debug or
+				// --report-only)
+				if trackedPath(event.Path, false) {
 					var ok bool
 					if eventType, ok = w.resolveFileEvent(event.Path, eventType); !ok {
 						continue

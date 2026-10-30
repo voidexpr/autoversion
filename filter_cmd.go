@@ -213,12 +213,16 @@ default).
 			return explain(s, explainFlag, maxSize)
 		}
 		files := 0
-		dirs := s.walk(maxSize, func(path string, _ fs.FileInfo) {
+		dirs, _ := s.walk(sourcePath, func(path string, info fs.FileInfo) error {
+			if tooLarge(info.Size(), maxSize) {
+				return nil
+			}
 			files++
 			if !summaryFlag {
 				rel, _ := s.rel(path)
 				fmt.Println(rel)
 			}
+			return nil
 		})
 		if summaryFlag {
 			fmt.Printf("%d files kept, %d folders visited\n", files, dirs)
@@ -434,9 +438,12 @@ func applyRules(result *PathValidationResult, text string, replace bool) error {
 	}
 
 	kept := map[string]bool{}
-	(&sourceRules{root: sourcePath, rules: rules}).walk(settings.MaxFileSizeMB, func(path string, _ fs.FileInfo) {
-		rel, _ := filepath.Rel(sourcePath, path)
-		kept[rel] = true
+	(&sourceRules{root: sourcePath, rules: rules}).walk(sourcePath, func(path string, info fs.FileInfo) error {
+		if !tooLarge(info.Size(), settings.MaxFileSizeMB) {
+			rel, _ := filepath.Rel(sourcePath, path)
+			kept[rel] = true
+		}
+		return nil
 	})
 	var removed []string
 	inDest := 0

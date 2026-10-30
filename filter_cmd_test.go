@@ -72,17 +72,37 @@ func defaultRulesWith(t *testing.T, lines ...string) *filterrules.Rules {
 func TestSourceRulesWalk(t *testing.T) {
 	source := newRulesSource(t)
 	s := &sourceRules{root: source, rules: defaultRulesWith(t, "exclude /skipped")}
-	var files []string
-	dirs := s.walk(1, func(path string, _ fs.FileInfo) {
-		rel, _ := s.rel(path)
-		files = append(files, rel)
-	})
-	if want := []string{"keep.txt", "notes/a.md", "notes/b.md", "sub/c.md"}; !slices.Equal(files, want) {
-		t.Errorf("files %q, want %q", files, want)
+	walk := func(dir string, stopAt string) ([]string, int, error) {
+		var files []string
+		dirs, err := s.walk(dir, func(path string, _ fs.FileInfo) error {
+			rel, _ := s.rel(path)
+			files = append(files, rel)
+			if rel == stopAt {
+				return errDestMissing
+			}
+			return nil
+		})
+		return files, dirs, err
+	}
+
+	// The size limit is the caller's to check
+	files, dirs, err := walk(source, "")
+	if want := []string{"big.bin", "keep.txt", "notes/a.md", "notes/b.md", "sub/c.md"}; !slices.Equal(files, want) || err != nil {
+		t.Errorf("files %q (error %v), want %q", files, err, want)
 	}
 	// The root, notes and sub: node_modules, .git and skipped aren't entered
 	if dirs != 3 {
 		t.Errorf("folders visited %d, want 3", dirs)
+	}
+
+	if files, _, _ := walk(filepath.Join(source, "notes"), ""); !slices.Equal(files, []string{"notes/a.md", "notes/b.md"}) {
+		t.Errorf("from notes: files %q", files)
+	}
+	if files, _, _ := walk(filepath.Join(source, "skipped"), ""); len(files) != 0 {
+		t.Errorf("from a folder the rules leave out: files %q", files)
+	}
+	if files, _, err := walk(source, "keep.txt"); len(files) != 2 || err != errDestMissing {
+		t.Errorf("an error stops the walk: files %q, error %v", files, err)
 	}
 }
 
@@ -187,7 +207,7 @@ func newSyncedDestination(t *testing.T, git bool) (*PathValidationResult, string
 	if err := initDestination(source, dest, initOptions{settings: settingsFlags{git: &git}}); err != nil {
 		t.Fatal(err)
 	}
-	SetSourceRoot(source)
+	setRules(t, source)
 	if err := scanPaths(source, dest, 0, false); err != nil {
 		t.Fatal(err)
 	}
@@ -290,6 +310,51 @@ func TestApplyRules(t *testing.T) {
 			t.Errorf("rules %q\n%s", readRulesFile(t, dest), out)
 		}
 	})
+}
+
+func TestCopyCommandsUseTheDestination(t *testing.T) {
+	for _, git := range []bool{true, false} {
+		result, dest := newSyncedDestination(t, git)
+		source := result.SourceResolved
+		if _, err := runCLI(t, "filter", "set", "--destination", dest, "--use", "default", "--exclude", "/a.txt"); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(source, "c.log"), "log")
+		if out, err := runCLI(t, "sync", "--source", source, "--destination", dest); err != nil {
+			t.Fatalf("sync: %v\n%s", err, out)
+		}
+		for file, want := range map[string]bool{"a.txt": false, "b.txt": true, "notes/n.md": true, "c.log": false} {
+			if _, err := os.Stat(filepath.Join(dest, file)); (err == nil) != want {
+				t.Errorf("git %v: %s in the destination: %v, want %v", git, file, err == nil, want)
+			}
+		}
+		if IsGitRepo(dest) != git {
+			t.Errorf("git %v: the destination's git repository changed", git)
+		}
+	}
+
+	result, dest := newSyncedDestination(t, true)
+	source := result.SourceResolved
+	for _, args := range [][]string{
+		{"sync", "--no-git"}, {"sync", "--restic"}, {"sync", "--max-file-size", "5"},
+		{"sync", "--exclude-dir", "x"}, {"sync", "--only-include-extensions", "md"}, {"sync", "--exclude", "/x"},
+		{"check-paths", "--no-git"},
+	} {
+		_, err := runCLI(t, append(args, "--source", source, "--destination", dest)...)
+		if err == nil || !strings.Contains(err.Error(), "set them with init or filter set") {
+			t.Errorf("%v: error %v", args, err)
+		}
+	}
+	for _, args := range [][]string{{"--exclude", "/x"}, {"--use", "os"}, {"--max-file-size", "5"}} {
+		_, err := runCLI(t, append([]string{"watch", "--source", source, "--destination", dest}, args...)...)
+		if err != errDestinationSettings {
+			t.Errorf("watch %v: error %v", args, err)
+		}
+	}
+	// --report-only takes rules
+	if _, err := runCLI(t, "watch", "--report-only", "--source", source, "--exclude", "node_modules"); err == nil || !strings.Contains(err.Error(), "no-root") {
+		t.Errorf("watch --report-only with an invalid rule: error %v", err)
+	}
 }
 
 func TestFilterCommands(t *testing.T) {

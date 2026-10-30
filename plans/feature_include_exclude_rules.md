@@ -567,7 +567,31 @@ Tests:
 ## Progress
 
 - **M1 done** (b28a18f, 22cff06).
-- **M2 done.** Differences from the plan:
+- **M3 done.** `make watch-check` (macOS) and `make docker-watch-check`
+  pass, with git and `--no-git` (2026-10-29). Differences from the plan:
+  - Pulled in from M4, so each commit works on its own: the plist has
+    the runtime flags only (the config hash stays in M4),
+    `check_watch.sh` passes its flags to `init` only, and the README
+    sections on the removed flags are rewritten (File Filtering,
+    Directory Mirroring, Choosing what is tracked, Configuration).
+  - `--no-git` and `--restic` are `init` flags now, not global ones. A
+    removed or moved flag (`--exclude-dir`, `--no-git` on `sync`, …)
+    fails with a hint: "settings and rules belong to the destination,
+    set them with init or filter set".
+  - `watch` keeps `--max-file-size` and the rule flags for
+    `--report-only` only.
+  - `ShouldTrack` refuses symlinks and other special files: `watch`
+    used to track a symlink's events, `scanPaths` didn't.
+  - Using the rules before `SetFilter` panics: a sync without rules would
+    remove every file of the destination.
+  - The macOS watcher no longer drops the events of excluded folders
+    silently: like the other left-out paths, they reach the main loop,
+    which logs them with `--debug` or `--report-only`. No file access
+    for them, as before.
+  - The parent `.git` check uses the marker's `git`, and switching a
+    mirror to git checks it too. The missing restic repository check
+    uses the marker's `restic`.
+- **M2 done** (0d240c5). Differences from the plan:
   - `init` and `filter set` take a `--filter` file or rule flags, not
     both. A file is stored as written, comments kept (a `root` line is
     removed once checked). Flags are written one per line. Combining them

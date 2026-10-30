@@ -7,13 +7,19 @@ import (
 	"testing"
 )
 
+// setRules sets the active rules for a test, use default plus lines, and
+// restores the previous ones after
+func setRules(t *testing.T, root string, lines ...string) {
+	t.Helper()
+	rules := defaultRulesWith(t, lines...)
+	old := activeRules
+	SetFilter(root, rules)
+	t.Cleanup(func() { activeRules = old })
+}
+
 func TestShouldTrack(t *testing.T) {
-	// Create a temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "filter_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := resolvedTempDir(t)
+	setRules(t, tmpDir)
 
 	tests := []struct {
 		name      string
@@ -28,6 +34,10 @@ func TestShouldTrack(t *testing.T) {
 		{"normal py file", "script.py", "print('hi')", 0, true},
 		{"gitignore", ".gitignore", "*.log", 0, true},
 		{"gitmodules", ".gitmodules", "[submodule]", 0, true},
+		{"lock file (source)", "Cargo.lock", "lock", 0, true},
+		{"vscode settings", ".vscode/settings.json", "json", 0, true},
+		{"numeric name", "subdir/12345", "data", 0, true},
+		{"file named build", "build", "#!/bin/sh", 0, true},
 
 		// Should exclude - file extensions
 		{"log file", "app.log", "log data", 0, false},
@@ -36,15 +46,16 @@ func TestShouldTrack(t *testing.T) {
 		{"swpx file", ".file.swpx", "vim swap", 0, false},
 		{"swo file", ".file.swo", "vim swap", 0, false},
 		{"pid file", "app.pid", "1234", 0, false},
-		{"lock file", "app.lock", "lock", 0, false},
 		{"pyc file", "module.pyc", "bytecode", 0, false},
 		{"wal file", "db.wal", "wal data", 0, false},
 		{"old file", "backup.old", "old", 0, false},
 		{"temp file", "scratch.temp", "temp", 0, false},
+		{"atomic write temp", "PLAN.md.tmp.18812.1760578375713", "temp", 0, false},
 		{"DS_Store", ".DS_Store", "mac", 0, false},
 		{"object file", "code.o", "obj", 0, false},
 		{"shared lib", "lib.so", "lib", 0, false},
 		{"archive", "lib.a", "ar", 0, false},
+		{"vim write test", "subdir/4913", "", 0, false},
 
 		// Should exclude - tilde suffix
 		{"tilde backup", "file~", "backup", 0, false},
@@ -71,11 +82,10 @@ func TestShouldTrack(t *testing.T) {
 
 		// Directories
 		{"gradle cache", ".gradle/caches/file.bin", "data", 0, false},
-		{"build dir", "build/output.js", "js", 0, false},
+		{"build dir", "build-dir/build/output.js", "js", 0, false},
 		{"dist dir", "dist/bundle.js", "js", 0, false},
 		{"next dir", ".next/cache/file", "data", 0, false},
 		{"idea dir", ".idea/workspace.xml", "xml", 0, false},
-		{"vscode dir", ".vscode/settings.json", "json", 0, false},
 		{"DerivedData", "DerivedData/Build/obj", "data", 0, false},
 
 		// OS files
@@ -85,25 +95,19 @@ func TestShouldTrack(t *testing.T) {
 		// IntelliJ
 		{"iml file", "project.iml", "iml", 0, false},
 
+		// Destination files at the source root
+		{"marker", markerFileName, "{}", 0, false},
+		{"rules file", filterFileName, "version 1", 0, false},
+		{"rules file below the root", "sub/" + filterFileName, "version 1", 0, true},
+
 		// File size limits
 		{"small file under limit", "small.txt", "x", 1, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create test file
 			testPath := filepath.Join(tmpDir, tt.filename)
-
-			// Create parent dirs if needed
-			if dir := filepath.Dir(testPath); dir != tmpDir {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					t.Fatal(err)
-				}
-			}
-
-			if err := os.WriteFile(testPath, []byte(tt.content), 0644); err != nil {
-				t.Fatal(err)
-			}
+			writeFile(t, testPath, tt.content)
 
 			got, err := ShouldTrack(testPath, tt.maxSizeMB, false)
 			if err != nil {
@@ -116,124 +120,27 @@ func TestShouldTrack(t *testing.T) {
 	}
 }
 
-func TestShouldTrack_IncludeExtensions(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "filter_include_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	files := map[string]string{
-		"doc.md":     "markdown",
-		"script.py":  "print('hi')",
-		"app.log":    "log data",
-		"data.csv":   "a,b,c",
-		"README.txt": "hello",
-	}
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	tests := []struct {
-		name       string
-		includeExt string
-		filename   string
-		want       bool
-	}{
-		{"md included when in list", "md,csv", "doc.md", true},
-		{"csv included when in list", "md,csv", "data.csv", true},
-		{"py excluded when not in list", "md,csv", "script.py", false},
-		{"txt excluded when not in list", "md,csv", "README.txt", false},
-		{"log included when in list (overrides default exclude)", "log", "app.log", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			includeExtensions = nil
-			SetIncludeExtensions(tt.includeExt)
-			defer func() { includeExtensions = nil }()
-
-			got, err := ShouldTrack(filepath.Join(tmpDir, tt.filename), 0, false)
-			if err != nil {
-				t.Fatalf("ShouldTrack() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("ShouldTrack(%q) with include=%q = %v, want %v", tt.filename, tt.includeExt, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestShouldTrack_EmptyIncludeExtensions(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "filter_empty_include_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	includeExtensions = nil
-	SetIncludeExtensions("")
-
-	goFile := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(goFile, []byte("package main"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	logFile := filepath.Join(tmpDir, "app.log")
-	if err := os.WriteFile(logFile, []byte("log"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	got, _ := ShouldTrack(goFile, 0, false)
-	if !got {
-		t.Error("ShouldTrack(main.go) with empty include = false, want true")
-	}
-
-	got, _ = ShouldTrack(logFile, 0, false)
-	if got {
-		t.Error("ShouldTrack(app.log) with empty include = true, want false (default exclude)")
-	}
-}
-
 func TestShouldTrack_FileSize(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "filter_size_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Create a 2MB file
+	tmpDir := resolvedTempDir(t)
+	setRules(t, tmpDir)
 	largePath := filepath.Join(tmpDir, "large.bin")
-	largeData := make([]byte, 2*1024*1024) // 2MB
-	if err := os.WriteFile(largePath, largeData, 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, largePath, strings.Repeat("x", 2*1024*1024))
 
-	// Should be excluded with 1MB limit
-	got, err := ShouldTrack(largePath, 1, false)
-	if err != nil {
-		t.Fatalf("ShouldTrack() error = %v", err)
-	}
-	if got != false {
-		t.Errorf("ShouldTrack(2MB file, 1MB limit) = %v, want false", got)
-	}
-
-	// Should be allowed with 3MB limit
-	got, err = ShouldTrack(largePath, 3, false)
-	if err != nil {
-		t.Fatalf("ShouldTrack() error = %v", err)
-	}
-	if got != true {
-		t.Errorf("ShouldTrack(2MB file, 3MB limit) = %v, want true", got)
+	captureStdout(t, func() {
+		if got, err := ShouldTrack(largePath, 1, false); got || err != nil {
+			t.Errorf("ShouldTrack(2MB file, 1MB limit) = %v, %v, want false", got, err)
+		}
+	})
+	if got, err := ShouldTrack(largePath, 3, false); !got || err != nil {
+		t.Errorf("ShouldTrack(2MB file, 3MB limit) = %v, %v, want true", got, err)
 	}
 }
 
 func TestShouldTrack_LargeFileReportedOnce(t *testing.T) {
-	largePath := filepath.Join(t.TempDir(), "large.bin")
-	if err := os.WriteFile(largePath, make([]byte, 2*1024*1024), 0644); err != nil {
-		t.Fatal(err)
-	}
+	tmpDir := resolvedTempDir(t)
+	setRules(t, tmpDir)
+	largePath := filepath.Join(tmpDir, "large.bin")
+	writeFile(t, largePath, strings.Repeat("x", 2*1024*1024))
 
 	out := captureStdout(t, func() {
 		for range 3 {
@@ -250,7 +157,8 @@ func TestShouldTrack_LargeFileReportedOnce(t *testing.T) {
 func TestShouldTrack_VanishedFile(t *testing.T) {
 	oldDebug := debug
 	defer func() { debug = oldDebug }()
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
+	setRules(t, dir)
 	vanished := filepath.Join(dir, "gone.txt")
 	excluded := filepath.Join(dir, "target", "debug", "incremental", "gone.o")
 
@@ -264,7 +172,7 @@ func TestShouldTrack_VanishedFile(t *testing.T) {
 				}
 			}
 		})
-		// Only with --debug, and excluded paths are filtered before the file is looked up
+		// Only with --debug, and paths the rules leave out are not looked up
 		want := 0
 		if d {
 			want = 1
@@ -278,313 +186,105 @@ func TestShouldTrack_VanishedFile(t *testing.T) {
 	}
 }
 
-func TestShouldTrack_Directory(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "filter_dir_test")
-	if err != nil {
+func TestShouldTrack_NotRegularFiles(t *testing.T) {
+	dir := resolvedTempDir(t)
+	setRules(t, dir)
+	writeFile(t, filepath.Join(dir, "a.txt"), "a")
+	if err := os.Symlink("a.txt", filepath.Join(dir, "link")); err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	// Directories should not be tracked
-	got, err := ShouldTrack(tmpDir, 0, false)
-	if err != nil {
-		t.Fatalf("ShouldTrack() error = %v", err)
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0755); err != nil {
+		t.Fatal(err)
 	}
-	if got != false {
-		t.Errorf("ShouldTrack(directory) = %v, want false", got)
+	for _, name := range []string{"link", "sub"} {
+		if got, err := ShouldTrack(filepath.Join(dir, name), 0, false); got || err != nil {
+			t.Errorf("ShouldTrack(%s) = %v, %v, want false", name, got, err)
+		}
+	}
+	// A deleted entry is decided by the rules only
+	if got, _ := ShouldTrack(filepath.Join(dir, "link"), 0, true); !got {
+		t.Error("ShouldTrack(deleted link) = false, want true")
 	}
 }
 
-func TestShouldTrack_ExcludeDirs(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "filter_exclude_dirs_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+func TestShouldTrack_Rules(t *testing.T) {
+	root := resolvedTempDir(t)
+	setRules(t, root, "exclude /*", "/settings.json", "/debug.log", "/projects/*/memory")
 
-	// Create files in various subdirs
-	dirs := []string{"Backup", "Backup/sub", "dotfiles", "nicmac/projects"}
-	for _, d := range dirs {
-		if err := os.MkdirAll(filepath.Join(tmpDir, d), 0755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	files := map[string]string{
-		"Backup/data.txt":         "backup",
-		"Backup/sub/deep.txt":     "deep",
-		"dotfiles/.bashrc":        "rc",
-		"nicmac/projects/main.go": "go",
-		"root.txt":                "root",
-	}
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Save and restore global state
-	oldExcludeDirs := excludeDirs
-	oldSourceRoot := sourceRoot
-	defer func() {
-		excludeDirs = oldExcludeDirs
-		sourceRoot = oldSourceRoot
-	}()
-
-	SetSourceRoot(tmpDir)
-	if err := SetExcludeDirs([]string{"Backup"}); err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []struct {
-		name string
-		file string
-		want bool
-	}{
-		{"file in excluded dir", "Backup/data.txt", false},
-		{"file in excluded subdir", "Backup/sub/deep.txt", false},
-		{"file in non-excluded dir", "dotfiles/.bashrc", true},
-		{"file in nested non-excluded dir", "nicmac/projects/main.go", true},
-		{"file at root", "root.txt", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ShouldTrack(filepath.Join(tmpDir, tt.file), 0, false)
-			if err != nil {
-				t.Fatalf("ShouldTrack() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("ShouldTrack(%q) with exclude=Backup = %v, want %v", tt.file, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsExcludedDir(t *testing.T) {
-	oldExcludeDirs := excludeDirs
-	oldSourceRoot := sourceRoot
-	oldIncludeExtensions := includeExtensions
-	defer func() {
-		excludeDirs = oldExcludeDirs
-		sourceRoot = oldSourceRoot
-		includeExtensions = oldIncludeExtensions
-	}()
-
-	root := "/src"
-	SetSourceRoot(root)
-	if err := SetExcludeDirs([]string{"Backup"}); err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []struct {
-		dir  string
-		want bool
-	}{
-		{"project", false},
-		{"project/src", false},
-		{"project/builder", false},
-		{"Backups", false},
-		{"project/node_modules", true},
-		{"project/node_modules/pkg", true},
-		{"project/.venv", true},
-		{"project/__pycache__", true},
-		{"project/build", true},
-		{"project/.git", true},
-		{"Backup", true},
-		{"Backup/sub", true},
-	}
-	for _, tt := range tests {
-		dir := filepath.Join(root, tt.dir)
-		if got := IsExcludedDir(dir); got != tt.want {
-			t.Errorf("IsExcludedDir(%q) = %v, want %v", tt.dir, got, tt.want)
-		}
-		// A skipped directory must not contain files ShouldTrack would accept
-		if tt.want {
-			if track, _ := ShouldTrack(filepath.Join(dir, "file.txt"), 0, true); track {
-				t.Errorf("IsExcludedDir(%q) is true but ShouldTrack accepts a file in it", tt.dir)
-			}
-		}
-	}
-
-	t.Run("include extensions bypass built-in patterns", func(t *testing.T) {
-		SetIncludeExtensions("md")
-		if IsExcludedDir(filepath.Join(root, "project/node_modules")) {
-			t.Error("node_modules excluded although --only-include-extensions bypasses patterns")
-		}
-		if !IsExcludedDir(filepath.Join(root, "Backup")) {
-			t.Error("--exclude-dir Backup not excluded with --only-include-extensions")
-		}
-	})
-}
-
-func TestIsExcludedPath(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "excluded_path_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	oldExcludeDirs := excludeDirs
-	oldSourceRoot := sourceRoot
-	defer func() {
-		excludeDirs = oldExcludeDirs
-		sourceRoot = oldSourceRoot
-	}()
-
-	SetSourceRoot(tmpDir)
-	if err := SetExcludeDirs([]string{"Backup", "tmp/cache"}); err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []struct {
-		rel  string
-		want bool
-	}{
-		{"Backup", true},
-		{"Backup/sub", true},
-		{"Backups", false},
-		{"tmp/cache", true},
-		{"tmp/cache/deep", true},
-		{"tmp", false},
-		{"dotfiles", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.rel, func(t *testing.T) {
-			got := IsExcludedPath(filepath.Join(tmpDir, tt.rel))
-			if got != tt.want {
-				t.Errorf("IsExcludedPath(%q) = %v, want %v", tt.rel, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSetExcludeDirs_Validation(t *testing.T) {
-	oldExcludeDirs := excludeDirs
-	defer func() { excludeDirs = oldExcludeDirs }()
-
-	tests := []struct {
-		name    string
-		input   []string
-		wantErr bool
-	}{
-		{"valid relative", []string{"Backup", "tmp"}, false},
-		{"valid nested", []string{"a/b/c"}, false},
-		{"empty slice", nil, false},
-		{"absolute path", []string{"/etc/passwd"}, true},
-		{"parent escape", []string{"../outside"}, true},
-		{"deep escape", []string{"a/../../outside"}, true},
-		{"mixed valid and absolute", []string{"Backup", "/absolute"}, true},
-		{"dot-dot alone", []string{".."}, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := SetExcludeDirs(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("SetExcludeDirs(%v) error = %v, wantErr = %v", tt.input, err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestSetIncludeFiles_Validation(t *testing.T) {
-	oldIncludeFiles := includeFiles
-	defer func() { includeFiles = oldIncludeFiles }()
-
-	tests := []struct {
-		name    string
-		input   []string
-		want    []string
-		wantErr bool
-	}{
-		{"valid", []string{"settings.json", "sub/keep.txt"}, []string{"settings.json", "sub/keep.txt"}, false},
-		{"cleaned", []string{"./a/../b.txt"}, []string{"b.txt"}, false},
-		{"absolute path", []string{"/etc/passwd"}, nil, true},
-		{"parent escape", []string{"../outside.txt"}, nil, true},
-		{"source itself", []string{"."}, nil, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := SetIncludeFiles(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("SetIncludeFiles(%v) error = %v, wantErr = %v", tt.input, err, tt.wantErr)
-			}
-			if !tt.wantErr && strings.Join(includeFiles, ",") != strings.Join(tt.want, ",") {
-				t.Errorf("includeFiles = %v, want %v", includeFiles, tt.want)
-			}
-		})
-	}
-}
-
-func TestIncludeFiles(t *testing.T) {
-	oldIncludeFiles, oldSourceRoot := includeFiles, sourceRoot
-	defer func() { includeFiles, sourceRoot = oldIncludeFiles, oldSourceRoot }()
-
-	root := t.TempDir()
-	SetSourceRoot(root)
-	// debug.log and node_modules/ would be excluded by the built-in patterns
-	if err := SetIncludeFiles([]string{"settings.json", "debug.log", "node_modules/keep.js"}); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"settings.json", "debug.log", "node_modules/keep.js", "other.json", "node_modules/other.js"} {
+	for _, name := range []string{"settings.json", "debug.log", "other.json", "Backup/data.txt",
+		"projects/p/memory/MEMORY.md", "projects/p/x.jsonl", "projects/p/memory/x.log"} {
 		writeFile(t, filepath.Join(root, name), "x")
 	}
-	writeFile(t, filepath.Join(root, "large.json"), strings.Repeat("x", 2*1024*1024))
-
 	for name, want := range map[string]bool{
-		"settings.json":         true,
-		"debug.log":             true,
-		"node_modules/keep.js":  true,
-		"other.json":            false,
-		"node_modules/other.js": false,
+		"settings.json":               true,
+		"debug.log":                   true, // the literal include beats the logs group
+		"other.json":                  false,
+		"Backup/data.txt":             false,
+		"projects/p/memory/MEMORY.md": true,
+		"projects/p/x.jsonl":          false,
+		"projects/p/memory/x.log":     false, // the logs group is closer than the include
 	} {
 		if got, err := ShouldTrack(filepath.Join(root, name), 10, false); got != want || err != nil {
 			t.Errorf("ShouldTrack(%s) = %v, %v, want %v", name, got, err, want)
 		}
 	}
-
-	// --max-file-size still applies to listed files
-	if err := SetIncludeFiles([]string{"large.json"}); err != nil {
-		t.Fatal(err)
-	}
-	captureStdout(t, func() {
-		if got, _ := ShouldTrack(filepath.Join(root, "large.json"), 1, false); got {
-			t.Error("listed file over --max-file-size tracked")
-		}
-	})
-
-	if err := SetIncludeFiles([]string{"a/b/f.txt"}); err != nil {
-		t.Fatal(err)
-	}
-	for dir, want := range map[string]bool{".": false, "a": false, "a/b": false, "a/b/c": true, "a/c": true, "x": true} {
-		if got := IsExcludedDir(filepath.Join(root, dir)); got != want {
-			t.Errorf("IsExcludedDir(%s) = %v, want %v", dir, got, want)
-		}
+	if trackedPath("/elsewhere/settings.json", false) {
+		t.Error("a path outside the source is tracked")
 	}
 }
 
-func TestShouldTrack_NumericVimTemp(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "filter_vim_test")
-	if err != nil {
-		t.Fatal(err)
+func TestSkipDir(t *testing.T) {
+	root := resolvedTempDir(t)
+	setRules(t, root, "exclude /Backup")
+	for dir, want := range map[string]bool{
+		"":                         false,
+		"project":                  false,
+		"project/src":              false,
+		"project/builder":          false,
+		"project/build":            false, // its content is left out, not the folder
+		"Backups":                  false,
+		"x.old":                    false, // f: rules are for files
+		"project/node_modules":     true,
+		"project/node_modules/pkg": true,
+		"project/.venv":            true,
+		"project/__pycache__":      true,
+		"project/target/debug":     true,
+		"project/.git":             true,
+		".git":                     true,
+		"Backup":                   true,
+		"Backup/sub":               true,
+	} {
+		path := filepath.Join(root, dir)
+		if got := skipDir(path); got != want {
+			t.Errorf("skipDir(%q) = %v, want %v", dir, got, want)
+		}
+		// A skipped folder must not hold files the rules keep
+		if want && trackedPath(filepath.Join(path, "file.txt"), false) {
+			t.Errorf("skipDir(%q) is true but a file in it is kept", dir)
+		}
 	}
-	defer os.RemoveAll(tmpDir)
+	if !skipDir("/elsewhere") {
+		t.Error("a folder outside the source is not skipped")
+	}
 
-	// Vim creates temp files ending in numbers
-	vimTempPath := filepath.Join(tmpDir, "subdir", "12345")
-	if err := os.MkdirAll(filepath.Dir(vimTempPath), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(vimTempPath, []byte("temp"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("allowlist", func(t *testing.T) {
+		setRules(t, root, "exclude /*", "/a/b/f.txt")
+		for dir, want := range map[string]bool{"": false, "a": false, "a/b": false, "a/b/c": true, "a/c": true, "x": true} {
+			if got := skipDir(filepath.Join(root, dir)); got != want {
+				t.Errorf("skipDir(%s) = %v, want %v", dir, got, want)
+			}
+		}
+	})
+}
 
-	got, err := ShouldTrack(vimTempPath, 0, false)
-	if err != nil {
-		t.Fatalf("ShouldTrack() error = %v", err)
-	}
-	if got != false {
-		t.Errorf("ShouldTrack(numeric vim temp) = %v, want false", got)
-	}
+func TestRulesSetRequired(t *testing.T) {
+	old := activeRules
+	activeRules = nil
+	defer func() {
+		activeRules = old
+		if recover() == nil {
+			t.Error("no panic without SetFilter")
+		}
+	}()
+	trackedPath("/src/a.txt", false)
 }

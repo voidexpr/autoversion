@@ -59,13 +59,14 @@ func (s *sourceRules) skipDir(path string) bool {
 	return !ok || alwaysApplied.SkipDir(rel) || s.rules.SkipDir(rel)
 }
 
-// walk calls fn for each tracked file of the source, skipping the folders
-// that hold none. Symlinks and other files that are not regular files are
-// never tracked. It returns the number of folders visited: the watches a
-// Linux watcher needs.
-func (s *sourceRules) walk(maxFileSizeMB int64, fn func(path string, info fs.FileInfo)) int {
+// walk calls fn for each file the rules keep under dir, a folder of the
+// source, skipping the folders that hold none. Symlinks and other files that
+// are not regular files are never tracked; the size limit is fn's to check.
+// An error from fn stops the walk. walk returns the number of folders
+// visited: the watches a Linux watcher needs.
+func (s *sourceRules) walk(dir string, fn func(path string, info fs.FileInfo) error) (int, error) {
 	dirs := 0
-	filepath.WalkDir(s.root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -80,13 +81,12 @@ func (s *sourceRules) walk(maxFileSizeMB int64, fn func(path string, info fs.Fil
 			return nil
 		}
 		info, err := d.Info()
-		if err != nil || tooLarge(info.Size(), maxFileSizeMB) {
+		if err != nil {
 			return nil
 		}
-		fn(path, info)
-		return nil
+		return fn(path, info)
 	})
-	return dirs
+	return dirs, err
 }
 
 // walkDestination calls fn with the path, relative to the destination, of
