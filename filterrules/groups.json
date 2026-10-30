@@ -1,0 +1,79 @@
+{
+  "groups": [
+    {
+      "name": "os",
+      "about": "operating system and sync client files",
+      "exclude": [
+        "f:/**/{.DS_Store,Thumbs.db,desktop.ini,.nfs*}",
+        "/**/{.Spotlight-V100,.Trashes,.dropbox,.dropbox.cache}"
+      ]
+    },
+    {
+      "name": "editors",
+      "about": "editor swap, backup and project files",
+      "exclude": [
+        "f:/**/{*.swp,*.swpx,*.swo,*~,4913,*.iml}",
+        "/**/.idea"
+      ]
+    },
+    {
+      "name": "temp",
+      "about": "temporary files and old copies",
+      "exclude": [
+        "f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}"
+      ]
+    },
+    {
+      "name": "logs",
+      "about": "logs, command outputs and pid files",
+      "exclude": [
+        "f:/**/{*.log,*.out,*.stdout,*.err,*.stderr,*.pid,*.dump}"
+      ]
+    },
+    {
+      "name": "build",
+      "about": "build outputs and compiled files",
+      "exclude": [
+        "/**/{build,dist,out}/*",
+        "/**/target/{debug,release}",
+        "/**/{.build,DerivedData}",
+        "f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}",
+        "f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}"
+      ]
+    },
+    {
+      "name": "deps",
+      "about": "installed dependencies and virtual environments",
+      "exclude": [
+        "/**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,.gradle}"
+      ]
+    },
+    {
+      "name": "caches",
+      "about": "caches and test reports",
+      "exclude": [
+        "/**/{.cache,.next,.nuxt,.output,.pytest_cache,.playwright-mcp,playwright-report,test-results}"
+      ]
+    },
+    {
+      "name": "data",
+      "about": "database folders and write-ahead logs",
+      "exclude": [
+        "/**/{pgdata,*.pgdb}",
+        "f:/**/*.wal"
+      ]
+    },
+    {
+      "name": "vcs",
+      "about": "other version control folders and bare git repositories",
+      "exclude": [
+        "/**/{.hg,.svn,.cvs,*.git}"
+      ]
+    },
+    {
+      "name": "default",
+      "about": "all the groups above",
+      "use": ["os", "editors", "temp", "logs", "build", "deps", "caches", "data", "vcs"]
+    }
+  ]
+}

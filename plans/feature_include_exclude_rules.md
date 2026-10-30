@@ -1,8 +1,9 @@
 # Plan: filter rules in the shared syntax, stored with the destination
 
-**Status: ready for implementation (v4, 2026-10-29).** The shared syntax spec
-is being finalized and will be given to the implementer separately. Breaking
-change: jobs are re-migrated (see Migration).
+**Status: in implementation (v5, 2026-10-29).** v5 follows the shared spec
+v3: `d:` is implemented, the `types` line is accepted, and rule changes get
+safety checks (see Decisions). Breaking change: jobs are re-migrated (see
+Migration).
 
 ## For the implementer: read first
 
@@ -28,6 +29,11 @@ change: jobs are re-migrated (see Migration).
   (`git commit -F - <<'EOF'`), never `$(…)`, and end with the
   `Co-Authored-By` line.
 - Ask before expanding the scope beyond this plan.
+- Tests never touch real files: everything lives under `t.TempDir()`,
+  `TestMain` points `HOME` at a temp folder and turns off git's global and
+  system config, and the job restart (`launchctl`) is a stub in tests.
+- Test binaries are built under `build/` (`make watch-check` does).
+  `make build` replaces the `./autoversion` that installed jobs run.
 
 **Testing limits in the Claude sandbox:**
 - FSEvents doesn't start in the sandbox, so `make watch-check` (macOS) is
@@ -139,21 +145,27 @@ The shared spec has the exact definitions. What matters most here:
 
 ### Entry type prefix: `f:` and `d:`
 
-A rule may start with a type prefix, before its leading `/`:
+A rule may start with a type prefix, before its leading `/` (shared spec,
+"Types"):
 - No prefix: a **path** rule. It matches files and folders alike.
-- `f:/**/*.old`: matches **files only**. A folder named `foo.old` is not
+- `f:/**/*.old`: matches **files only** (anything that is not a folder;
+  links are never tracked anyway). A folder named `foo.old` is not
   matched, so it and its content stay.
-- `d:` is reserved for a future "folders only" rule. It isn't needed yet,
-  because `/dir/*` already targets a folder's content. It's not
-  implemented: a `d:` prefix is an error (use the shared spec's code, if
-  it has one).
+- `d:/**/build`: matches **folders only**. A file named `build` stays.
+  Implemented because the shared spec and its conformance suite have it.
+  The built-in groups don't use it: they use `f:` where a rule must only
+  apply to files, and no prefix otherwise.
 
-Matching an `f:` rule:
-- It takes part only at the entry's own level, and only when the entry is a
-  file. When a folder level is checked (an entry's parent, grandparent, …,
-  or a folder itself), `f:` rules are ignored.
-- Otherwise it behaves like any rule: same syntax and sugar
+Matching a typed rule:
+- An `f:` rule takes part only at the entry's own level, and only when the
+  entry is not a folder. When a folder level is checked (an entry's
+  parent, grandparent, …, or a folder itself), `f:` rules are ignored.
+- A `d:` rule takes part at every folder level, the folders above an entry
+  included.
+- Otherwise a typed rule behaves like any rule: same syntax and braces
   (`f:/**/{*.tmp,*.bak}`), and the same literal-or-wildcard ties.
+- No `!` on a typed line (`bad-except`): write the exception as its own
+  line.
 - A deleted entry has no type. A delete event is decided as a file. A
   removed folder's files get their own events or a directory rescan, so
   nothing is missed.
@@ -163,12 +175,13 @@ Where it's written:
   line `f:/**/*.md`.
 - In flags: `--exclude 'f:/**/*.old'`.
 
-The shared spec defines the prefix. If the final spec says otherwise, the
-shared spec wins.
+### The `types` line
 
-**To check in the shared spec:** what `f:` combined with a `!` exception
-means (`exclude f:/a/!b`). If the spec doesn't address it, raise it with
-the user before implementing that combination. Reject it meanwhile.
+`types strict` (the default) or `types decay` tells ownit's converters what
+restic and borg do with typed rules. autoversion matches the rules itself,
+and its restic mode backs up the destination, which only holds kept files.
+So the line is accepted, kept in the file and shown by `filter dump`, and
+changes nothing.
 
 ## Where the configuration lives
 
@@ -223,8 +236,8 @@ the same.
 | `check-paths` | as today, plus the rules' validation result |
 | `filter scan --source S [rules \| --destination D] [--explain PATH] [--summary]` | lists the kept files (was `filter`). `--explain PATH` prints the result, the level and the rule that decided it. `--summary` prints the number of kept files and of folders visited (= inotify watches on Linux) |
 | `filter dump [rules \| --destination D]` | prints the expanded rules, groups included |
-| `filter set --destination D rules` | replaces `.autoversion.filter`, then the same as `filter check` |
-| `filter check --destination D` | after a hand edit: validates, prints the warnings and the change since the last commit, commits (`filter: …`), and restarts the installed job if there is one |
+| `filter set --destination D rules [--dry-run]` | replaces `.autoversion.filter`, then the same as `filter check` |
+| `filter check --destination D [--dry-run]` | after a hand edit: validates, prints the warnings, the change since the last commit and the counts (see "Safety checks"), commits (`filter: …`), and restarts the installed job if there is one |
 | `filter groups` | lists the built-in groups and their rules, ready to copy into a file |
 | `watch --report-only --source S [rules]` | NAS checks: no destination, so the rules are given |
 
@@ -247,12 +260,33 @@ the same.
   Rules given to `init` on an existing destination are an error that
   points to `filter set`.
 
+### Safety checks on rule changes
+
+A sync removes from the destination every file the rules no longer keep.
+With git, the history keeps them. On a plain mirror they are gone. So:
+- **Allowlist with nothing alive** (shared spec): `exclude /*` with
+  literal includes, none of which exists under the source, and no wildcard
+  include. Usually a typo (`/CLAUD.md`). An error in `init`, `filter set`,
+  `filter check` and `check-paths`. Only a warning when `sync` and `watch`
+  start: by then the files may really have been deleted from the source,
+  and mirroring that is right.
+- **Nothing kept:** `filter set` and `filter check` refuse rules that keep
+  no file of the source while the destination has files. This catches a
+  typo in a wildcard include (`f:/**/*.mdd`).
+- **Counts:** `filter set` and `filter check` print the number of kept
+  files and of files the next sync removes from the destination, with the
+  first few paths. On a plain mirror the line says the removed files are
+  not kept anywhere.
+- **`--dry-run`** on `filter set` and `filter check`: the checks and the
+  counts, without writing, committing or restarting the job.
+
 ### Notes
 
 - Validation errors stop the command. Warnings are printed and don't stop
   it:
   - dead literal rules (no such path under the source)
   - includes that change nothing
+  - non-ASCII characters in a rule
 - Removed flags: `--exclude-dir`, `--only-include-extensions`,
   `--only-include-file`.
 - **install:** the plist keeps only runtime flags (`--buffer-time`,
@@ -350,30 +384,33 @@ Suggested API (paths are relative to the root, `/`-separated, no leading
 `/`; the root itself is `""` and always kept):
 
 ```go
-type Kind int  // Include, Exclude
-type Type int  // Path (no prefix: files and folders), File ("f:"); "d:" is reserved
+type Kind int  // Exclude, Include
+type Type int  // Any (no prefix: files and folders), File ("f:"), Dir ("d:")
 
 type Rule struct {
-	Kind Kind
-	Type Type
-	Text string // as written, after sugar expansion
-	// parsed segments, literal flag, ** position
+	Kind  Kind
+	Type  Type
+	Text  string // after sugar expansion, without the type prefix
+	Group string // the built-in group it comes from, "" for the filter's own rules
+	// parsed segments, ** position
 }
 
-type Error struct{ Code, Rule, Reason string } // codes from the shared spec
+type Error struct{ Code, Rule, Reason string; Line int } // codes from the shared spec
 
 func ParseRule(kind Kind, text string) ([]Rule, error) // sugar may give several rules
-func ParseFile(r io.Reader) (*File, error)            // version, root, use, rules
+func ParseFile(r io.Reader) (*File, error)            // version, root, types, use, rule lines
+func (f *File) Add(kind Kind, text string) error      // a rule from a flag
+func (f *File) Use(name string) error                 // a group from a flag
 func Group(name string) ([]Rule, error)               // built-in groups, "default" included
 
 type Rules struct{ /* literal rules in a map by path, wildcard rules in a list */ }
 
-func New(rules []Rule, uses []string) (*Rules, error)  // resolves groups, validates (whole-root, contradiction)
-func (r *Rules) Decide(rel string, isFile bool) Decision // Kept, Level, Rule: the closest-match walk
-func (r *Rules) CanMatchBelow(relDir string) bool        // an include can match below this folder
-func (r *Rules) SkipDir(relDir string) bool              // left out, and nothing below can be kept
-func (r *Rules) Warnings(list func(rel string) ([]string, error)) []Warning // dead rules, includes that change nothing
-func (r *Rules) Dump() string                            // expanded rules, for filter dump
+func New(f *File) (*Rules, error)                       // resolves groups, validates (whole-root, contradiction)
+func (r *Rules) Decide(rel string, isDir bool) Decision // Kept, Level, Rule: the closest-match walk
+func (r *Rules) CanMatchBelow(relDir string) bool       // an include can match below this folder
+func (r *Rules) SkipDir(relDir string) bool             // left out, and nothing below can be kept
+func (r *Rules) Check(list func(rel string) ([]string, error)) []Problem // warnings, and the allowlist with nothing alive (error)
+func (r *Rules) Dump() string                           // expanded rules, for filter dump
 ```
 
 Tests:
@@ -381,8 +418,11 @@ Tests:
 - every row of the `~/.claude` table
 - one case per row of the translation table
 - `f:` cases: a file matched at its level; a folder of the same name not
-  matched; a folder level of an entry below it ignored
+  matched; a folder level of an entry below it ignored. `d:` cases: the
+  reverse, and a folder level of an entry below it matched
 - parse errors with their codes, `contradiction`, `whole-root`
+- `SkipDir` never skips a folder that holds a kept entry (checked on every
+  test tree)
 
 ### M2: configuration in the destination
 
@@ -406,6 +446,8 @@ Tests:
   `groups`.
 - `filter check` and `filter set` restart the installed job, through the
   same steps as `install`'s reload.
+- `filter check` and `filter set` run the safety checks and print the
+  counts (see "Safety checks on rule changes"), and take `--dry-run`.
 
 ### M3: use the rules everywhere
 
@@ -414,7 +456,7 @@ Tests:
   `SetIncludeFiles`, `IsExcludedPath`, `IsExcludedDir`,
   `matchesPathFilters` and their helpers.
   - Add `SetFilter(root string, rules *filterrules.Rules)` in place of
-    `SetSourceRoot`, plus `trackedPath(path string, isFile bool) bool` and
+    `SetSourceRoot`, plus `trackedPath(path string, isDir bool) bool` and
     `skipDir(path string) bool`. They apply the always-applied rules first.
   - `ShouldTrack` keeps its symlink, folder, vanished-file and size checks,
     with the size limit taken from the marker.
@@ -422,7 +464,7 @@ Tests:
   - `scanPaths`, `expandDirChanges`, the `filter scan` walk and
     `addRecursive` (`watcher_other.go`) use `skipDir`.
   - The watch loop and the macOS watcher's early filter use `trackedPath`.
-    A delete event is decided with `isFile` true.
+    A delete event is decided as a file (`isDir` false).
   - `EventDirChanged` uses `skipDir`.
 - **Removed flags:** `--exclude-dir`, `--only-include-extensions`,
   `--only-include-file`. `sync`, `watch` and `install` reject rule flags,
@@ -485,13 +527,35 @@ Tests:
 ## Decisions (2026-10-29)
 
 - No prefix means a path rule (files and folders). `f:` means files only.
-  `d:` (folders only) is reserved and not implemented; `/dir/*` covers its
-  use today.
-- `f:` with a `!` exception: check the shared spec, and raise it with the
-  user if it isn't addressed.
+  `d:` was reserved; the second batch below implements it.
+- `f:` with a `!` exception: settled by the spec, see the second batch.
 - Settings of an existing destination change with
   `init --update-settings`. Switching from git to a plain mirror is always
   refused.
 - `.yarn` and `.vscode` are no longer excluded. `*.lock` is dropped.
 - The matcher is built in `filterrules/` here, and moved out when another
   project needs it.
+
+## Decisions (2026-10-29, second batch, with the shared spec v3)
+
+- `d:` is implemented (the spec and its conformance suite have it). The
+  groups don't use it.
+- `f:` with `!` is `bad-except` (the spec).
+- The `types` line is accepted and kept, with no effect (see "The `types`
+  line").
+- `default` is the union of the nine groups: the spec says built-in Rules
+  use nothing.
+- `contradiction`: a literal include and a literal exclude with the same
+  path, whatever their types, as in ownit's reference matcher.
+- "Changes nothing" for a literal include is checked for each type the
+  include applies to: as a file for `f:`, as a folder for `d:`, both for
+  an untyped include. ownit's matcher always checks as a folder, so it
+  warns wrongly for `include /debug.log` or `include f:/debug.log` next to
+  `exclude f:/**/*.log`: to report.
+- Name patterns are matched by a precompiled matcher (1.6 µs per entry
+  with `default`, about half of today's regexes), tested against
+  `path.Match`.
+- Allowlist with nothing alive, nothing kept, counts and `--dry-run`: see
+  "Safety checks on rule changes".
+- `make watch-check` builds into `build/watch-check/`, so it no longer
+  replaces the `./autoversion` that installed jobs run.

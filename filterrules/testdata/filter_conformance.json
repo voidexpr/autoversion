@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "double star matches zero folders",
+      "tree": ["keep.txt", "node_modules/", "node_modules/n1", "web/", "web/node_modules/", "web/node_modules/n2", "web/other.txt"],
+      "exclude": ["/**/node_modules"],
+      "include": [],
+      "kept": ["keep.txt", "web/", "web/other.txt"]
+    },
+    {
+      "name": "folder content only",
+      "tree": ["a/", "a/.cache/", "a/.cache/x.txt", "b/", "b/.cache", "keep.txt"],
+      "exclude": ["/**/.cache/*"],
+      "include": [],
+      "kept": ["a/", "a/.cache/", "b/", "b/.cache", "keep.txt"]
+    },
+    {
+      "name": "closed door: an excluded folder re-opened for an include",
+      "tree": [
+        "Library/", "Library/Caches/", "Library/Caches/y",
+        "Library/Containers/", "Library/Containers/com.other.app/", "Library/Containers/com.other.app/x",
+        "Library/Containers/net.whatsapp.WhatsApp/", "Library/Containers/net.whatsapp.WhatsApp/Data/",
+        "Library/Containers/net.whatsapp.WhatsApp/Data/msg.db"
+      ],
+      "exclude": ["/Library/Containers"],
+      "include": ["/Library/Containers/net.whatsapp.WhatsApp"],
+      "kept": [
+        "Library/", "Library/Caches/", "Library/Caches/y", "Library/Containers/",
+        "Library/Containers/net.whatsapp.WhatsApp/", "Library/Containers/net.whatsapp.WhatsApp/Data/",
+        "Library/Containers/net.whatsapp.WhatsApp/Data/msg.db"
+      ]
+    },
+    {
+      "name": "prefix matching: junk inside a kept folder still goes",
+      "tree": [
+        "Library/", "Library/Caches/", "Library/Caches/y",
+        "Library/Containers/", "Library/Containers/com.other.app/", "Library/Containers/com.other.app/x",
+        "Library/Containers/net.whatsapp.WhatsApp/", "Library/Containers/net.whatsapp.WhatsApp/Data/",
+        "Library/Containers/net.whatsapp.WhatsApp/Data/msg.db",
+        "Library/Containers/net.whatsapp.WhatsApp/Data/.cache/", "Library/Containers/net.whatsapp.WhatsApp/Data/.cache/c",
+        "a/", "a/.cache/", "a/.cache/w"
+      ],
+      "exclude": ["/Library/Containers", "/**/.cache"],
+      "include": ["/Library/Containers/net.whatsapp.WhatsApp"],
+      "kept": [
+        "Library/", "Library/Caches/", "Library/Caches/y", "Library/Containers/",
+        "Library/Containers/net.whatsapp.WhatsApp/", "Library/Containers/net.whatsapp.WhatsApp/Data/",
+        "Library/Containers/net.whatsapp.WhatsApp/Data/msg.db", "a/"
+      ]
+    },
+    {
+      "name": "double star split: a broad exclude with one literal exception",
+      "tree": [
+        "keep.txt", "node_modules/", "node_modules/n1",
+        "tools/", "tools/node_modules/", "tools/node_modules/keep.js", "tools/node_modules/a/",
+        "tools/node_modules/a/node_modules/", "tools/node_modules/a/node_modules/deep.js",
+        "web/", "web/node_modules/", "web/node_modules/n2", "web/other.txt"
+      ],
+      "exclude": ["/**/node_modules"],
+      "include": ["/tools/node_modules"],
+      "kept": ["keep.txt", "tools/", "tools/node_modules/", "tools/node_modules/keep.js", "tools/node_modules/a/", "web/", "web/other.txt"]
+    },
+    {
+      "name": "allowlist with a deep include",
+      "tree": [
+        "Media/", "Media/x.mp4", "Sync/", "Sync/s.txt", "Travel/", "Travel/junk.txt",
+        "Travel/Older Trips/", "Travel/Older Trips/other/", "Travel/Older Trips/other/o.txt",
+        "Travel/Older Trips/2018 Big Sky/", "Travel/Older Trips/2018 Big Sky/other.txt",
+        "Travel/Older Trips/2018 Big Sky/reservations.kdbx", "notes/", "notes/n.md", "safe2023.sparsebundle"
+      ],
+      "exclude": ["/*"],
+      "include": ["/Sync", "/notes", "/safe2023.sparsebundle", "/Travel/Older Trips/2018 Big Sky/reservations.kdbx"],
+      "kept": [
+        "Sync/", "Sync/s.txt", "Travel/", "Travel/Older Trips/", "Travel/Older Trips/2018 Big Sky/",
+        "Travel/Older Trips/2018 Big Sky/reservations.kdbx", "notes/", "notes/n.md", "safe2023.sparsebundle"
+      ]
+    },
+    {
+      "name": "tie: a literal exclude beats a wildcard include",
+      "tools": ["native"],
+      "tree": [
+        "projects/", "projects/abc/", "projects/abc/memory/", "projects/abc/memory/x.md", "projects/abc/other.jsonl",
+        "projects/old/", "projects/old/memory/", "projects/old/memory/y.md"
+      ],
+      "exclude": ["/*", "/projects/old/memory"],
+      "include": ["/projects/*/memory"],
+      "kept": ["projects/", "projects/abc/", "projects/abc/memory/", "projects/abc/memory/x.md"]
+    },
+    {
+      "name": "typed rules: files only and folders only",
+      "tools": ["native", "rsync", "gitignore"],
+      "tree": ["a.old", "b.old/", "b.old/x", "build", "c/", "c/d.old", "c/e.old/", "c/e.old/y", "keep.txt", "w/", "w/build/", "w/build/o"],
+      "exclude": ["f:/**/*.old", "d:/**/build"],
+      "include": [],
+      "kept": ["b.old/", "b.old/x", "build", "c/", "c/e.old/", "c/e.old/y", "keep.txt", "w/"]
+    },
+    {
+      "name": "typed rules decay to both types on restic and borg",
+      "tools": ["restic", "borg"],
+      "types": "decay",
+      "tree": ["a.old", "b.old/", "b.old/x", "build", "c/", "c/d.old", "c/e.old/", "c/e.old/y", "keep.txt", "w/", "w/build/", "w/build/o"],
+      "exclude": ["f:/**/*.old", "d:/**/build"],
+      "include": [],
+      "kept": ["c/", "keep.txt", "w/"]
+    }
+  ],
+  "invalid": [
+    {"rule": "node_modules", "code": "no-root"},
+    {"rule": "**/node_modules", "code": "no-root"},
+    {"rule": "/Backup/autoversion/", "code": "trailing-slash"},
+    {"rule": "/**/.cache/**", "code": "double-star-last"},
+    {"rule": "/a/**/b/**/c", "code": "double-star-twice"},
+    {"rule": "/a**b", "code": "star-run"},
+    {"rule": "/**/file?.txt", "code": "forbidden-char"},
+    {"rule": "/**/[Tt]mp", "code": "forbidden-char"},
+    {"rule": "/Library/Application\\ Support", "code": "forbidden-char"},
+    {"rule": "/Data/$TMP", "code": "forbidden-char"},
+    {"rule": "/Issue #12", "code": "comment-in-rule"},
+    {"rule": "/a//b", "code": "empty-segment"},
+    {"rule": "/a/../b", "code": "dot-segment"},
+    {"rule": "/ Old", "code": "space-edge"},
+    {"rule": "/a/b!c", "code": "bad-except"},
+    {"rule": "/a/!b/!c", "code": "bad-except"},
+    {"rule": "/a/{b,{c,d}}", "code": "bad-brace"},
+    {"rule": "/a/{b,}", "code": "bad-brace"},
+    {"rule": "x:/a", "code": "bad-type"},
+    {"rule": "f:/a/!b", "code": "bad-except"}
+  ]
+}
