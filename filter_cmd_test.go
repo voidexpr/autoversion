@@ -187,17 +187,17 @@ func TestRulesText(t *testing.T) {
 			t.Errorf("scan and dump combine them: error %v", err)
 		}
 	})
-	t.Run("no version line, use from a flag", func(t *testing.T) {
-		writeFile(t, file, "# notes only\nexclude /*\n/notes")
+	t.Run("use from a flag, after the version line", func(t *testing.T) {
+		writeFile(t, file, "# notes only\nversion 1\nexclude /*\n/notes")
 		setRuleFlags(t, file, []string{"default"}, nil, nil)
-		want := "use default\n# notes only\nexclude /*\n/notes\n"
+		want := "# notes only\nversion 1\nuse default\nexclude /*\n/notes\n"
 		if text, err := rulesText(source); text != want || err != nil {
 			t.Errorf("rules %q (error %v), want %q", text, err, want)
 		}
 	})
 	t.Run("stdin", func(t *testing.T) {
 		stdin := filepath.Join(resolvedTempDir(t), "stdin")
-		writeFile(t, stdin, "exclude /*\n/notes\n")
+		writeFile(t, stdin, "version 1\nexclude /*\n/notes\n")
 		f, err := os.Open(stdin)
 		if err != nil {
 			t.Fatal(err)
@@ -212,11 +212,15 @@ func TestRulesText(t *testing.T) {
 			t.Errorf("rules from stdin: error %v", err)
 		}
 	})
-	t.Run("an empty file", func(t *testing.T) {
-		writeFile(t, file, "# nothing yet\n")
+	t.Run("a file without rules", func(t *testing.T) {
+		writeFile(t, file, "version 1\n# nothing yet\n")
 		setRuleFlags(t, file, nil, nil, nil)
 		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "no rules") {
 			t.Errorf("error %v, want no rules", err)
+		}
+		writeFile(t, file, "exclude /x\n")
+		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "version 1 comes first") {
+			t.Errorf("no version line: error %v", err)
 		}
 	})
 	t.Run("invalid rule", func(t *testing.T) {

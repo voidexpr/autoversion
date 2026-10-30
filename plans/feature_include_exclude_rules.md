@@ -592,10 +592,10 @@ it has its rules, it gets `use default` and its first sync copies all of
 
 ## Decisions (2026-10-30)
 
-- `version 1` is optional in a rules file; when given, it comes first and
-  is `1`. The shared spec is to follow (the user asks ownit). Meanwhile
-  the conformance test accepts the one `invalid_files` case it changes
-  (`exclude /x` without a version line), see `pendingSpecChanges`.
+- `version 1` stays required, as in the shared spec. Making it optional
+  was done, then reverted the same day: the user will change the spec
+  first. It would change one `invalid_files` case (`exclude /x` without a
+  version line).
 - `--filter -` reads the rules from stdin, wherever `--filter` is taken
   (`init`, `filter scan`, `dump`, `set`, `watch --report-only`).
 - `--filter` combines with `--use`, `--include` and `--exclude` in every

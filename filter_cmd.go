@@ -217,9 +217,10 @@ Rules on the command line (init, filter scan, dump and set, watch
 --report-only), combined:
   --filter FILE                                 a rules file, - for stdin
   --include RULE, --exclude RULE, --use GROUP   repeatable
-The version 1 line is optional. Without a use line or --use, the built-in
-groups don't apply. Example:
+A rules file starts with version 1. Without a use line or --use, the
+built-in groups don't apply. Example:
   autoversion filter scan --source ~/.claude --use default --filter - <<'EOF'
+  version 1
   exclude /*
   /CLAUDE.md
   EOF`,

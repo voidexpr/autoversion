@@ -10,12 +10,6 @@ import (
 	"testing"
 )
 
-// pendingSpecChanges are invalid_files cases autoversion accepts ahead of a
-// spec change, by their text
-var pendingSpecChanges = map[string]string{
-	"exclude /x\n": "version 1 is optional (decided 2026-10-30, the shared spec is to follow)",
-}
-
 // testdata/filter_conformance.json is ownit's tests/filter_conformance.json,
 // copied unchanged from ownit commit d721a7f.
 func TestConformance(t *testing.T) {
@@ -103,12 +97,6 @@ func TestConformance(t *testing.T) {
 		}
 	}
 	for _, inv := range suite.InvalidFiles {
-		if reason, ok := pendingSpecChanges[inv.Text]; ok {
-			if _, err := ParseFile(strings.NewReader(inv.Text)); err != nil {
-				t.Errorf("file %q: %v, want no error (%s)", inv.Text, err, reason)
-			}
-			continue
-		}
 		_, err := ParseFile(strings.NewReader(inv.Text))
 		if e, ok := err.(*Error); !ok || e.Code != inv.Code || e.Line != inv.Line {
 			t.Errorf("file %q: error %v, want %s on line %d", inv.Text, err, inv.Code, inv.Line)

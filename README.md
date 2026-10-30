@@ -336,10 +336,11 @@ exclude /*              # an allowlist: only what is listed below
 - The closest match wins: the entry itself is checked first, then each folder above it. On one level, a literal rule beats a wildcard, then an include beats an exclude. Line order means nothing. Nothing is implied: an allowlist says `exclude /*`.
 - Always applied: `/**/.git`, symlinks, and `/.autoversion` and `/.autoversion.filter` at the source root.
 
-Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`, `watch --report-only`): `--filter FILE` (a rules file, `-` for stdin; a `root` line must name the source), and `--use GROUP`, `--include RULE` and `--exclude RULE` (repeatable). They combine: `init` and `filter set` store the file as written, comments kept, with the `use` lines of the flags after its version line and their rules at the end. Without a `use` line or `--use`, the built-in groups don't apply. The `version 1` line is optional. For example:
+Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`, `watch --report-only`): `--filter FILE` (a rules file, `-` for stdin; a `root` line must name the source), and `--use GROUP`, `--include RULE` and `--exclude RULE` (repeatable). They combine: `init` and `filter set` store the file as written, comments kept, with the `use` lines of the flags after its version line and their rules at the end. Without a `use` line or `--use`, the built-in groups don't apply. A rules file starts with `version 1`. For example:
 
 ```bash
 ./autoversion filter scan --source ~/.claude --use default --summary --filter - <<'EOF'
+version 1
 exclude /*
 /CLAUDE.md
 /skills/!synced
