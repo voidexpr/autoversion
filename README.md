@@ -354,12 +354,15 @@ EOF
 Quote `'EOF'`, so the shell leaves `$`, `*` and backticks alone.
 
 ```bash
-# List the files the rules keep (the destination's, or the ones given; none: use default)
+# List the files the rules keep (the destination's, or the ones given; none: use default), then a summary on stderr
 ./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] [--max-file-size MB]
 # What decides one entry: the result, the rule (and its group) and the level it matches
 ./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] --explain PATH
-# Number of kept files and of folders visited (on Linux, the inotify watches a watcher needs)
+# The summary alone on stdout: number and total size of the kept files, and folders visited (on
+# Linux, the inotify watches a watcher needs). Without --summary it follows the files, on stderr.
 ./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] --summary
+# The files only
+./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] --no-summary
 
 # The rules expanded, groups included
 ./autoversion filter dump [--destination DEST_PATH | rules]
@@ -449,7 +452,7 @@ Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf
 | `--filter` | (none) | Rules file (`init`, `filter scan`, `dump`, `set`) |
 | `--include`, `--exclude` | (none) | Include or exclude rule, repeatable (`init`, `filter scan`, `dump`, `set`) |
 | `--use` | (none) | Built-in group, repeatable (`init`, `filter scan`, `dump`, `set`; see `filter groups`) |
-| `--explain`, `--summary` | (none) | `filter scan`: what decides one entry; the counts only |
+| `--explain`, `--summary`, `--no-summary` | (none) | `filter scan`: what decides one entry; the summary only, on stdout; the files only (by default the summary follows the files, on stderr) |
 | `--max-file-size` | 10 MB | Maximum file size to track: `init` stores it in the marker; also `filter scan` and `watch --report-only` |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |

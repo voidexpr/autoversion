@@ -400,12 +400,30 @@ func TestFilterCommands(t *testing.T) {
 	restartedJobs = nil
 
 	out, err := runCLI(t, "filter", "scan", "--source", source, "--summary")
-	if err != nil || out != "3 files kept, 2 folders visited\n" {
+	if err != nil || out != "3 files kept (20 B), 2 folders visited\n" {
 		t.Errorf("scan --summary: %v\n%s", err, out)
 	}
 	out, err = runCLI(t, "filter", "scan", "--source", source, "--exclude", "/notes")
 	if err != nil || out != "a.txt\nb.txt\n" {
 		t.Errorf("scan --exclude: %v\n%s", err, out)
+	}
+	var stderr strings.Builder
+	rootCmd.SetArgs([]string{"filter", "scan", "--source", source, "--exclude", "/notes"})
+	rootCmd.SetErr(&stderr)
+	out = captureStdout(t, func() { err = rootCmd.Execute() })
+	resetFlags(rootCmd)
+	if err != nil || out != "a.txt\nb.txt\n" || stderr.String() != "2 files kept (10 B), 1 folders visited\n" {
+		t.Errorf("scan without --summary: %v\nstdout %q\nstderr %q", err, out, stderr.String())
+	}
+	stderr.Reset()
+	rootCmd.SetArgs([]string{"filter", "scan", "--source", source, "--no-summary"})
+	out = captureStdout(t, func() { err = rootCmd.Execute() })
+	resetFlags(rootCmd)
+	if err != nil || out != "a.txt\nb.txt\nnotes/n.md\n" || stderr.String() != "" {
+		t.Errorf("scan --no-summary: %v\nstdout %q\nstderr %q", err, out, stderr.String())
+	}
+	if _, err := runCLI(t, "filter", "scan", "--source", source, "--summary", "--no-summary"); err == nil {
+		t.Error("--summary with --no-summary: expected an error")
 	}
 	if _, err := runCLI(t, "filter", "scan", "--source", source, "--destination", dest, "--use", "os"); err == nil {
 		t.Error("scan with --destination and rules is accepted")

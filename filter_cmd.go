@@ -21,6 +21,7 @@ var (
 	useFlags       []string
 	explainFlag    string
 	summaryFlag    bool
+	noSummaryFlag  bool
 )
 
 var errDestinationRules = errors.New("the destination has its own rules: give --destination or rules (--filter, --include, --exclude, --use), not both")
@@ -234,13 +235,14 @@ built-in groups don't apply. Example:
 var filterScanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "List the files of the source the rules keep",
-	Long: `Lists the files of the source the rules keep, relative to the source. The
-rules are the destination's (--destination), or the ones given (none: use
-default).
+	Long: `Lists the files of the source the rules keep, relative to the source, then
+a summary on stderr: the number and total size of the kept files, and the
+folders visited (on Linux, the inotify watches a watcher needs). The rules
+are the destination's (--destination), or the ones given (none: use default).
   --explain PATH  prints what decides PATH: the result, the rule and the level
                   it matches
-  --summary       prints the number of kept files and of folders visited (on
-                  Linux, the inotify watches a watcher needs)`,
+  --summary       the summary only, on stdout
+  --no-summary    the files only`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requirePaths(false); err != nil {
@@ -273,20 +275,25 @@ default).
 		if explainFlag != "" {
 			return explain(s, explainFlag, maxSize)
 		}
-		files := 0
+		files, size := 0, int64(0)
 		dirs, _ := s.walk(sourcePath, func(path string, info fs.FileInfo) error {
 			if tooLarge(info.Size(), maxSize) {
 				return nil
 			}
 			files++
+			size += info.Size()
 			if !summaryFlag {
 				rel, _ := s.rel(path)
 				fmt.Println(rel)
 			}
 			return nil
 		})
-		if summaryFlag {
-			fmt.Printf("%d files kept, %d folders visited\n", files, dirs)
+		if !noSummaryFlag {
+			out := cmd.ErrOrStderr()
+			if summaryFlag {
+				out = os.Stdout
+			}
+			fmt.Fprintf(out, "%d files kept (%s), %d folders visited\n", files, formatSize(size), dirs)
 		}
 		return nil
 	},
@@ -600,7 +607,9 @@ func init() {
 	addRuleFlags(filterScanCmd)
 	filterScanCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB, without --destination")
 	filterScanCmd.Flags().StringVar(&explainFlag, "explain", "", "print what decides this entry (relative to the source, or absolute)")
-	filterScanCmd.Flags().BoolVar(&summaryFlag, "summary", false, "print the number of kept files and of folders visited, not the files")
+	filterScanCmd.Flags().BoolVar(&summaryFlag, "summary", false, "print the summary only (kept files, their total size, folders visited), on stdout")
+	filterScanCmd.Flags().BoolVar(&noSummaryFlag, "no-summary", false, "print the files only, no summary on stderr")
+	filterScanCmd.MarkFlagsMutuallyExclusive("summary", "no-summary")
 	addRuleFlags(filterDumpCmd)
 	addRuleFlags(filterSetCmd)
 	filterSetCmd.Flags().BoolVar(&dryRun, "dry-run", false, "only print the checks and counts")

@@ -607,19 +607,23 @@ func main() {
 	}
 }
 
-// formatSize formats a byte size in human-readable format (MB or GB)
+// formatSize formats a byte size in human-readable format (B, KB, MB or GB)
 func formatSize(bytes int64) string {
 	const (
-		MB = 1024 * 1024
+		KB = 1024
+		MB = 1024 * KB
 		GB = 1024 * MB
 	)
 
-	if bytes >= GB {
-		gb := float64(bytes) / float64(GB)
-		return fmt.Sprintf("%.2f GB", gb)
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.2f GB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.2f MB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(KB))
 	}
-	mb := float64(bytes) / float64(MB)
-	return fmt.Sprintf("%.2f MB", mb)
+	return fmt.Sprintf("%d B", bytes)
 }
 
 // scanPaths scans directories, prints actions, and optionally executes them
