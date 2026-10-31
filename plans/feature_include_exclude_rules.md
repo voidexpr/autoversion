@@ -330,7 +330,8 @@ Each group is one named, code-defined set of rules, used with `use NAME`.
   with that name stays.
 - **Data, not code:** groups are defined as data (e.g.
   `filterrules/groups.json`, embedded), so they can be shared with ownit
-  later.
+  later. Since 2026-10-31 they are rules files, `filters/NAME.filter`, in
+  the shared syntax (plans/feature_reusable_filter_files.md).
 
 ### Translation from today's regexes
 
