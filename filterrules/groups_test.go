@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/nicolas/autoversion/filters"
 )
 
 // TestGroupFiles checks the group files as they load: a "# NAME: about"
@@ -83,5 +85,13 @@ func TestLoadGroupFiles_UsesAreResolved(t *testing.T) {
 	}
 	if g := s.rules["default"][1].Group; g != "vcs" {
 		t.Errorf("/a from group %q, want vcs", g)
+	}
+}
+
+func BenchmarkLoadGroups(b *testing.B) {
+	for b.Loop() {
+		if _, err := loadGroupFiles(filters.FS); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

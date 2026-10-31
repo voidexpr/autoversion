@@ -1,6 +1,6 @@
 BINARY = autoversion
 
-.PHONY: build build-all test test-verbose lint fmt clean install uninstall watch-check docker-build docker-dev-build docker-shell docker-test docker-go-test docker-sh docker-watch-check
+.PHONY: build build-all test test-verbose filter lint fmt clean install uninstall watch-check docker-build docker-dev-build docker-shell docker-test docker-go-test docker-sh docker-watch-check
 
 build:
 	go build -o $(BINARY) .
@@ -20,6 +20,11 @@ test:
 
 test-verbose:
 	go test -v ./...
+
+# Regenerates filters/README.md from the group files (TestFiltersDoc fails
+# while it is stale)
+filter:
+	go test -count=1 -run TestFiltersDoc . -args -update
 
 # Runs a real watch on a temp source, with git, with --no-git and with an
 # allowlist, and checks file and directory changes, the rules and no copy

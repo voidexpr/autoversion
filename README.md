@@ -63,6 +63,7 @@ make clean
 make install    # copies binary to /usr/local/bin
 make uninstall  # removes from /usr/local/bin
 make watch-check  # real watch on a temp source (git, --no-git, allowlist): file and directory changes, rules, no copy loop
+make filter       # regenerate filters/README.md from the group files (make test fails while it is stale)
 ```
 
 To try the Linux (inotify) watcher from macOS, `make docker-test` builds the image, then runs `init` and `watch` in a container. `SOURCE` (default `test_watch`) is mounted read-only at `/source`, `DESTINATION` (default: a new `/tmp/autoversion_docker_test/<timestamp>-<random>` directory) at `/destination`. Stop it with Ctrl+C.
@@ -366,7 +367,7 @@ Quote `'EOF'`, so the shell leaves `$`, `*` and backticks alone.
 
 # The rules expanded, groups included
 ./autoversion filter dump [--destination DEST_PATH | rules]
-# The built-in groups and their rules, ready to copy into a file
+# The built-in groups and their rules, ready to copy into a file (also filters/README.md)
 ./autoversion filter groups
 
 # Replace a destination's rules, or check them after editing the file by hand
@@ -426,7 +427,7 @@ What is tracked is decided by the destination's rules (see **filter**), then:
 - files over the marker's `max_file_size_mb` (10 MB by default, 0 for no limit) are skipped
 - `/**/.git`, and `/.autoversion` and `/.autoversion.filter` at the source root, are always left out
 
-The built-in groups (`filter groups` prints them all) leave out, as `use default`:
+The built-in groups are rules files, `filters/NAME.filter`, compiled into the binary; other tools can read them as they are. [filters/README.md](filters/README.md) lists every rule, generated from them (`filter groups` prints the same). In short, `use default` leaves out:
 - **os:** `.DS_Store`, `Thumbs.db`, `desktop.ini`, `.nfs*` files; `.Spotlight-V100`, `.Trashes`, `.dropbox`
 - **editors:** `*.swp`, `*~`, Vim's `4913`, `*.iml` files; `.idea`
 - **temp:** `*.tmp`, `*.tmp.*`, `*.temp`, `*.bak`, `*.old` files
