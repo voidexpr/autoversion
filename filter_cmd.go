@@ -405,6 +405,9 @@ var filterGroupsCmd = &cobra.Command{
 				fmt.Println()
 			}
 			fmt.Printf("# %s: %s (use %s)\n", g.Name, g.About, g.Name)
+			for _, name := range g.Use {
+				fmt.Println("use " + name)
+			}
 			for _, rule := range g.Exclude {
 				fmt.Println("exclude " + rule)
 			}

@@ -41,7 +41,7 @@ func (f *File) Add(kind Kind, text string) error {
 
 // Use adds a built-in group
 func (f *File) Use(name string) error {
-	if _, ok := groupRules[name]; !ok {
+	if !groupExists(name) {
 		return unknownGroup(name)
 	}
 	if !slices.Contains(f.Uses, name) {

@@ -1,0 +1,5 @@
+# data: database folders and write-ahead logs
+version 1
+
+exclude /**/{pgdata,*.pgdb}
+exclude f:/**/*.wal

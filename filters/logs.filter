@@ -1,0 +1,4 @@
+# logs: logs, command outputs and pid files
+version 1
+
+exclude f:/**/{*.log,*.out,*.stdout,*.err,*.stderr,*.pid,*.dump}

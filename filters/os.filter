@@ -1,0 +1,5 @@
+# os: operating system and sync client files
+version 1
+
+exclude f:/**/{.DS_Store,Thumbs.db,desktop.ini,.nfs*}
+exclude /**/{.Spotlight-V100,.Trashes,.dropbox,.dropbox.cache}

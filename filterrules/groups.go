@@ -1,77 +1,157 @@
 package filterrules
 
 import (
-	_ "embed"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"slices"
 	"strings"
+	"sync"
+
+	"github.com/nicolas/autoversion/filters"
 )
 
-// GroupInfo is a built-in group, as defined in groups.json.
+// GroupInfo is a built-in group: filters/NAME.filter, a rules file whose
+// first line is "# NAME: about".
 type GroupInfo struct {
-	Name    string   `json:"name"`
-	About   string   `json:"about"`
-	Exclude []string `json:"exclude"` // rules as written, sugar included
-	Use     []string `json:"use"`     // the groups it combines (default)
+	Name    string
+	About   string
+	Exclude []string // its rules as written, sugar included
+	Use     []string // the groups it combines
 }
 
-//go:embed groups.json
-var groupsJSON []byte
+const groupExt = ".filter"
 
-var groupList, groupRules = loadGroups()
-
-// loadGroups parses groups.json. Built-in Rules use nothing (shared spec), so
-// a group that combines others gets their rules.
-func loadGroups() ([]GroupInfo, map[string][]Rule) {
-	var data struct {
-		Groups []GroupInfo `json:"groups"`
-	}
-	if err := json.Unmarshal(groupsJSON, &data); err != nil {
-		panic(fmt.Sprintf("groups.json: %v", err))
-	}
-	rules := map[string][]Rule{}
-	for _, g := range data.Groups {
-		var all []Rule
-		for _, text := range g.Exclude {
-			parsed, err := ParseRule(Exclude, text)
-			if err != nil {
-				panic(fmt.Sprintf("groups.json: %s: %v", g.Name, err))
-			}
-			for _, r := range parsed {
-				r.Group = g.Name
-				all = append(all, r)
-			}
-		}
-		for _, name := range g.Use {
-			used, ok := rules[name]
-			if !ok {
-				panic(fmt.Sprintf("groups.json: %s uses %s, not defined before it", g.Name, name))
-			}
-			all = append(all, used...)
-		}
-		rules[g.Name] = dedupe(all)
-	}
-	return data.Groups, rules
+// groupSet is the built-in groups, loaded from filters.FS
+type groupSet struct {
+	list  []GroupInfo
+	rules map[string][]Rule // a group's rules and its used groups', deduped
 }
 
-// Groups returns the built-in groups, in their order
-func Groups() []GroupInfo {
-	return slices.Clone(groupList)
-}
+// loadGroups loads the groups on first use. A package variable would be an
+// initialization cycle: ParseFile checks use names against the groups.
+var loadGroups = sync.OnceValue(func() *groupSet {
+	s, err := loadGroupFiles(filters.FS)
+	if err != nil {
+		panic(err)
+	}
+	return s
+})
 
-// GroupNames returns the names of the built-in groups, in their order
-func GroupNames() []string {
+// groupFileNames returns the names of the groups in fsys, alphabetically,
+// without parsing them
+func groupFileNames(fsys fs.FS) []string {
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		panic(fmt.Sprintf("filters: %v", err))
+	}
 	var names []string
-	for _, g := range groupList {
-		names = append(names, g.Name)
+	for _, e := range entries {
+		if name, ok := strings.CutSuffix(e.Name(), groupExt); ok && !e.IsDir() {
+			names = append(names, name)
+		}
 	}
 	return names
 }
 
+// groupExists reports whether a built-in group exists. It doesn't load the
+// groups: File.Use calls it while they load.
+func groupExists(name string) bool {
+	info, err := fs.Stat(filters.FS, name+groupExt)
+	return err == nil && !info.IsDir()
+}
+
+// loadGroupFiles parses every NAME.filter in fsys. A rule's Group is the
+// file it is written in; a group that uses others gets their rules after
+// its own (built-in Rules use nothing, shared spec).
+func loadGroupFiles(fsys fs.FS) (*groupSet, error) {
+	s := &groupSet{rules: map[string][]Rule{}}
+	own := map[string][]Rule{}
+	uses := map[string][]string{}
+	for _, name := range groupFileNames(fsys) {
+		data, err := fs.ReadFile(fsys, name+groupExt)
+		if err != nil {
+			return nil, err
+		}
+		info, rules, err := parseGroup(name, string(data))
+		if err != nil {
+			return nil, fmt.Errorf("filters/%s%s: %v", name, groupExt, err)
+		}
+		s.list = append(s.list, *info)
+		own[name], uses[name] = rules, info.Use
+	}
+
+	var resolve func(name string, stack []string) ([]Rule, error)
+	resolve = func(name string, stack []string) ([]Rule, error) {
+		if rules, ok := s.rules[name]; ok {
+			return rules, nil
+		}
+		if i := slices.Index(stack, name); i >= 0 {
+			return nil, fmt.Errorf("filters: use cycle: %s", strings.Join(append(stack[i:], name), " -> "))
+		}
+		stack = append(stack, name)
+		all := slices.Clone(own[name])
+		for _, used := range uses[name] {
+			rules, err := resolve(used, stack)
+			if err != nil {
+				return nil, err
+			}
+			all = append(all, rules...)
+		}
+		s.rules[name] = dedupe(all)
+		return s.rules[name], nil
+	}
+	for _, g := range s.list {
+		if _, err := resolve(g.Name, nil); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+// parseGroup parses a group file: "# NAME: about" first, then a rules file
+// with only exclude rules, no root and no types (a filter's choice)
+func parseGroup(name, text string) (*GroupInfo, []Rule, error) {
+	first, _, _ := strings.Cut(text, "\n")
+	about, ok := strings.CutPrefix(first, "# "+name+": ")
+	if !ok || strings.TrimSpace(about) == "" {
+		return nil, nil, fmt.Errorf("first line is %q, want \"# %s: what it is\"", first, name)
+	}
+	f, err := ParseFile(strings.NewReader(text))
+	if err != nil {
+		return nil, nil, err
+	}
+	if f.Root != "" || f.Types != "" {
+		return nil, nil, errors.New("root and types are a filter's choice, not a group's")
+	}
+	info := &GroupInfo{Name: name, About: strings.TrimSpace(about), Use: f.Uses}
+	for _, l := range f.Lines {
+		if l.Kind != Exclude {
+			return nil, nil, fmt.Errorf("%s: a group only excludes", l)
+		}
+		info.Exclude = append(info.Exclude, l.Text)
+	}
+	rules := slices.Clone(f.Rules)
+	for i := range rules {
+		rules[i].Group = name
+	}
+	return info, rules, nil
+}
+
+// Groups returns the built-in groups, alphabetically
+func Groups() []GroupInfo {
+	return slices.Clone(loadGroups().list)
+}
+
+// GroupNames returns the names of the built-in groups, alphabetically,
+// without loading them
+func GroupNames() []string {
+	return groupFileNames(filters.FS)
+}
+
 // Group returns the rules of a built-in group
 func Group(name string) ([]Rule, error) {
-	rules, ok := groupRules[name]
+	rules, ok := loadGroups().rules[name]
 	if !ok {
 		return nil, unknownGroup(name)
 	}

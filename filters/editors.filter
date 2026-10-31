@@ -1,0 +1,5 @@
+# editors: editor swap, backup and project files
+version 1
+
+exclude f:/**/{*.swp,*.swpx,*.swo,*~,4913,*.iml}
+exclude /**/.idea

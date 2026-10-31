@@ -1,0 +1,4 @@
+# vcs: other version control folders and bare git repositories
+version 1
+
+exclude /**/{.hg,.svn,.cvs,*.git}

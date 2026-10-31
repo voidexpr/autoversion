@@ -1,0 +1,4 @@
+# caches: caches and test reports
+version 1
+
+exclude /**/{.cache,.next,.nuxt,.output,.pytest_cache,.playwright-mcp,playwright-report,test-results}

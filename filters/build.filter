@@ -1,0 +1,8 @@
+# build: build outputs and compiled files
+version 1
+
+exclude /**/{build,dist,out}/*
+exclude /**/target/{debug,release}
+exclude /**/{.build,DerivedData}
+exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}
+exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}

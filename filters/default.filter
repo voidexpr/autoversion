@@ -1,0 +1,12 @@
+# default: the groups applied unless a filter says otherwise
+version 1
+
+use os
+use editors
+use temp
+use logs
+use build
+use deps
+use caches
+use data
+use vcs

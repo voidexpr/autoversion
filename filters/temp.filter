@@ -1,0 +1,4 @@
+# temp: temporary files and old copies
+version 1
+
+exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}

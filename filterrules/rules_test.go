@@ -131,13 +131,13 @@ func TestDefaultGroups(t *testing.T) {
 }
 
 func TestGroups(t *testing.T) {
-	want := []string{"os", "editors", "temp", "logs", "build", "deps", "caches", "data", "vcs", "default"}
+	want := []string{"build", "caches", "data", "default", "deps", "editors", "logs", "os", "temp", "vcs"}
 	if got := GroupNames(); !slices.Equal(got, want) {
 		t.Errorf("groups %q, want %q", got, want)
 	}
 	all, _ := Group("default")
 	count := 0
-	for _, name := range want[:len(want)-1] {
+	for _, name := range slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "default" }) {
 		rules, err := Group(name)
 		if err != nil {
 			t.Fatal(err)

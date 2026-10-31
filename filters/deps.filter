@@ -1,0 +1,4 @@
+# deps: installed dependencies and virtual environments
+version 1
+
+exclude /**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,.gradle}

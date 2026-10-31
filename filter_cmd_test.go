@@ -433,7 +433,7 @@ func TestFilterCommands(t *testing.T) {
 		t.Errorf("dump: %v\n%s", err, out)
 	}
 	out, err = runCLI(t, "filter", "groups")
-	if err != nil || !strings.Contains(out, "# default: all the groups above (use default)") {
+	if err != nil || !strings.Contains(out, "# default: the groups applied unless a filter says otherwise (use default)\nuse os\n") {
 		t.Errorf("groups: %v\n%s", err, out)
 	}
 
