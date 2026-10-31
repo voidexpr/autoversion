@@ -1,7 +1,6 @@
 package filterrules
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"slices"
@@ -87,7 +86,7 @@ func loadGroupFiles(fsys fs.FS) (*groupSet, error) {
 			return rules, nil
 		}
 		if i := slices.Index(stack, name); i >= 0 {
-			return nil, fmt.Errorf("filters: use cycle: %s", strings.Join(append(stack[i:], name), " -> "))
+			return nil, &Error{Code: "use-cycle", Rule: strings.Join(append(stack[i:], name), " -> "), Reason: "a group uses itself"}
 		}
 		stack = append(stack, name)
 		all := slices.Clone(own[name])
@@ -110,7 +109,8 @@ func loadGroupFiles(fsys fs.FS) (*groupSet, error) {
 }
 
 // parseGroup parses a group file: "# NAME: about" first, then a rules file
-// with only exclude rules, no root and no types (a filter's choice)
+// with only exclude rules, no root and no types (a filter's choice; the
+// shared spec lets an implementation refuse them with bad-directive)
 func parseGroup(name, text string) (*GroupInfo, []Rule, error) {
 	first, _, _ := strings.Cut(text, "\n")
 	about, ok := strings.CutPrefix(first, "# "+name+": ")
@@ -121,8 +121,10 @@ func parseGroup(name, text string) (*GroupInfo, []Rule, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if f.Root != "" || f.Types != "" {
-		return nil, nil, errors.New("root and types are a filter's choice, not a group's")
+	for directive, value := range map[string]string{"root": f.Root, "types": f.Types} {
+		if value != "" {
+			return nil, nil, &Error{Code: "bad-directive", Rule: directive + " " + value, Reason: "a filter's choice, not a group's"}
+		}
 	}
 	info := &GroupInfo{Name: name, About: strings.TrimSpace(about), Use: f.Uses}
 	for _, l := range f.Lines {

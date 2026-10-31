@@ -314,6 +314,11 @@ Each milestone ends with `make test` and `make docker-go-test` passing,
 
 ### For the ownit spec
 
+Done in the spec on 2026-10-31. It resolves `use NAME` to `NAME.filter`
+beside the file (not `filter dump`), names the cycle error `use-cycle`,
+and lets an implementation refuse `root` and `types` in a used file with
+`bad-directive`; the loader uses those codes. What was asked:
+
 - Built-in groups live in autoversion's `filters/NAME.filter`, not
   `filterrules/groups.json` (its "Built-in groups" paragraph).
 - A group file may hold `use` lines (`default`, `media`). A tool reading

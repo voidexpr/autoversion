@@ -38,15 +38,15 @@ func TestLoadGroupFiles_Errors(t *testing.T) {
 		{"empty about", map[string]string{"os.filter": "# os: \nversion 1\nexclude /a\n"}, "first line"},
 		{"no version", map[string]string{"os.filter": "# os: x\nexclude /a\n"}, "version 1"},
 		{"include", map[string]string{"os.filter": "# os: x\nversion 1\n/a\n"}, "only excludes"},
-		{"root", map[string]string{"os.filter": "# os: x\nversion 1\nroot ~\nexclude /a\n"}, "filter's choice"},
-		{"types", map[string]string{"os.filter": "# os: x\nversion 1\ntypes decay\nexclude /a\n"}, "filter's choice"},
+		{"root", map[string]string{"os.filter": "# os: x\nversion 1\nroot ~\nexclude /a\n"}, `bad-directive: "root ~"`},
+		{"types", map[string]string{"os.filter": "# os: x\nversion 1\ntypes decay\nexclude /a\n"}, `bad-directive: "types decay"`},
 		{"unknown use", map[string]string{"os.filter": "# os: x\nversion 1\nuse nope\n"}, "unknown-rules"},
-		{"use itself", map[string]string{"os.filter": "# os: x\nversion 1\nuse os\n"}, "use cycle: os -> os"},
+		{"use itself", map[string]string{"os.filter": "# os: x\nversion 1\nuse os\n"}, `use-cycle: "os -> os"`},
 		{"cycle", map[string]string{
 			"os.filter":      "# os: x\nversion 1\nuse vcs\n",
 			"vcs.filter":     "# vcs: x\nversion 1\nuse default\n",
 			"default.filter": "# default: x\nversion 1\nuse vcs\n",
-		}, "use cycle: default -> vcs -> default"},
+		}, `use-cycle: "default -> vcs -> default"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
