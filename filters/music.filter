@@ -1,0 +1,5 @@
+# music: audio files
+version 1
+
+exclude f:/**/{*.mp3,*.m4a,*.m4b,*.aac,*.flac,*.alac,*.wav,*.aif,*.aiff,*.ogg,*.oga,*.opus,*.wma}
+exclude f:/**/{*.MP3,*.M4A,*.M4B,*.AAC,*.FLAC,*.ALAC,*.WAV,*.AIF,*.AIFF,*.OGG,*.OGA,*.OPUS,*.WMA}

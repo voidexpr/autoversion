@@ -117,7 +117,14 @@ func TestDefaultGroups(t *testing.T) {
 		"my_node_modules/x", "target/x", ".xcworkspace/x",
 		"build", "build/", "dist", "out/", ".yarn/releases/x.cjs", ".vscode/settings.json",
 		"src/main.go", "README.md",
+		"a.jpg", "a.mp4", "@eaDir/x", "a.jpg@SynoResource",
 	}
+	checkDecisions(t, r, out, kept)
+}
+
+// checkDecisions checks the entries r leaves out and keeps
+func checkDecisions(t *testing.T, r *Rules, out, kept []string) {
+	t.Helper()
 	for _, entry := range out {
 		if decide(r, entry).Kept {
 			t.Errorf("%s kept, want left out", entry)
@@ -130,27 +137,48 @@ func TestDefaultGroups(t *testing.T) {
 	}
 }
 
+// The opt-in groups, see plans/feature_reusable_filter_files.md
+func TestMediaAndNASGroups(t *testing.T) {
+	media := newRules(t, nil, nil, "media")
+	checkDecisions(t, media,
+		[]string{"a.mp3", "a.MP3", "IMG.HEIC", "clip.mov", "clip.MOV", "CLIP.MTS", "x/raw/a.CR3", "a.flac"},
+		[]string{"x.ts", "x.mts", "go.mod", "logo.svg", "a.Jpg", "a.move", "x.mp3/", "x.mp3/file", "x.raw", "a.psd"})
+	nas := newRules(t, nil, nil, "nas")
+	checkDecisions(t, nas,
+		[]string{"@eaDir/x", "a/@eaDir/x", "a.jpg@SynoResource", "a.jpg@SynoEAStream"},
+		[]string{"x@SynoResource/", "x@SynoResource/y", "a.jpg", "@eaDirs/x"})
+}
+
 func TestGroups(t *testing.T) {
-	want := []string{"build", "caches", "data", "default", "deps", "editors", "logs", "os", "temp", "vcs"}
+	want := []string{"build", "caches", "data", "default", "deps", "editors", "logs", "media", "music", "nas", "os", "photos", "temp", "vcs", "videos"}
 	if got := GroupNames(); !slices.Equal(got, want) {
 		t.Errorf("groups %q, want %q", got, want)
 	}
-	all, _ := Group("default")
-	count := 0
-	for _, name := range slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "default" }) {
-		rules, err := Group(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, r := range rules {
-			if r.Kind != Exclude || r.Group != name {
-				t.Errorf("%s: %v from group %q", name, r, r.Group)
-			}
-		}
-		count += len(rules)
+	byName := map[string]GroupInfo{}
+	for _, g := range Groups() {
+		byName[g.Name] = g
 	}
-	if len(all) != count {
-		t.Errorf("default has %d rules, the groups %d", len(all), count)
+	for _, combined := range []string{"default", "media"} {
+		all, _ := Group(combined)
+		count := 0
+		for _, name := range byName[combined].Use {
+			rules, err := Group(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range rules {
+				if r.Kind != Exclude || r.Group != name {
+					t.Errorf("%s: %v from group %q", name, r, r.Group)
+				}
+			}
+			count += len(rules)
+		}
+		if len(all) != count || count == 0 {
+			t.Errorf("%s has %d rules, its groups %d", combined, len(all), count)
+		}
+	}
+	if want := []string{"os", "editors", "temp", "logs", "build", "deps", "caches", "data", "vcs"}; !slices.Equal(byName["default"].Use, want) {
+		t.Errorf("default uses %q, want %q", byName["default"].Use, want)
 	}
 	if _, err := Group("common"); errorCodes(err)[0] != "unknown-rules" {
 		t.Errorf("Group(common): %v, want unknown-rules", err)

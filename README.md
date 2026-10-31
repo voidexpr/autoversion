@@ -437,6 +437,10 @@ The built-in groups (`filter groups` prints them all) leave out, as `use default
 - **data:** `pgdata`, `*.pgdb`; `*.wal` files
 - **vcs:** `.hg`, `.svn`, `.cvs`, `*.git` (bare repositories)
 
+Opt-in groups, not in `default` (`use default` and `use nas`, for example):
+- **music**, **photos**, **videos**, and **media** for the three: media files by extension (`*.mp3`, `*.heic`, `*.mov`, …), lowercase and uppercase, files only. Only excludes: "only my photos" is an allowlist, `exclude /*` and `f:/**/*.{jpg,png}`.
+- **nas:** Synology metadata, `@eaDir` folders and `*@SynoResource`, `*@SynoEAStream` files
+
 Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf.d` is kept. Lock files (`Cargo.lock`, `uv.lock`) and `.vscode/` are tracked.
 
 ## Configuration

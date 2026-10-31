@@ -1,0 +1,5 @@
+# nas: Synology metadata
+version 1
+
+exclude /**/@eaDir
+exclude f:/**/{*@SynoResource,*@SynoEAStream}

@@ -1,0 +1,5 @@
+# videos: video files
+version 1
+
+exclude f:/**/{*.mp4,*.m4v,*.mov,*.avi,*.mkv,*.webm,*.wmv,*.flv,*.mpg,*.mpeg,*.3gp,*.m2ts,*.vob,*.ogv}
+exclude f:/**/{*.MP4,*.M4V,*.MOV,*.AVI,*.MKV,*.WEBM,*.WMV,*.FLV,*.MPG,*.MPEG,*.3GP,*.M2TS,*.MTS,*.VOB,*.OGV}

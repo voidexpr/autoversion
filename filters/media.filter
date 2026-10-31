@@ -1,0 +1,6 @@
+# media: music, photos and videos
+version 1
+
+use music
+use photos
+use videos

@@ -1,0 +1,5 @@
+# photos: images and camera raw files
+version 1
+
+exclude f:/**/{*.jpg,*.jpeg,*.png,*.heic,*.heif,*.gif,*.tif,*.tiff,*.bmp,*.webp,*.dng,*.cr2,*.cr3,*.nef,*.arw,*.orf,*.raf,*.rw2}
+exclude f:/**/{*.JPG,*.JPEG,*.PNG,*.HEIC,*.HEIF,*.GIF,*.TIF,*.TIFF,*.BMP,*.WEBP,*.DNG,*.CR2,*.CR3,*.NEF,*.ARW,*.ORF,*.RAF,*.RW2}
