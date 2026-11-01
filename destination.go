@@ -26,9 +26,12 @@ const defaultRules = "version 1\nuse default\n"
 
 // destinationSettings are what a destination's marker says besides its source
 type destinationSettings struct {
-	Git           bool
-	Restic        bool
-	MaxFileSizeMB int64 // 0: no limit
+	Git    bool
+	Restic bool
+	// Legacy: the size limit of a marker written before it was the rules
+	// file's max-file-size directive. 0: no limit. Read, kept as stored,
+	// never added; it applies while the rules file has no directive.
+	MaxFileSizeMB int64
 }
 
 var defaultSettings = destinationSettings{Git: true, MaxFileSizeMB: defaultMaxFileSizeMB}
@@ -36,7 +39,20 @@ var defaultSettings = destinationSettings{Git: true, MaxFileSizeMB: defaultMaxFi
 var onOff = map[bool]string{true: "on", false: "off"}
 
 func (s destinationSettings) String() string {
-	return fmt.Sprintf("git %s, restic %s, max file size %d MB", onOff[s.Git], onOff[s.Restic], s.MaxFileSizeMB)
+	return fmt.Sprintf("git %s, restic %s", onOff[s.Git], onOff[s.Restic])
+}
+
+// sizeLimit returns the size limit in force for a destination, in bytes (0:
+// none), and where it comes from: the rules file's max-file-size, else the
+// marker's legacy max_file_size_mb
+func sizeLimit(rules *filterrules.Rules, settings destinationSettings) (bytes int64, from string) {
+	if text, bytes := rules.MaxFileSize(); text != "" {
+		return bytes, "max-file-size " + text + " (rules file)"
+	}
+	if settings.MaxFileSizeMB == 0 {
+		return 0, "none (no max-file-size in the rules file)"
+	}
+	return settings.MaxFileSizeMB << 20, fmt.Sprintf("%d MB (the marker's legacy max_file_size_mb: add max-file-size %dM to the rules file)", settings.MaxFileSizeMB, settings.MaxFileSizeMB)
 }
 
 type destinationMarker struct {
@@ -116,7 +132,9 @@ func writeMarker(destPath string, marker *destinationMarker) error {
 		{"source", marker.Source},
 		{"git", marker.Git},
 		{"restic", marker.Restic},
-		{"max_file_size_mb", marker.MaxFileSizeMB},
+	}
+	if marker.stored["max_file_size_mb"] {
+		fields = append(fields, field{"max_file_size_mb", marker.MaxFileSizeMB})
 	}
 	for _, key := range slices.Sorted(maps.Keys(marker.other)) {
 		fields = append(fields, field{key, marker.other[key]})
@@ -242,9 +260,10 @@ type PathValidationResult struct {
 	Errors              []string
 
 	// When the marker names the source
-	Settings destinationSettings
-	Rules    *filterrules.Rules
-	RulesErr error // the rules file can't be read or is invalid
+	Settings    destinationSettings
+	Rules       *filterrules.Rules
+	MaxFileSize int64 // the size limit in force, in bytes (0: none), see sizeLimit
+	RulesErr    error // the rules file can't be read or is invalid
 }
 
 // ValidateSourceAndDestination validates that source and destination paths are
@@ -314,6 +333,9 @@ func ValidateSourceAndDestination(sourcePath, destPath string) (*PathValidationR
 			result.Marker = MarkerMatches
 			result.Settings = marker.destinationSettings
 			result.Rules, result.RulesErr = readRules(resolvedDest)
+			if result.Rules != nil {
+				result.MaxFileSize, _ = sizeLimit(result.Rules, result.Settings)
+			}
 		default:
 			result.Marker = MarkerOtherSource
 			result.MarkerSource = marker.Source
@@ -447,9 +469,8 @@ func validatePaths(sourcePath, destPath string) (*PathValidationResult, error) {
 
 // settingsFlags are the settings given to init, nil when not given
 type settingsFlags struct {
-	git           *bool
-	restic        *bool
-	maxFileSizeMB *int64
+	git    *bool
+	restic *bool
 }
 
 // apply returns s with the given settings
@@ -460,9 +481,6 @@ func (f settingsFlags) apply(s destinationSettings) destinationSettings {
 	if f.restic != nil {
 		s.Restic = *f.restic
 	}
-	if f.maxFileSizeMB != nil {
-		s.MaxFileSizeMB = *f.maxFileSizeMB
-	}
 	return s
 }
 
@@ -470,8 +488,7 @@ func (f settingsFlags) apply(s destinationSettings) destinationSettings {
 // which then doesn't state it (written before settings were stored)
 func (f settingsFlags) inferredIn(marker *destinationMarker) bool {
 	return f.git != nil && !marker.stored["git"] ||
-		f.restic != nil && !marker.stored["restic"] ||
-		f.maxFileSizeMB != nil && !marker.stored["max_file_size_mb"]
+		f.restic != nil && !marker.stored["restic"]
 }
 
 // changes lists how the given settings change s
@@ -483,9 +500,6 @@ func (f settingsFlags) changes(s destinationSettings) []string {
 	}
 	if n.Restic != s.Restic {
 		changes = append(changes, "restic "+onOff[s.Restic]+" → "+onOff[n.Restic])
-	}
-	if n.MaxFileSizeMB != s.MaxFileSizeMB {
-		changes = append(changes, fmt.Sprintf("max file size %d MB → %d MB", s.MaxFileSizeMB, n.MaxFileSizeMB))
 	}
 	return changes
 }
@@ -596,6 +610,9 @@ func initDestination(sourcePath, destPath string, opts initOptions) error {
 	newMarker := &destinationMarker{Source: sourcePath, destinationSettings: settings}
 	if marker != nil {
 		newMarker.other = marker.other
+		if opts.keepMarkerSettings {
+			newMarker.stored = marker.stored
+		}
 	}
 	if err := writeMarker(destPath, newMarker); err != nil {
 		return fmt.Errorf("failed to write marker: %v", err)

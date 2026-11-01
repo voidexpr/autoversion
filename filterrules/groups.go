@@ -109,8 +109,9 @@ func loadGroupFiles(fsys fs.FS) (*groupSet, error) {
 }
 
 // parseGroup parses a group file: "# NAME: about" first, then a rules file
-// with only exclude rules, no root and no types (a filter's choice; the
-// shared spec lets an implementation refuse them with bad-directive)
+// with only exclude rules, no root, types or max-file-size (a filter's
+// choice; the shared spec lets an implementation refuse them with
+// bad-directive)
 func parseGroup(name, text string) (*GroupInfo, []Rule, error) {
 	first, _, _ := strings.Cut(text, "\n")
 	about, ok := strings.CutPrefix(first, "# "+name+": ")
@@ -121,7 +122,7 @@ func parseGroup(name, text string) (*GroupInfo, []Rule, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	for directive, value := range map[string]string{"root": f.Root, "types": f.Types} {
+	for directive, value := range map[string]string{"root": f.Root, "types": f.Types, "max-file-size": f.MaxFileSize} {
 		if value != "" {
 			return nil, nil, &Error{Code: "bad-directive", Rule: directive + " " + value, Reason: "a filter's choice, not a group's"}
 		}

@@ -178,7 +178,7 @@ The rules and settings moved from command line flags to the destination. `sync`,
 | `--exclude-dir X` | `filter set --use default --exclude /X` |
 | `--only-include-extensions md,csv` | `filter set --use default --exclude '/*' --include 'f:/**/*.{md,csv}'` |
 | `--only-include-file F` | `filter set --use default --exclude '/*' --include /F` |
-| `--max-file-size N` (not 10) | `init --update-settings --max-file-size N` |
+| `--max-file-size N` | a `max-file-size NM` line in the rules file: `filter set --destination D --filter - < rules` or `filter set ... --max-file-size NM` with the rule flags. Until the rules file has the line, a marker's `max_file_size_mb` still applies (10 MB when it has none) |
 | `--no-git`, `--restic` | keep them on `init`, which stores them in the marker (`init --no-git` is refused on a destination with a `.git` folder). `sync`, `watch`, `install` and `check-paths` refuse them |
 
 Then run `install` again: the plist loses the old flags, and the service is reloaded. Differences in the built-in exclusions are listed in `plans/feature_include_exclude_rules.md` (translation table): lock files such as `Cargo.lock`, `.vscode/` and names made only of digits are now tracked.
@@ -265,12 +265,12 @@ The destination's marker is checked at startup only. If the destination disappea
 
 With `--log-dir DIR`, stdout and stderr go to `DIR/stdout.log` and `DIR/stderr.log`, rotated by size (see **Logs** under `install`). Filtered-out events (`event skip`) are only printed with `--debug`, and so are files removed before their event is handled (`skipping vanished file`, common with build outputs).
 
-The settings and the rules are the destination's: `watch` refuses `--max-file-size` and rule flags without `--report-only`, and prints the rules' warnings at startup.
+The settings and the rules are the destination's: `watch` refuses rule flags (`--max-file-size` included) without `--report-only`, and prints the rules' warnings at startup.
 
-Only print file events, without copying anything (no `--destination`, no initial scan). Each event is shown as `track` (kept by the rules) or `skip`; add `--debug` to also see the raw FSEvents flags. The rules are given on the command line (none: `use default`):
+Only print file events, without copying anything (no `--destination`, no initial scan). Each event is shown as `track` (kept by the rules) or `skip`; add `--debug` to also see the raw FSEvents flags. The rules are given on the command line (none: `use default`, no size limit):
 
 ```bash
-./autoversion watch --report-only --source SOURCE_PATH [--filter FILE | --use GROUP --include RULE --exclude RULE ...] [--max-file-size MB]
+./autoversion watch --report-only --source SOURCE_PATH [--filter FILE | --use GROUP --include RULE --exclude RULE --max-file-size SIZE ...]
 ```
 
 This can be used instead of `inotifywait -m -r` (Linux) or `fswatch` (macOS) to see what changes under a directory, with rules applied, and to check what a `watch` would pick up before installing it.
@@ -288,15 +288,15 @@ One-time sync without watching:
 Initialize a destination for a source. Files under `SOURCE_PATH` are mirrored directly into `DEST_PATH` (`SOURCE_PATH/rel` → `DEST_PATH/rel`):
 
 ```bash
-./autoversion init --source SOURCE_PATH --destination DEST_PATH [--no-git] [--restic] [--max-file-size MB]
-    [--filter FILE | --use GROUP --include RULE --exclude RULE ...]
+./autoversion init --source SOURCE_PATH --destination DEST_PATH [--no-git] [--restic]
+    [--filter FILE | --use GROUP --include RULE --exclude RULE --max-file-size SIZE ...]
     [--force-new-source [--force-keep-marker-settings | --force-replace-marker-settings] | --force-obliterate-yes-i-am-sure]
     [--update-settings]
 ```
 
 `init` creates the destination if needed, runs `git init` (unless `--no-git`), initializes restic (with `--restic`), and writes two files (see **Destination Marker**):
-- `.autoversion`, the marker: the source and the settings (`--no-git`, `--restic`, `--max-file-size`)
-- `.autoversion.filter`, the rules (see **filter**): the `--filter` file as written, or the rule flags one per line. Without rules: `use default`.
+- `.autoversion`, the marker: the source and the settings (`--no-git`, `--restic`)
+- `.autoversion.filter`, the rules (see **filter**): the `--filter` file as written, or the rule flags one per line, `--max-file-size SIZE` as a `max-file-size SIZE` line. Without rules: `use default`, no size limit.
 
 With git, both are committed on their own (`init: source SOURCE_PATH`). Invalid rules, or an allowlist none of whose includes exists, stop `init` before anything is created.
 
@@ -326,6 +326,7 @@ A destination's rules say which files of its source are tracked. They are stored
 
 ```
 version 1
+max-file-size 10M       # files over it are left out (none, or no line: no limit)
 use default             # the built-in groups, see filter groups
 
 exclude /*              # an allowlist: only what is listed below
@@ -336,12 +337,13 @@ exclude /*              # an allowlist: only what is listed below
 /projects/*/memory
 ```
 
+- Directives come first: `max-file-size SIZE` (`10M`, `500k`, `1G`, `none`; binary units, either case; a file of exactly SIZE is kept), `use GROUP`, and for other tools `root` and `types`.
 - Every rule starts at the source root (`/`). `*` matches within a name, a `/**/` segment any number of folders. `f:` makes a rule match files only (`f:/**/*.old` keeps a folder named `x.old`).
 - A bare line is an include. `{a,b}` gives one rule per name. `P/!Q` is an exception: in an include, `P` minus `P/Q`; in an exclude, `P`'s content except `P/Q`.
 - The closest match wins: the entry itself is checked first, then each folder above it. On one level, a literal rule beats a wildcard, then an include beats an exclude. Line order means nothing. Nothing is implied: an allowlist says `exclude /*`.
 - Always applied: `/**/.git`, symlinks, and `/.autoversion` and `/.autoversion.filter` at the source root.
 
-Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`, `watch --report-only`): `--filter FILE` (a rules file, `-` for stdin; a `root` line must name the source), and `--use GROUP`, `--include RULE` and `--exclude RULE` (repeatable). They combine: `init` and `filter set` store the file as written, comments kept, with the `use` lines of the flags after its version line and their rules at the end. Without a `use` line or `--use`, the built-in groups don't apply. A rules file starts with `version 1`. For example:
+Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`, `watch --report-only`): `--filter FILE` (a rules file, `-` for stdin; a `root` line must name the source), `--use GROUP`, `--include RULE` and `--exclude RULE` (repeatable), and `--max-file-size SIZE`. They combine: `init` and `filter set` store the file as written, comments kept, with the directives of the flags after its version line and their rules at the end. Without a `use` line or `--use`, the built-in groups don't apply. A rules file starts with `version 1`. For example:
 
 ```bash
 ./autoversion filter scan --source ~/.claude --use default --summary --filter - <<'EOF'
@@ -356,7 +358,7 @@ Quote `'EOF'`, so the shell leaves `$`, `*` and backticks alone.
 
 ```bash
 # List the files the rules keep (the destination's, or the ones given; none: use default), then a summary on stderr
-./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] [--max-file-size MB]
+./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules]
 # What decides one entry: the result, the rule (and its group) and the level it matches
 ./autoversion filter scan --source SOURCE_PATH [--destination DEST_PATH | rules] --explain PATH
 # The summary alone on stdout: number and total size of the kept files, and folders visited (on
@@ -408,14 +410,14 @@ Shows symlink resolution and the marker status, and validates:
 {
   "source": "/Users/me/projects/myapp",
   "git": true,
-  "restic": false,
-  "max_file_size_mb": 10
+  "restic": false
 }
 ```
 
 `sync`, `watch` and `install` refuse to copy anything unless the marker exists and names their source. This catches typos in either path (a mistyped destination is never silently created) and prevents two sources from syncing into the same destination.
 
-- Settings missing from a marker (markers written before settings were stored) describe the destination as it is: `git` when it has a `.git` folder, `restic` when it has a restic repository, 10 MB. They are worked out each time, until `init` is given the setting and stores it.
+- Settings missing from a marker (markers written before settings were stored) describe the destination as it is: `git` when it has a `.git` folder, `restic` when it has a restic repository. They are worked out each time, until `init` is given the setting and stores it.
+- `max_file_size_mb` is legacy: the size limit is the rules file's `max-file-size` line. A marker that has the field keeps it, and it applies while the rules file has no `max-file-size` line (a marker without the field: 10 MB). `filter dump --destination` prints the limit in force and where it comes from.
 - Fields autoversion doesn't know are kept when the marker is rewritten.
 - The marker and the rules file (`.autoversion.filter`) are never deleted or overwritten by a sync, and files with these names at the root of a source are not tracked.
 - With git, both are versioned like the other files: `git log -p .autoversion` shows which source the destination belonged to over time, and `git log -p .autoversion.filter` every rule change.
@@ -424,7 +426,7 @@ Shows symlink resolution and the marker status, and validates:
 
 What is tracked is decided by the destination's rules (see **filter**), then:
 - symlinks and other files that are not regular files are never tracked
-- files over the marker's `max_file_size_mb` (10 MB by default, 0 for no limit) are skipped
+- files over the rules file's `max-file-size` are skipped (`max-file-size 10M`: an integer with a unit `k`, `m` or `g`, binary, either case, or `none`; a file of exactly that size is kept). Without the line there is no limit, unless the marker still carries a legacy `max_file_size_mb` (see **Destination Marker**)
 - `/**/.git`, and `/.autoversion` and `/.autoversion.filter` at the source root, are always left out
 
 The built-in groups are rules files, `filters/NAME.filter`, compiled into the binary; other tools can read them as they are. [filters/README.md](filters/README.md) lists every rule, generated from them (`filter groups` prints the same). In short, `use default` leaves out:
@@ -458,7 +460,7 @@ Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf
 | `--include`, `--exclude` | (none) | Include or exclude rule, repeatable (`init`, `filter scan`, `dump`, `set`) |
 | `--use` | (none) | Built-in group, repeatable (`init`, `filter scan`, `dump`, `set`; see `filter groups`) |
 | `--explain`, `--summary`, `--no-summary` | (none) | `filter scan`: what decides one entry; the summary only, on stdout; the files only (by default the summary follows the files, on stderr) |
-| `--max-file-size` | 10 MB | Maximum file size to track: `init` stores it in the marker; also `filter scan` and `watch --report-only` |
+| `--max-file-size` | (none) | Size limit, `10M`, `500k`, `1G` or `none`: the `max-file-size` line of the rules, with the other rule flags (`init`, `filter scan`, `dump`, `set`, `watch --report-only`) |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--report-only` | false | Only print file events, copy nothing (watch only, no `--destination` needed) |

@@ -38,28 +38,29 @@ func skipDir(path string) bool {
 	return rulesSet().skipDir(path)
 }
 
-// tooLarge reports whether a file is over the size limit (0: no limit)
-func tooLarge(size, maxSizeMB int64) bool {
-	return maxSizeMB > 0 && size > maxSizeMB*1024*1024
+// tooLarge reports whether a file is over the size limit, in bytes (0: no
+// limit). A file of exactly the limit is kept.
+func tooLarge(size, maxSize int64) bool {
+	return maxSize > 0 && size > maxSize
 }
 
 // tooLargeToTrack is tooLarge, logging each large file once
-func tooLargeToTrack(path string, size, maxSizeMB int64) bool {
-	if !tooLarge(size, maxSizeMB) {
+func tooLargeToTrack(path string, size, maxSize int64) bool {
+	if !tooLarge(size, maxSize) {
 		return false
 	}
 	if !reportedLargeFiles[path] {
 		reportedLargeFiles[path] = true
-		logSkip("[%s] skipping large file: %s (%d MB > %d MB)\n",
-			nowTS(), path, size/1024/1024, maxSizeMB)
+		logSkip("[%s] skipping large file: %s (%s > %s)\n",
+			nowTS(), path, formatSize(size), formatSize(maxSize))
 	}
 	return true
 }
 
 // ShouldTrack returns true if a file of the source is tracked: the rules keep
-// it, it is a regular file, and it is within maxSizeMB (0: no limit).
+// it, it is a regular file, and it is within maxSize bytes (0: no limit).
 // isDelete should be true for a deleted file: only the rules apply.
-func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
+func ShouldTrack(path string, maxSize int64, isDelete bool) (bool, error) {
 	// The rules first: they need no file access, and the files they leave out
 	// are often temporary ones already gone (e.g. build outputs)
 	if !trackedPath(path, false) {
@@ -87,5 +88,5 @@ func ShouldTrack(path string, maxSizeMB int64, isDelete bool) (bool, error) {
 		return false, nil
 	}
 
-	return !tooLargeToTrack(path, info.Size(), maxSizeMB), nil
+	return !tooLargeToTrack(path, info.Size(), maxSize), nil
 }

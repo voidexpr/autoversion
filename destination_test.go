@@ -496,13 +496,12 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 
 	t.Run("rules and settings given", func(t *testing.T) {
 		rules := "version 1\nuse default\n\n# notes only\nexclude /*\n/notes\n"
-		_, dest := initFresh(t, initOptions{rules: rules,
-			settings: settingsFlags{git: ptr(false), maxFileSizeMB: ptr(int64(50))}})
+		_, dest := initFresh(t, initOptions{rules: rules, settings: settingsFlags{git: ptr(false)}})
 		if got := readText(t, filepath.Join(dest, filterFileName)); got != rules {
 			t.Errorf("rules %q, want %q", got, rules)
 		}
 		marker, _ := readMarker(dest)
-		if want := (destinationSettings{MaxFileSizeMB: 50}); marker.destinationSettings != want || IsGitRepo(dest) {
+		if want := (destinationSettings{MaxFileSizeMB: defaultMaxFileSizeMB}); marker.destinationSettings != want || IsGitRepo(dest) {
 			t.Errorf("settings %+v, want %+v without git", marker.destinationSettings, want)
 		}
 	})
@@ -533,21 +532,20 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 	})
 
 	t.Run("initialized: settings change only with --update-settings", func(t *testing.T) {
-		source, dest := initFresh(t, initOptions{})
+		source, dest := initFresh(t, initOptions{settings: settingsFlags{git: ptr(false)}})
 		restartedJobs = nil
 		marker, _ := readMarker(dest)
 		marker.other["remotes"] = []byte(`["nas"]`)
 		if err := writeMarker(dest, marker); err != nil {
 			t.Fatal(err)
 		}
-		commits := gitLogCount(t, dest, "")
 
-		if err := initDestination(source, dest, initOptions{settings: settingsFlags{maxFileSizeMB: ptr(int64(10))}}); err != nil {
+		if err := initDestination(source, dest, initOptions{settings: settingsFlags{git: ptr(false)}}); err != nil {
 			t.Errorf("same settings: %v", err)
 		}
-		opts := initOptions{settings: settingsFlags{maxFileSizeMB: ptr(int64(50)), restic: ptr(false)}}
+		opts := initOptions{settings: settingsFlags{git: ptr(true), restic: ptr(false)}}
 		err := initDestination(source, dest, opts)
-		if err == nil || !strings.Contains(err.Error(), "max file size 10 MB → 50 MB") || !strings.Contains(err.Error(), "--update-settings") {
+		if err == nil || !strings.Contains(err.Error(), "git off → on") || !strings.Contains(err.Error(), "--update-settings") {
 			t.Errorf("error %v, want the change and --update-settings", err)
 		}
 		if len(restartedJobs) != 0 {
@@ -563,11 +561,11 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 		marker, _ = readMarker(dest)
 		var remotes bytes.Buffer
 		json.Compact(&remotes, marker.other["remotes"])
-		if marker.MaxFileSizeMB != 50 || remotes.String() != `["nas"]` {
+		if !marker.Git || remotes.String() != `["nas"]` {
 			t.Errorf("marker %+v, remotes %s", marker.destinationSettings, marker.other["remotes"])
 		}
-		if n := gitLogCount(t, dest, ""); n != commits+1 {
-			t.Errorf("commits %d, want %d", n, commits+1)
+		if n := gitLogCount(t, dest, ""); n != 1 {
+			t.Errorf("commits %d, want 1 (the marker)", n)
 		}
 	})
 
@@ -641,7 +639,7 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 			t.Errorf("marker changed by a refused --no-git: %s", got)
 		}
 
-		if err := initDestination(source, dest, initOptions{settings: settingsFlags{maxFileSizeMB: ptr(int64(defaultMaxFileSizeMB))}}); err != nil {
+		if err := initDestination(source, dest, initOptions{settings: settingsFlags{git: ptr(true)}}); err != nil {
 			t.Fatal(err)
 		}
 		if n := gitLogCount(t, dest, markerFileName); n != 2 {
@@ -665,7 +663,7 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 	})
 
 	t.Run("a new source keeps or replaces the marker's settings", func(t *testing.T) {
-		mirror := settingsFlags{git: ptr(false), maxFileSizeMB: ptr(int64(50))}
+		mirror := settingsFlags{git: ptr(false)}
 		_, dest := initFresh(t, initOptions{settings: mirror})
 
 		// Each init switches to a new source: the same source would be a
@@ -674,18 +672,19 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 		marker, _ := readMarker(dest)
-		if marker.Git || marker.MaxFileSizeMB != 50 || IsGitRepo(dest) {
+		if marker.Git || IsGitRepo(dest) {
 			t.Errorf("keep: settings %v, git repo %v", marker.destinationSettings, IsGitRepo(dest))
 		}
 
-		if err := initDestination(resolvedTempDir(t), dest, initOptions{forceNewSource: true, keepMarkerSettings: true, settings: settingsFlags{maxFileSizeMB: ptr(int64(20))}}); err != nil {
+		if err := initDestination(resolvedTempDir(t), dest, initOptions{forceNewSource: true, keepMarkerSettings: true, settings: settingsFlags{git: ptr(true)}}); err != nil {
 			t.Fatal(err)
 		}
 		marker, _ = readMarker(dest)
-		if marker.Git || marker.MaxFileSizeMB != 20 {
-			t.Errorf("keep with a flag: settings %v", marker.destinationSettings)
+		if !marker.Git || !IsGitRepo(dest) {
+			t.Errorf("keep with a flag: settings %v, git repo %v", marker.destinationSettings, IsGitRepo(dest))
 		}
 
+		_, dest = initFresh(t, initOptions{settings: mirror})
 		if err := initDestination(resolvedTempDir(t), dest, initOptions{forceNewSource: true, replaceMarkerSettings: true}); err != nil {
 			t.Fatal(err)
 		}

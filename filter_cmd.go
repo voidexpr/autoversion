@@ -15,13 +15,14 @@ import (
 )
 
 var (
-	filterFileFlag string
-	includeFlags   []string
-	excludeFlags   []string
-	useFlags       []string
-	explainFlag    string
-	summaryFlag    bool
-	noSummaryFlag  bool
+	filterFileFlag  string
+	includeFlags    []string
+	excludeFlags    []string
+	useFlags        []string
+	maxFileSizeFlag string
+	explainFlag     string
+	summaryFlag     bool
+	noSummaryFlag   bool
 )
 
 var errDestinationRules = errors.New("the destination has its own rules: give --destination or rules (--filter, --include, --exclude, --use), not both")
@@ -32,14 +33,25 @@ func addRuleFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&includeFlags, "include", nil, "include rule, e.g. /notes or 'f:/**/*.md' (repeatable)")
 	cmd.Flags().StringArrayVar(&excludeFlags, "exclude", nil, "exclude rule, e.g. /Backup or 'f:/**/*.old' (repeatable)")
 	cmd.Flags().StringArrayVar(&useFlags, "use", nil, "built-in group, e.g. default (repeatable, see filter groups)")
+	cmd.Flags().StringVar(&maxFileSizeFlag, "max-file-size", "", "size limit, e.g. 10M (units k, m, g; none): the max-file-size line of the rules")
 }
 
 func ruleFlagsGiven() bool {
-	return filterFileFlag != "" || len(useFlags)+len(includeFlags)+len(excludeFlags) > 0
+	return filterFileFlag != "" || maxFileSizeFlag != "" || len(useFlags)+len(includeFlags)+len(excludeFlags) > 0
 }
 
-// addFlagRules adds the rules of the --use, --include and --exclude flags
+// addFlagRules adds the rules of the --max-file-size, --use, --include and
+// --exclude flags
 func addFlagRules(f *filterrules.File) error {
+	if maxFileSizeFlag != "" {
+		if f.MaxFileSize != "" {
+			return fmt.Errorf("--max-file-size: the --filter file already has max-file-size %s", f.MaxFileSize)
+		}
+		if _, err := filterrules.ParseSize(maxFileSizeFlag); err != nil {
+			return fmt.Errorf("--max-file-size %s: %v", maxFileSizeFlag, err)
+		}
+		f.MaxFileSize = maxFileSizeFlag
+	}
 	for _, name := range useFlags {
 		if err := f.Use(name); err != nil {
 			return fmt.Errorf("--use: %v", err)
@@ -105,10 +117,10 @@ func readFilterFlag(sourcePath string) (string, *filterrules.File, error) {
 	return text, f, nil
 }
 
-// addFlagLines adds the --use, --include and --exclude flags to a rules
-// file's text, its lines and comments kept: the use lines after its version
-// line, if any (directives come before rules), the rules at the end. uses
-// are the file's own, not repeated.
+// addFlagLines adds the --max-file-size, --use, --include and --exclude
+// flags to a rules file's text, its lines and comments kept: the directives
+// after its version line, if any (directives come before rules), the rules
+// at the end. uses are the file's own, not repeated.
 func addFlagLines(text string, uses []string) string {
 	if text != "" && !strings.HasSuffix(text, "\n") {
 		text += "\n"
@@ -126,6 +138,9 @@ func addFlagLines(text string, uses []string) string {
 		break
 	}
 	var useLines []string
+	if maxFileSizeFlag != "" {
+		useLines = append(useLines, "max-file-size "+maxFileSizeFlag+"\n")
+	}
 	for _, name := range useFlags {
 		if !slices.Contains(uses, name) {
 			useLines = append(useLines, "use "+name+"\n")
@@ -160,7 +175,7 @@ func flagRules(sourcePath string) (string, *filterrules.File, error) {
 	if err := addFlagRules(f); err != nil {
 		return "", nil, err
 	}
-	if len(f.Lines) == 0 && len(f.Uses) == 0 {
+	if len(f.Lines) == 0 && len(f.Uses) == 0 && f.MaxFileSize == "" {
 		return "", nil, fmt.Errorf("no rules in --filter %s", filterFileFlag)
 	}
 	if len(f.Uses) == 0 {
@@ -223,6 +238,10 @@ Rules on the command line (init, filter scan, dump and set, watch
 --report-only), combined:
   --filter FILE                                 a rules file, - for stdin
   --include RULE, --exclude RULE, --use GROUP   repeatable
+  --max-file-size SIZE                          the max-file-size line: files
+                                                over SIZE (10M, 500k, 1G,
+                                                none) are left out; without
+                                                it, no limit
 A rules file starts with version 1. Without a use line or --use, the
 built-in groups don't apply. Example:
   autoversion filter scan --source ~/.claude --use default --filter - <<'EOF'
@@ -254,9 +273,9 @@ are the destination's (--destination), or the ones given (none: use default).
 		}
 
 		var rules *filterrules.Rules
-		maxSize := maxFileSize
+		var maxSize int64
 		if destFlag != "" {
-			if ruleFlagsGiven() || cmd.Flags().Changed("max-file-size") {
+			if ruleFlagsGiven() {
 				return errDestinationRules
 			}
 			result, err := ValidateSourceAndDestination(sourcePath, destFlag)
@@ -266,9 +285,12 @@ are the destination's (--destination), or the ones given (none: use default).
 			if problems := result.problems(); len(problems) > 0 {
 				return errors.New(problems[0])
 			}
-			rules, maxSize = result.Rules, result.Settings.MaxFileSizeMB
-		} else if rules, err = rulesFromFlags(sourcePath); err != nil {
-			return err
+			rules, maxSize = result.Rules, result.MaxFileSize
+		} else {
+			if rules, err = rulesFromFlags(sourcePath); err != nil {
+				return err
+			}
+			_, maxSize = rules.MaxFileSize()
 		}
 
 		s := &sourceRules{root: sourcePath, rules: rules}
@@ -299,8 +321,9 @@ are the destination's (--destination), or the ones given (none: use default).
 	},
 }
 
-// explain prints what decides an entry of the source
-func explain(s *sourceRules, path string, maxSizeMB int64) error {
+// explain prints what decides an entry of the source; maxSize is the size
+// limit in bytes (0: none)
+func explain(s *sourceRules, path string, maxSize int64) error {
 	abs := path
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(s.root, path)
@@ -343,8 +366,8 @@ func explain(s *sourceRules, path string, maxSizeMB int64) error {
 			level := strings.Join(strings.Split(rel, "/")[:d.Level], "/")
 			result = fmt.Sprintf("%s by %s, matching %s", result, by, level)
 		}
-		if d.Kept && err == nil && !isDir && tooLarge(info.Size(), maxSizeMB) {
-			result = fmt.Sprintf("left out: larger than %d MB (%s)", maxSizeMB, result)
+		if d.Kept && err == nil && !isDir && tooLarge(info.Size(), maxSize) {
+			result = fmt.Sprintf("left out: %s, larger than the size limit %s (%s)", formatSize(info.Size()), formatSize(maxSize), result)
 		}
 	}
 	fmt.Printf("%s (%s): %s\n", rel, what, result)
@@ -376,6 +399,8 @@ var filterDumpCmd = &cobra.Command{
 			if rules, err = readRules(destPath); err != nil {
 				return err
 			}
+			_, from := sizeLimit(rules, marker.destinationSettings)
+			fmt.Printf("# size limit: %s\n", from)
 		} else {
 			sourcePath := ""
 			if sourceFlag != "" {
@@ -514,8 +539,9 @@ func applyRules(result *PathValidationResult, text string, replace bool) error {
 	}
 
 	kept := map[string]bool{}
+	maxSize, _ := sizeLimit(rules, settings)
 	(&sourceRules{root: sourcePath, rules: rules}).walk(sourcePath, func(path string, info fs.FileInfo) error {
-		if !tooLarge(info.Size(), settings.MaxFileSizeMB) {
+		if !tooLarge(info.Size(), maxSize) {
 			rel, _ := filepath.Rel(sourcePath, path)
 			kept[rel] = true
 		}
@@ -608,7 +634,6 @@ func commitRules(destPath string) error {
 
 func init() {
 	addRuleFlags(filterScanCmd)
-	filterScanCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB, without --destination")
 	filterScanCmd.Flags().StringVar(&explainFlag, "explain", "", "print what decides this entry (relative to the source, or absolute)")
 	filterScanCmd.Flags().BoolVar(&summaryFlag, "summary", false, "print the summary only (kept files, their total size, folders visited), on stdout")
 	filterScanCmd.Flags().BoolVar(&noSummaryFlag, "no-summary", false, "print the files only, no summary on stderr")

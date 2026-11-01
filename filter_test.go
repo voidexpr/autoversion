@@ -22,11 +22,11 @@ func TestShouldTrack(t *testing.T) {
 	setRules(t, tmpDir)
 
 	tests := []struct {
-		name      string
-		filename  string
-		content   string
-		maxSizeMB int64
-		want      bool
+		name     string
+		filename string
+		content  string
+		maxSize  int64
+		want     bool
 	}{
 		// Should track
 		{"normal go file", "main.go", "package main", 0, true},
@@ -101,7 +101,7 @@ func TestShouldTrack(t *testing.T) {
 		{"rules file below the root", "sub/" + filterFileName, "version 1", 0, true},
 
 		// File size limits
-		{"small file under limit", "small.txt", "x", 1, true},
+		{"small file under limit", "small.txt", "x", 1 << 20, true},
 	}
 
 	for _, tt := range tests {
@@ -109,7 +109,7 @@ func TestShouldTrack(t *testing.T) {
 			testPath := filepath.Join(tmpDir, tt.filename)
 			writeFile(t, testPath, tt.content)
 
-			got, err := ShouldTrack(testPath, tt.maxSizeMB, false)
+			got, err := ShouldTrack(testPath, tt.maxSize, false)
 			if err != nil {
 				t.Fatalf("ShouldTrack() error = %v", err)
 			}
@@ -127,11 +127,11 @@ func TestShouldTrack_FileSize(t *testing.T) {
 	writeFile(t, largePath, strings.Repeat("x", 2*1024*1024))
 
 	captureStdout(t, func() {
-		if got, err := ShouldTrack(largePath, 1, false); got || err != nil {
+		if got, err := ShouldTrack(largePath, 1<<20, false); got || err != nil {
 			t.Errorf("ShouldTrack(2MB file, 1MB limit) = %v, %v, want false", got, err)
 		}
 	})
-	if got, err := ShouldTrack(largePath, 3, false); !got || err != nil {
+	if got, err := ShouldTrack(largePath, 3<<20, false); !got || err != nil {
 		t.Errorf("ShouldTrack(2MB file, 3MB limit) = %v, %v, want true", got, err)
 	}
 }
@@ -144,7 +144,7 @@ func TestShouldTrack_LargeFileReportedOnce(t *testing.T) {
 
 	out := captureStdout(t, func() {
 		for range 3 {
-			if _, err := ShouldTrack(largePath, 1, false); err != nil {
+			if _, err := ShouldTrack(largePath, 1<<20, false); err != nil {
 				t.Fatalf("ShouldTrack() error = %v", err)
 			}
 		}
@@ -166,7 +166,7 @@ func TestShouldTrack_VanishedFile(t *testing.T) {
 		debug = d
 		out := captureStdout(t, func() {
 			for _, path := range []string{vanished, excluded} {
-				got, err := ShouldTrack(path, 10, false)
+				got, err := ShouldTrack(path, 10<<20, false)
 				if err != nil || got {
 					t.Errorf("ShouldTrack(%q) = %v, %v, want false, nil", path, got, err)
 				}
@@ -224,7 +224,7 @@ func TestShouldTrack_Rules(t *testing.T) {
 		"projects/p/x.jsonl":          false,
 		"projects/p/memory/x.log":     false, // the logs group is closer than the include
 	} {
-		if got, err := ShouldTrack(filepath.Join(root, name), 10, false); got != want || err != nil {
+		if got, err := ShouldTrack(filepath.Join(root, name), 10<<20, false); got != want || err != nil {
 			t.Errorf("ShouldTrack(%s) = %v, %v, want %v", name, got, err, want)
 		}
 	}

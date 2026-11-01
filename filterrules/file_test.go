@@ -80,6 +80,14 @@ func TestParseFileErrors(t *testing.T) {
 		{"version 1\nroot x\n", "bad-directive", 2},
 		{"version 1\ntypes maybe\n", "bad-directive", 2},
 		{"version 1\ntypes decay\ntypes strict\n", "bad-directive", 3},
+		{"version 1\nmax-file-size 10\n", "bad-directive", 2},
+		{"version 1\nmax-file-size 10MB\n", "bad-directive", 2},
+		{"version 1\nmax-file-size 1.5G\n", "bad-directive", 2},
+		{"version 1\nmax-file-size 0k\n", "bad-directive", 2},
+		{"version 1\nmax-file-size -1k\n", "bad-directive", 2},
+		{"version 1\nmax-file-size\n", "bad-directive", 2},
+		{"version 1\nmax-file-size 10M\nmax-file-size none\n", "bad-directive", 3},
+		{"version 1\n/a\nmax-file-size 10M\n", "bad-directive", 3},
 		{"version 1\n/a\nuse default\n", "bad-directive", 3},
 		{"version 1\nuse common\n", "unknown-rules", 2},
 		{"version 1\nexclude-if-present pyvenv.cfg\n", "unknown-directive", 2},
@@ -99,17 +107,17 @@ func TestParseFileErrors(t *testing.T) {
 }
 
 func TestFileFormat(t *testing.T) {
-	var f File
+	f := File{MaxFileSize: "10M"}
 	f.Use("default")
 	f.Add(Exclude, "/*")
 	f.Add(Include, "/skills/!synced")
-	want := "version 1\nuse default\n\nexclude /*\ninclude /skills/!synced\n"
+	want := "version 1\nmax-file-size 10M\nuse default\n\nexclude /*\ninclude /skills/!synced\n"
 	if got := f.Format(); got != want {
 		t.Errorf("Format()\n%s\nwant\n%s", got, want)
 	}
 	again := parseFile(t, f.Format())
-	if !slices.Equal(ruleStrings(again.Rules), ruleStrings(f.Rules)) || !slices.Equal(again.Uses, f.Uses) {
-		t.Errorf("read back: uses %q rules %q", again.Uses, ruleStrings(again.Rules))
+	if !slices.Equal(ruleStrings(again.Rules), ruleStrings(f.Rules)) || !slices.Equal(again.Uses, f.Uses) || again.MaxFileSize != "10M" {
+		t.Errorf("read back: uses %q rules %q max-file-size %q", again.Uses, ruleStrings(again.Rules), again.MaxFileSize)
 	}
 	if got := (&File{}).Format(); got != "version 1\n" {
 		t.Errorf("empty file: %q", got)

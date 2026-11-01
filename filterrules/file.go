@@ -11,11 +11,12 @@ import (
 // File is a rules file: its directives and rule lines. Without a root line
 // it applies to a root given by the caller.
 type File struct {
-	Root  string // as written ("~", "~/x" or "/x"), "" without a root line
-	Types string // "strict" or "decay" as written, "" without a types line (strict)
-	Uses  []string
-	Lines []Line // rule lines as written
-	Rules []Rule // Lines expanded
+	Root        string // as written ("~", "~/x" or "/x"), "" without a root line
+	Types       string // "strict" or "decay" as written, "" without a types line (strict)
+	MaxFileSize string // as written ("10M", "none"), "" without a max-file-size line (no limit), see ParseSize
+	Uses        []string
+	Lines       []Line // rule lines as written
+	Rules       []Rule // Lines expanded
 }
 
 // Line is a rule as written, sugar included.
@@ -61,6 +62,9 @@ func (f *File) Format() string {
 	if f.Types != "" {
 		b.WriteString("types " + f.Types + "\n")
 	}
+	if f.MaxFileSize != "" {
+		b.WriteString("max-file-size " + f.MaxFileSize + "\n")
+	}
 	for _, name := range f.Uses {
 		b.WriteString("use " + name + "\n")
 	}
@@ -76,8 +80,9 @@ func (f *File) Format() string {
 var directiveWord = regexp.MustCompile(`^[a-z][a-z-]*$`)
 
 // ParseFile reads a rules file: "version 1" first, then the directives
-// (root, types, use), then the rule lines ("exclude RULE", "include RULE",
-// or a bare RULE, which is an include). Line order means nothing else.
+// (root, types, max-file-size, use), then the rule lines ("exclude RULE",
+// "include RULE", or a bare RULE, which is an include). Line order means
+// nothing else.
 func ParseFile(r io.Reader) (*File, error) {
 	f := &File{}
 	seenVersion := false
@@ -102,7 +107,7 @@ func ParseFile(r io.Reader) (*File, error) {
 			continue
 		}
 		switch word {
-		case "version", "root", "types", "use":
+		case "version", "root", "types", "max-file-size", "use":
 			if len(f.Lines) > 0 {
 				return nil, fail("bad-directive", "directives come before the rules")
 			}
@@ -127,6 +132,14 @@ func ParseFile(r io.Reader) (*File, error) {
 				return nil, fail("bad-directive", "types strict or types decay")
 			}
 			f.Types = rest
+		case "max-file-size":
+			if f.MaxFileSize != "" {
+				return nil, fail("bad-directive", "max-file-size twice")
+			}
+			if _, err := ParseSize(rest); err != nil {
+				return nil, fail("bad-directive", "max-file-size: "+err.Error())
+			}
+			f.MaxFileSize = rest
 		case "use":
 			err = f.Use(rest)
 		case "exclude":

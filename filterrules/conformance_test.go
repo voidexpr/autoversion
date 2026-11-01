@@ -20,12 +20,14 @@ func TestConformance(t *testing.T) {
 	var suite struct {
 		Version int `json:"version"`
 		Cases   []struct {
-			Name    string   `json:"name"`
-			Tools   []string `json:"tools"` // empty: every tool, native included
-			Tree    []string `json:"tree"`
-			Exclude []string `json:"exclude"`
-			Include []string `json:"include"`
-			Kept    []string `json:"kept"`
+			Name        string           `json:"name"`
+			Tools       []string         `json:"tools"` // empty: every tool, native included
+			Tree        []string         `json:"tree"`
+			Exclude     []string         `json:"exclude"`
+			Include     []string         `json:"include"`
+			Kept        []string         `json:"kept"`
+			MaxFileSize string           `json:"max_file_size"` // the directive's value, "" without
+			Sizes       map[string]int64 `json:"sizes"`         // file entry to bytes, 0 when absent
 		} `json:"cases"`
 		Invalid []struct {
 			Rule string `json:"rule"`
@@ -61,8 +63,13 @@ func TestConformance(t *testing.T) {
 		}
 		native++
 		t.Run(c.Name, func(t *testing.T) {
-			r := newRules(t, c.Exclude, c.Include)
-			got, want := selectTree(r, c.Tree), slices.Clone(c.Kept)
+			f := newFile(t, c.Exclude, c.Include)
+			f.MaxFileSize = c.MaxFileSize
+			r, err := New(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, want := selectTree(r, c.Tree, c.Sizes), slices.Clone(c.Kept)
 			slices.Sort(got)
 			slices.Sort(want)
 			if !slices.Equal(got, want) {
@@ -121,8 +128,8 @@ func TestConformance(t *testing.T) {
 	}
 }
 
-// newRules builds Rules from rules as written and groups
-func newRules(t *testing.T, exclude, include []string, uses ...string) *Rules {
+// newFile builds a File from rules as written and groups
+func newFile(t *testing.T, exclude, include []string, uses ...string) *File {
 	t.Helper()
 	var f File
 	for _, text := range exclude {
@@ -140,7 +147,13 @@ func newRules(t *testing.T, exclude, include []string, uses ...string) *Rules {
 			t.Fatal(err)
 		}
 	}
-	r, err := New(&f)
+	return &f
+}
+
+// newRules builds Rules from rules as written and groups
+func newRules(t *testing.T, exclude, include []string, uses ...string) *Rules {
+	t.Helper()
+	r, err := New(newFile(t, exclude, include, uses...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,11 +166,12 @@ func decide(r *Rules, entry string) Decision {
 }
 
 // selectTree returns the kept entries of a tree (folders end with "/"), bare
-// folders included, in tree order
-func selectTree(r *Rules, tree []string) []string {
+// folders included, in tree order. sizes gives file sizes for the size
+// limit, missing entries are empty.
+func selectTree(r *Rules, tree []string, sizes map[string]int64) []string {
 	kept := map[string]bool{}
 	for _, entry := range tree {
-		if decide(r, entry).Kept {
+		if decide(r, entry).Kept && (strings.HasSuffix(entry, "/") || !r.TooLarge(sizes[entry])) {
 			kept[entry] = true
 			names := strings.Split(strings.TrimSuffix(entry, "/"), "/")
 			for i := 1; i < len(names); i++ {

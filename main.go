@@ -30,7 +30,7 @@ var (
 	errLogFlag string
 
 	// Command-specific flags
-	maxFileSize        int64
+	maxFileSize        int64 // the size limit in force, in bytes (0: none), see sizeLimit
 	bufferTime         int
 	dryRun             bool
 	reportOnly         bool
@@ -199,10 +199,10 @@ var initCmd = &cobra.Command{
 	Short: "Initialize a destination for a source",
 	Long: `Creates the destination if needed, initializes git (unless --no-git) and
 restic (with --restic), and writes two files, committed with git:
-  .autoversion         the marker: the source and the settings (git, restic,
-                       max file size)
-  .autoversion.filter  the rules: --filter FILE, or --use, --include and
-                       --exclude (none: use default). See filter --help.
+  .autoversion         the marker: the source and the settings (git, restic)
+  .autoversion.filter  the rules: --filter FILE, or --use, --include,
+                       --exclude and --max-file-size (none: use default).
+                       See filter --help.
 Commands that copy files (sync, watch, install) refuse a destination without
 a marker naming their source.
 
@@ -251,9 +251,6 @@ change with filter set.`,
 		if cmd.Flags().Changed("restic") {
 			settings.restic = &useRestic
 		}
-		if cmd.Flags().Changed("max-file-size") {
-			settings.maxFileSizeMB = &maxFileSize
-		}
 		return initDestination(result.SourceResolved, result.DestinationResolved, initOptions{
 			forceNewSource:        forceNewSource,
 			keepMarkerSettings:    keepMarkerSettings,
@@ -271,12 +268,12 @@ change with filter set.`,
 var movedFlags = []string{"no-git", "restic", "max-file-size", "exclude-dir", "only-include-extensions",
 	"only-include-file", "filter", "include", "exclude", "use"}
 
-var errDestinationSettings = errors.New("settings and rules belong to the destination, set them with init or filter set (watch takes rules and --max-file-size with --report-only only)")
+var errDestinationSettings = errors.New("settings and rules belong to the destination, set them with init or filter set (watch takes rules, --max-file-size included, with --report-only only)")
 
 // useDestination sets what sync, watch and install take from the
-// destination: its settings and its rules
+// destination: its settings, its rules and the size limit in force
 func useDestination(result *PathValidationResult) {
-	noGit, useRestic, maxFileSize = !result.Settings.Git, result.Settings.Restic, result.Settings.MaxFileSizeMB
+	noGit, useRestic, maxFileSize = !result.Settings.Git, result.Settings.Restic, result.MaxFileSize
 	SetFilter(result.SourceResolved, result.Rules)
 }
 
@@ -293,8 +290,9 @@ var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Sync source directory to destination",
 	Long: `Copies the files of the source the destination's rules keep, and removes
-from the destination the files they don't keep. The settings (git, restic,
-max file size) and the rules are the destination's, see init and filter.`,
+from the destination the files they don't keep. The settings (git, restic)
+and the rules, size limit included, are the destination's, see init and
+filter.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requirePaths(true); err != nil {
@@ -370,10 +368,11 @@ default), the size limit with --max-file-size.`,
 			if err != nil {
 				return err
 			}
+			_, maxFileSize = rules.MaxFileSize()
 			SetFilter(absSourcePath, rules)
 			printRuleWarnings(absSourcePath, rules)
 		} else {
-			if ruleFlagsGiven() || cmd.Flags().Changed("max-file-size") {
+			if ruleFlagsGiven() {
 				return errDestinationSettings
 			}
 			result, err := validatePaths(sourceFlag, destFlag)
@@ -572,7 +571,6 @@ func init() {
 	initCmd.Flags().BoolVar(&forceObliterate, "force-obliterate-yes-i-am-sure", false, "remove everything in the destination, .git included, then initialize it")
 	initCmd.MarkFlagsMutuallyExclusive("force-new-source", "force-obliterate-yes-i-am-sure")
 	initCmd.MarkFlagsMutuallyExclusive("force-keep-marker-settings", "force-replace-marker-settings")
-	initCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB, stored in the marker (0: no limit)")
 	initCmd.Flags().BoolVar(&updateSettingsFlag, "update-settings", false, "on an initialized destination, write settings different from the marker's")
 	addRuleFlags(initCmd)
 
@@ -580,7 +578,6 @@ func init() {
 	syncCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")
 
 	// Watch command flags
-	watchCmd.Flags().Int64Var(&maxFileSize, "max-file-size", defaultMaxFileSizeMB, "maximum file size in MB, with --report-only")
 	addRuleFlags(watchCmd)
 	watchCmd.Flags().IntVar(&bufferTime, "buffer-time", defaultBufferTime, "buffer time in seconds")
 	watchCmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be done without executing")

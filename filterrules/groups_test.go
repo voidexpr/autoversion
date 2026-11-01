@@ -40,6 +40,7 @@ func TestLoadGroupFiles_Errors(t *testing.T) {
 		{"include", map[string]string{"os.filter": "# os: x\nversion 1\n/a\n"}, "only excludes"},
 		{"root", map[string]string{"os.filter": "# os: x\nversion 1\nroot ~\nexclude /a\n"}, `bad-directive: "root ~"`},
 		{"types", map[string]string{"os.filter": "# os: x\nversion 1\ntypes decay\nexclude /a\n"}, `bad-directive: "types decay"`},
+		{"max-file-size", map[string]string{"os.filter": "# os: x\nversion 1\nmax-file-size 1M\nexclude /a\n"}, `bad-directive: "max-file-size 1M"`},
 		{"unknown use", map[string]string{"os.filter": "# os: x\nversion 1\nuse nope\n"}, "unknown-rules"},
 		{"use itself", map[string]string{"os.filter": "# os: x\nversion 1\nuse os\n"}, `use-cycle: "os -> os"`},
 		{"cycle", map[string]string{

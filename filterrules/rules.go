@@ -12,11 +12,13 @@ import (
 // names and no leading or trailing "/". The root itself is "" and is always
 // kept.
 type Rules struct {
-	types    string
-	all      []Rule             // own rules first, then the groups'
-	literal  map[string][]*Rule // literal rules by path
-	wildcard []*Rule
-	includes []*Rule
+	types       string
+	maxFileSize string             // as written, "" without the directive
+	maxBytes    int64              // 0: no limit
+	all         []Rule             // own rules first, then the groups'
+	literal     map[string][]*Rule // literal rules by path
+	wildcard    []*Rule
+	includes    []*Rule
 }
 
 // New combines a file's rules with the groups it uses, and validates them
@@ -32,10 +34,30 @@ func New(f *File) (*Rules, error) {
 	}
 	r := compile(dedupe(all))
 	r.types = f.Types
+	if f.MaxFileSize != "" {
+		bytes, err := ParseSize(f.MaxFileSize)
+		if err != nil {
+			return nil, &Error{Code: "bad-directive", Rule: "max-file-size " + f.MaxFileSize, Reason: err.Error()}
+		}
+		r.maxFileSize, r.maxBytes = f.MaxFileSize, bytes
+	}
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
 	return r, nil
+}
+
+// MaxFileSize returns the size limit: the max-file-size directive as
+// written ("" without one) and in bytes (0: no limit). It applies after the
+// rules, to kept non-folders only, see TooLarge.
+func (r *Rules) MaxFileSize() (text string, bytes int64) {
+	return r.maxFileSize, r.maxBytes
+}
+
+// TooLarge reports whether a kept file is left out by the size limit: it is
+// larger than max-file-size (a file of exactly that size is kept)
+func (r *Rules) TooLarge(size int64) bool {
+	return r.maxBytes > 0 && size > r.maxBytes
 }
 
 func compile(all []Rule) *Rules {
@@ -307,6 +329,9 @@ func (r *Rules) Dump() string {
 	b.WriteString("version 1\n")
 	if r.types != "" {
 		fmt.Fprintf(&b, "types %s\n", r.types)
+	}
+	if r.maxFileSize != "" {
+		fmt.Fprintf(&b, "max-file-size %s\n", r.maxFileSize)
 	}
 	for i, rule := range r.all {
 		if i == 0 || rule.Group != r.all[i-1].Group {

@@ -116,13 +116,13 @@ func TestExplain(t *testing.T) {
 		"sub/.git/config":      "sub/.git/config (file): left out: always applied",
 		filterFileName:         filterFileName + " (file): left out: always applied",
 		"link":                 "link (file): left out: not a regular file",
-		"big.bin":              "big.bin (file): left out: larger than 1 MB (kept: no rule",
+		"big.bin":              "big.bin (file): left out: 1.00 MB, larger than the size limit 1.00 MB (kept: no rule",
 		"gone.log":             "gone.log (missing, decided as a file): left out by exclude f:/**/*.log (group logs)",
 		source + "/notes/a.md": "notes/a.md (file): kept",
 	}
 	for path, want := range tests {
 		out := captureStdout(t, func() {
-			if err := explain(s, path, 1); err != nil {
+			if err := explain(s, path, 1<<20); err != nil {
 				t.Error(err)
 			}
 		})
@@ -130,7 +130,7 @@ func TestExplain(t *testing.T) {
 			t.Errorf("explain %s:\n got %q\nwant %q...", path, out, want)
 		}
 	}
-	if err := explain(s, "../outside", 1); err == nil {
+	if err := explain(s, "../outside", 1<<20); err == nil {
 		t.Error("a path outside the source is explained")
 	}
 }
@@ -138,7 +138,7 @@ func TestExplain(t *testing.T) {
 func setRuleFlags(t *testing.T, filter string, uses, includes, excludes []string) {
 	t.Helper()
 	filterFileFlag, useFlags, includeFlags, excludeFlags = filter, uses, includes, excludes
-	t.Cleanup(func() { filterFileFlag, useFlags, includeFlags, excludeFlags = "", nil, nil, nil })
+	t.Cleanup(func() { filterFileFlag, useFlags, includeFlags, excludeFlags, maxFileSizeFlag = "", nil, nil, nil, "" })
 }
 
 func TestRulesText(t *testing.T) {
@@ -178,13 +178,31 @@ func TestRulesText(t *testing.T) {
 	t.Run("a file and flags", func(t *testing.T) {
 		writeFile(t, file, written)
 		setRuleFlags(t, file, []string{"os", "default"}, []string{"/x/y"}, []string{"/x"})
-		want := "version 1\nuse os\nuse default   # the groups\n\nexclude /*\n/notes   # kept\ninclude /x/y\nexclude /x\n"
+		maxFileSizeFlag = "5M"
+		want := "version 1\nmax-file-size 5M\nuse os\nuse default   # the groups\n\nexclude /*\n/notes   # kept\ninclude /x/y\nexclude /x\n"
 		if text, err := rulesText(source); text != want || err != nil {
 			t.Errorf("rules %q (error %v), want %q", text, err, want)
 		}
 		rules, err := rulesFromFlags(source)
 		if err != nil || rules.Decide("x", false).Kept || !rules.Decide("notes", true).Kept {
 			t.Errorf("scan and dump combine them: error %v", err)
+		}
+		if _, bytes := rules.MaxFileSize(); bytes != 5<<20 {
+			t.Errorf("max-file-size %d, want 5M", bytes)
+		}
+	})
+	t.Run("max-file-size in the file and the flag", func(t *testing.T) {
+		writeFile(t, file, "version 1\nmax-file-size 1M\nuse default\n")
+		setRuleFlags(t, file, nil, nil, nil)
+		maxFileSizeFlag = "5M"
+		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "already has max-file-size 1M") {
+			t.Errorf("error %v, want twice", err)
+		}
+		maxFileSizeFlag = "5"
+		setRuleFlags(t, "", nil, nil, nil)
+		maxFileSizeFlag = "5"
+		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "--max-file-size 5:") {
+			t.Errorf("error %v, want a bad size", err)
 		}
 	})
 	t.Run("use from a flag, after the version line", func(t *testing.T) {
@@ -373,7 +391,7 @@ func TestCopyCommandsUseTheDestination(t *testing.T) {
 	result, dest := newSyncedDestination(t, true)
 	source := result.SourceResolved
 	for _, args := range [][]string{
-		{"sync", "--no-git"}, {"sync", "--restic"}, {"sync", "--max-file-size", "5"},
+		{"sync", "--no-git"}, {"sync", "--restic"}, {"sync", "--max-file-size", "5M"},
 		{"sync", "--exclude-dir", "x"}, {"sync", "--only-include-extensions", "md"}, {"sync", "--exclude", "/x"},
 		{"check-paths", "--no-git"},
 	} {
@@ -382,7 +400,7 @@ func TestCopyCommandsUseTheDestination(t *testing.T) {
 			t.Errorf("%v: error %v", args, err)
 		}
 	}
-	for _, args := range [][]string{{"--exclude", "/x"}, {"--use", "os"}, {"--max-file-size", "5"}} {
+	for _, args := range [][]string{{"--exclude", "/x"}, {"--use", "os"}, {"--max-file-size", "5M"}} {
 		_, err := runCLI(t, append([]string{"watch", "--source", source, "--destination", dest}, args...)...)
 		if err != errDestinationSettings {
 			t.Errorf("watch %v: error %v", args, err)
@@ -451,5 +469,48 @@ func TestFilterCommands(t *testing.T) {
 	}
 	if _, err := runCLI(t, "init", "--source", source, "--destination", dest, "--exclude", "/a.txt"); err == nil {
 		t.Error("init with rules on an initialized destination is accepted")
+	}
+}
+
+func TestFilterScan_MaxFileSize(t *testing.T) {
+	setGlobals(t, false)
+	source := resolvedTempDir(t)
+	writeFile(t, filepath.Join(source, "small.bin"), strings.Repeat("x", 4096))
+	writeFile(t, filepath.Join(source, "big.bin"), strings.Repeat("x", 8192))
+
+	out, err := runCLI(t, "filter", "scan", "--source", source, "--use", "default", "--max-file-size", "4k", "--no-summary")
+	if err != nil || out != "small.bin\n" {
+		t.Errorf("scan --max-file-size 4k: %v\n%s", err, out)
+	}
+	out, err = runCLI(t, "filter", "scan", "--source", source, "--use", "default", "--no-summary")
+	if err != nil || out != "big.bin\nsmall.bin\n" {
+		t.Errorf("scan without a limit: %v\n%s", err, out)
+	}
+	out, err = runCLI(t, "filter", "scan", "--source", source, "--max-file-size", "4k", "--explain", "big.bin")
+	if err != nil || !strings.Contains(out, "left out: 8.0 KB, larger than the size limit 4.0 KB") {
+		t.Errorf("explain: %v\n%s", err, out)
+	}
+	out, err = runCLI(t, "filter", "dump", "--use", "default", "--max-file-size", "4k")
+	if err != nil || !strings.Contains(out, "\nmax-file-size 4k\n") {
+		t.Errorf("dump: %v\n%s", err, out)
+	}
+
+	// A destination: the rules file's directive, else the marker's legacy value
+	dest := filepath.Join(resolvedTempDir(t), "dest")
+	if err := initDestination(source, dest, initOptions{settings: settingsFlags{git: ptr(false)}, rules: "version 1\nuse default\n"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err = runCLI(t, "filter", "dump", "--destination", dest)
+	if err != nil || !strings.Contains(out, "# size limit: 10 MB (the marker's legacy max_file_size_mb") {
+		t.Errorf("dump --destination, legacy: %v\n%s", err, out)
+	}
+	writeFile(t, filepath.Join(dest, filterFileName), "version 1\nmax-file-size 4k\nuse default\n")
+	out, err = runCLI(t, "filter", "dump", "--destination", dest)
+	if err != nil || !strings.Contains(out, "# size limit: max-file-size 4k (rules file)") {
+		t.Errorf("dump --destination, directive: %v\n%s", err, out)
+	}
+	out, err = runCLI(t, "filter", "scan", "--source", source, "--destination", dest, "--no-summary")
+	if err != nil || out != "small.bin\n" {
+		t.Errorf("scan --destination: %v\n%s", err, out)
 	}
 }
