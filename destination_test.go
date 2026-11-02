@@ -722,8 +722,8 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 func TestInitCmd_OverrideFlagsAreExclusive(t *testing.T) {
 	setGlobals(t, false)
 	defer func() {
+		resetFlags(rootCmd)
 		sourceFlag, destFlag = "", ""
-		forceNewSource, forceObliterate, keepMarkerSettings, replaceSettings = false, false, false, false
 		rootCmd.SetArgs(nil)
 	}()
 	rootCmd.SetOut(io.Discard)
@@ -734,16 +734,48 @@ func TestInitCmd_OverrideFlagsAreExclusive(t *testing.T) {
 		{"--force-new-source", "--force-keep-marker-settings", "--force-replace-marker-settings"},
 		{"--force-keep-marker-settings"},
 		{"--force-replace-marker-settings"},
+		{"--mirror", "--git"},
+		{"--mirror", "--restic"},
 	} {
-		forceNewSource, forceObliterate, keepMarkerSettings, replaceSettings = false, false, false, false
+		resetFlags(rootCmd)
 		dest := filepath.Join(resolvedTempDir(t), "dest")
-		rootCmd.SetArgs(append([]string{"init", "--source", resolvedTempDir(t), "--destination", dest}, flags...))
+		rootCmd.SetArgs(append([]string{"init", "--source", resolvedTempDir(t), "--destination", dest, "--git", "--use", "default"}, flags...))
 		if err := rootCmd.Execute(); err == nil {
 			t.Errorf("%v: expected an error", flags)
 		}
 		if _, err := os.Stat(dest); !os.IsNotExist(err) {
 			t.Errorf("%v: destination created despite the error", flags)
 		}
+	}
+}
+
+// init says how the destination versions, and takes rules
+func TestInitCmd_RequiresVersioningAndRules(t *testing.T) {
+	setGlobals(t, false)
+	source := resolvedTempDir(t)
+	dest := filepath.Join(resolvedTempDir(t), "dest")
+
+	_, err := runCLI(t, "init", "--source", source, "--destination", dest, "--use", "default")
+	if err == nil || !strings.Contains(err.Error(), "--git, --restic (or both), or --mirror") {
+		t.Errorf("without a versioning flag: %v", err)
+	}
+	_, err = runCLI(t, "init", "--source", source, "--destination", dest, "--mirror")
+	if err == nil || !strings.Contains(err.Error(), "init needs rules") || !strings.Contains(err.Error(), starterRules) {
+		t.Errorf("without rules: %v", err)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Error("destination created despite the errors")
+	}
+
+	if _, err := runCLI(t, "init", "--source", source, "--destination", dest, "--mirror", "--use", "default", "--use", "nested-git", "--max-file-size", "10M"); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := readMarker(dest)
+	if err != nil || marker.Git || marker.Restic || IsGitRepo(dest) {
+		t.Errorf("mirror: marker %+v (%v), git repo %v", marker, err, IsGitRepo(dest))
+	}
+	if got, _ := os.ReadFile(filepath.Join(dest, filterFileName)); string(got) != starterRules {
+		t.Errorf("rules %q, want the starter file", got)
 	}
 }
 

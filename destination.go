@@ -21,8 +21,12 @@ const markerFileName = ".autoversion"
 // (filterrules)
 const filterFileName = ".autoversion.filter"
 
-// defaultRules are the rules of a destination without a rules file
+// defaultRules are the rules of a destination without a rules file, from
+// before init required rules (the file is written at migration)
 const defaultRules = "version 1\nuse default\n"
+
+// starterRules is the rules file init suggests when it is given none
+const starterRules = "version 1\nmax-file-size 10M\nuse default\nuse nested-git\n"
 
 // destinationSettings are what a destination's marker says besides its source
 type destinationSettings struct {
@@ -165,11 +169,12 @@ func writeMarker(destPath string, marker *destinationMarker) error {
 	return os.WriteFile(filepath.Join(destPath, markerFileName), out.Bytes(), 0644)
 }
 
-// readRulesText returns a destination's rules file, or defaultRules when it
-// has none (destinations made before rules files)
+// readRulesText returns a destination's rules file, or defaultRules with a
+// warning when it has none (destinations made before init required rules)
 func readRulesText(destPath string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(destPath, filterFileName))
 	if os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "warning: %s has no %s, using the rules \"use default\": write its rules with filter set\n", destPath, filterFileName)
 		return defaultRules, nil
 	}
 	return string(data), err

@@ -18,7 +18,7 @@ A lightweight Go tool that tracks file versions in real-time using git as the ba
 make build
 
 # Initialize the destination once, then install and start watching
-./autoversion init --source ~/projects/myapp --destination ~/repos/myapp
+./autoversion init --git --use default --use nested-git --max-file-size 10M --source ~/projects/myapp --destination ~/repos/myapp
 ./autoversion install --source ~/projects/myapp --destination ~/repos/myapp
 
 # Grant Full Disk Access (required for some directories):
@@ -98,10 +98,10 @@ make docker-watch-check                               # watch-check on Linux
 
 ## Directory Mirroring (without git)
 
-Initialize the destination with `--no-git` to keep a filtered copy of a directory without git versioning: a clean mirror without build artifacts, temp files and other noise. The setting is stored in the marker, so `sync`, `watch` and `install` take no flag for it.
+Initialize the destination with `--mirror` to keep a filtered copy of a directory without git versioning: a clean mirror without build artifacts, temp files and other noise. The setting is stored in the marker, so `sync`, `watch` and `install` take no flag for it.
 
 ```bash
-./autoversion init --no-git --source ~/projects/myapp --destination /tmp/mirror/myapp
+./autoversion init --mirror --use default --use nested-git --source ~/projects/myapp --destination /tmp/mirror/myapp
 ./autoversion sync --source ~/projects/myapp --destination /tmp/mirror/myapp     # one-time mirror
 ./autoversion watch --source ~/projects/myapp --destination /tmp/mirror/myapp    # real-time mirror
 ./autoversion install --source ~/projects/myapp --destination /tmp/mirror/myapp  # background service
@@ -114,19 +114,20 @@ The rules apply as with git (see **filter**). On a plain mirror, the files the r
 The rules are stored in the destination (see **filter**). Common cases:
 
 ```bash
-# Everything but the built-in exclusions (the default)
-./autoversion init --source ~/SyncDatabox --destination ~/repos/SyncDatabox
+# Everything but the built-in exclusions, repositories inside the source and files over 10 MB
+./autoversion init --git --use default --use nested-git --max-file-size 10M \
+    --source ~/SyncDatabox --destination ~/repos/SyncDatabox
 
 # Skip folders of the source: rules start at the source root (/**/ for any depth)
-./autoversion init --use default --exclude /Backup --exclude /nicmac/local_projects \
+./autoversion init --git --use default --use nested-git --exclude /Backup --exclude /nicmac/local_projects \
     --source ~/SyncDatabox --destination ~/repos/SyncDatabox
 
 # Only some file types
-./autoversion init --no-git --use default --exclude '/*' --include 'f:/**/*.{md,csv,txt}' \
+./autoversion init --mirror --use default --exclude '/*' --include 'f:/**/*.{md,csv,txt}' \
     --source ~/projects/myapp --destination /tmp/mirror/myapp
 
 # Only a few files and folders of a busy tree (the ~/.claude example of filter)
-./autoversion init --filter claude.filter --source ~/.claude --destination ~/backup/claude_settings
+./autoversion init --git --filter claude.filter --source ~/.claude --destination ~/backup/claude_settings
 
 # Change the rules of a destination: check first, then apply (restarts the running service)
 ./autoversion filter set --destination ~/repos/SyncDatabox --use default --exclude /Backup --exclude /archives --dry-run
@@ -159,7 +160,7 @@ exclude /*
 ./autoversion filter scan --source ~/.claude --filter claude.filter --explain plugins/cache/x/CLAUDE.md
 
 # A new destination
-./autoversion init --filter claude.filter --source ~/.claude --destination ~/backup/claude
+./autoversion init --git --filter claude.filter --source ~/.claude --destination ~/backup/claude
 ./autoversion install --source ~/.claude --destination ~/backup/claude
 
 # Or an existing one: check, then apply (commits the rules, restarts the service)
@@ -179,7 +180,7 @@ The rules and settings moved from command line flags to the destination. `sync`,
 | `--only-include-extensions md,csv` | `filter set --use default --exclude '/*' --include 'f:/**/*.{md,csv}'` |
 | `--only-include-file F` | `filter set --use default --exclude '/*' --include /F` |
 | `--max-file-size N` | a `max-file-size NM` line in the rules file: `filter set --destination D --filter - < rules` or `filter set ... --max-file-size NM` with the rule flags. Until the rules file has the line, a marker's `max_file_size_mb` still applies (10 MB when it has none) |
-| `--no-git`, `--restic` | keep them on `init`, which stores them in the marker (`init --no-git` is refused on a destination with a `.git` folder). `sync`, `watch`, `install` and `check-paths` refuse them |
+| `--no-git`, `--restic` | `init --mirror`, `init --restic`: `init` stores them in the marker, and requires one of `--git`, `--restic`, `--mirror` (`--mirror` is refused on a destination with a `.git` folder). `sync`, `watch`, `install` and `check-paths` refuse them |
 
 Then run `install` again: the plist loses the old flags, and the service is reloaded. Differences in the built-in exclusions are listed in `plans/feature_include_exclude_rules.md` (translation table): lock files such as `Cargo.lock`, `.vscode/` and names made only of digits are now tracked.
 
@@ -233,7 +234,7 @@ Show detailed service status including PID, uptime, and recent log output:
 The `install`, `uninstall`, and `status` commands are macOS-only — they rely on launchd. On Linux, run autoversion in the foreground instead:
 
 ```bash
-./autoversion init --source ~/projects/myapp --destination ~/repos/myapp
+./autoversion init --git --use default --use nested-git --max-file-size 10M --source ~/projects/myapp --destination ~/repos/myapp
 ./autoversion watch --source ~/projects/myapp --destination ~/repos/myapp
 ```
 
@@ -288,15 +289,15 @@ One-time sync without watching:
 Initialize a destination for a source. Files under `SOURCE_PATH` are mirrored directly into `DEST_PATH` (`SOURCE_PATH/rel` → `DEST_PATH/rel`):
 
 ```bash
-./autoversion init --source SOURCE_PATH --destination DEST_PATH [--no-git] [--restic]
-    [--filter FILE | --use GROUP --include RULE --exclude RULE --max-file-size SIZE ...]
+./autoversion init --source SOURCE_PATH --destination DEST_PATH (--git [--restic] | --restic | --mirror)
+    (--filter FILE | --use GROUP --include RULE --exclude RULE --max-file-size SIZE ...)
     [--force-new-source [--force-keep-marker-settings | --force-replace-marker-settings] | --force-obliterate-yes-i-am-sure]
     [--update-settings]
 ```
 
-`init` creates the destination if needed, runs `git init` (unless `--no-git`), initializes restic (with `--restic`), and writes two files (see **Destination Marker**):
-- `.autoversion`, the marker: the source and the settings (`--no-git`, `--restic`)
-- `.autoversion.filter`, the rules (see **filter**): the `--filter` file as written, or the rule flags one per line, `--max-file-size SIZE` as a `max-file-size SIZE` line. Without rules: `use default`, no size limit.
+`init` creates the destination if needed, runs `git init` (with `--git`), initializes restic (with `--restic`), and writes two files (see **Destination Marker**):
+- `.autoversion`, the marker: the source and the settings. `init` requires one of `--git` (with or without `--restic`), `--restic`, or `--mirror`, a plain copy.
+- `.autoversion.filter`, the rules (see **filter**). `init` requires them: the `--filter` file as written, or the rule flags one per line, `--max-file-size SIZE` as a `max-file-size SIZE` line. Without them the error shows a starter file: `version 1`, `max-file-size 10M`, `use default`, `use nested-git`.
 
 With git, both are committed on their own (`init: source SOURCE_PATH`). Invalid rules, or an allowlist none of whose includes exists, stop `init` before anything is created.
 
@@ -310,14 +311,15 @@ With git, both are committed on their own (`init: source SOURCE_PATH`). Invalid 
 - A marker naming another source also has settings. `--force-new-source` then needs one of:
   - `--force-keep-marker-settings`: the marker's settings, then the settings flags given
   - `--force-replace-marker-settings`: the defaults, then the settings flags given
-- After `--force-new-source` the next sync makes the destination match the source: files not in the source are removed (`git rm`, kept in history; with `--no-git` deleted for good).
+- After `--force-new-source` the next sync makes the destination match the source: files not in the source are removed (`git rm`, kept in history; on a mirror deleted for good).
 - `--force-obliterate-yes-i-am-sure` removes everything inside the destination, `.git` included. The restic repository next to it is not touched.
 - The two flags are mutually exclusive.
 
 On a destination already initialized for the source:
 - Settings that are not given, or equal to the marker's, change nothing. A missing git or restic repository the settings ask for is created.
-- A setting given that the marker doesn't state yet (a marker from before settings were stored) is written to it, without `--update-settings`: `init --no-git` writes `"git": false`. From then on it doesn't depend on what the destination holds.- Different settings are an error listing them, unless `--update-settings`: then the marker is updated and committed, and a running service is restarted. From a plain mirror to git, `git init` runs and the next sync commits every file.
-- Switching from git to a plain mirror (`--no-git` on a git destination) is always refused: the `.git` history would stay while files stop being committed. To do it on purpose, remove `DEST_PATH/.git` by hand, or start over with `--force-obliterate-yes-i-am-sure`.
+- A setting given that the marker doesn't state yet (a marker from before settings were stored) is written to it, without `--update-settings`: `init --mirror` writes `"git": false`. From then on it doesn't depend on what the destination holds.
+- Different settings are an error listing them, unless `--update-settings`: then the marker is updated and committed, and a running service is restarted. From a plain mirror to git, `git init` runs and the next sync commits every file.
+- Switching from git to a plain mirror (`--mirror` on a git destination) is always refused: the `.git` history would stay while files stop being committed. To do it on purpose, remove `DEST_PATH/.git` by hand, or start over with `--force-obliterate-yes-i-am-sure`.
 - Rules are an error: they change with `filter set`.
 
 ### filter
@@ -466,8 +468,7 @@ Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--report-only` | false | Only print file events, copy nothing (watch only, no `--destination` needed) |
-| `--no-git` | false | `init`: plain directory mirror, no git (stored in the marker) |
-| `--restic` | false | `init`: restic backups (stored in the marker) |
+| `--git`, `--restic`, `--mirror` | false | `init`: how the destination versions, required: git, restic (or both), or a plain copy (stored in the marker) |
 | `--no-login` | false | Don't start service at login (install only) |
 | `--debug` | false | Enable debug logging, including filtered-out events |
 | `--log-dir` | (none) | Write rotated `stdout.log` / `stderr.log` in this directory (watch; set by install) |

@@ -36,6 +36,8 @@ var (
 	reportOnly         bool
 	noLogin            bool
 	logDirFlag         string
+	gitFlag            bool
+	mirrorFlag         bool
 	forceNewSource     bool
 	keepMarkerSettings bool
 	replaceSettings    bool
@@ -197,13 +199,15 @@ making it easy to see what changed and restore files to any point in time.`,
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a destination for a source",
-	Long: `Creates the destination if needed, initializes git (unless --no-git) and
-restic (with --restic), and writes two files, committed with git:
-  .autoversion         the marker: the source and the settings (git, restic)
-  .autoversion.filter  the rules: --filter FILE, or --use, --include,
-                       --exclude and --max-file-size (none: use default).
-                       See filter --help.
-Commands that copy files (sync, watch, install) refuse a destination without
+	Long: `Creates the destination if needed, initializes git and restic as asked, and
+writes two files, committed with git:
+  .autoversion         the marker: the source and the settings
+  .autoversion.filter  the rules
+Both are required:
+  --git, --restic (or both), or --mirror for a plain copy
+  --filter FILE, or --use, --include, --exclude and --max-file-size (see
+  filter --help). For example, a file:
+` + starterRules + `Commands that copy files (sync, watch, install) refuse a destination without
 a marker naming their source.
 
 The destination must be missing, empty, or already initialized for the source:
@@ -239,18 +243,17 @@ change with filter set.`,
 		if (keepMarkerSettings || replaceSettings) && !forceNewSource {
 			return errors.New(markerSettingsFlags + " needs --force-new-source")
 		}
+		if !gitFlag && !useRestic && !mirrorFlag {
+			return errors.New("say how the destination versions: --git, --restic (or both), or --mirror for a plain copy")
+		}
 		rules, err := rulesText(result.SourceResolved)
 		if err != nil {
 			return err
 		}
-		var settings settingsFlags
-		if cmd.Flags().Changed("no-git") {
-			git := !noGit
-			settings.git = &git
+		if rules == "" {
+			return errors.New("init needs rules: --filter FILE, or --use, --include, --exclude and --max-file-size (see filter --help). For example, a file:\n" + starterRules)
 		}
-		if cmd.Flags().Changed("restic") {
-			settings.restic = &useRestic
-		}
+		settings := settingsFlags{git: &gitFlag, restic: &useRestic}
 		return initDestination(result.SourceResolved, result.DestinationResolved, initOptions{
 			forceNewSource:        forceNewSource,
 			keepMarkerSettings:    keepMarkerSettings,
@@ -563,8 +566,11 @@ func init() {
 	})
 
 	// Init command flags
-	initCmd.Flags().BoolVar(&noGit, "no-git", false, "plain mirror, no git versioning (stored in the marker)")
-	initCmd.Flags().BoolVar(&useRestic, "restic", false, "restic backups (stored in the marker)")
+	initCmd.Flags().BoolVar(&gitFlag, "git", false, "version the destination with git (stored in the marker)")
+	initCmd.Flags().BoolVar(&useRestic, "restic", false, "restic backups of the destination (stored in the marker)")
+	initCmd.Flags().BoolVar(&mirrorFlag, "mirror", false, "a plain copy, no git and no restic (stored in the marker)")
+	initCmd.MarkFlagsMutuallyExclusive("mirror", "git")
+	initCmd.MarkFlagsMutuallyExclusive("mirror", "restic")
 	initCmd.Flags().BoolVar(&forceNewSource, "force-new-source", false, "use a non-empty destination or one initialized for another source, keeping its contents and git history")
 	initCmd.Flags().BoolVar(&keepMarkerSettings, "force-keep-marker-settings", false, "with --force-new-source on a marker naming another source: keep its settings")
 	initCmd.Flags().BoolVar(&replaceSettings, "force-replace-marker-settings", false, "with --force-new-source on a marker naming another source: the default settings, then the flags given")
