@@ -96,7 +96,7 @@ func TestDefaultGroups(t *testing.T) {
 		"4913", "a/4913", "notes.txt~",
 		"a.out", "run.stdout", "x.err", "x.stderr", "x.depend", ".dropbox/x", ".dropbox.cache/x",
 		"a.old", "a.temp", "a.bak", "a.tmp",
-		".DS_Store", "a/.DS_Store", ".nfs000123",
+		".DS_Store", "a/.DS_Store", ".nfs000123", ".localized", "Desktop/.localized", ".fseventsd/x",
 		"lib.o", "x.obj", "x.so", "x.a", "x.dylib", "x.rlib", "x.rmeta", "x.dll", "x.exe", "x.pdb", "x.d", "x.gch",
 		"A.class", "x.jar", "x.war", "x.ear",
 		".hg/x", ".svn/x", ".cvs/x",
@@ -107,12 +107,13 @@ func TestDefaultGroups(t *testing.T) {
 		".gradle/x", "DerivedData/x", ".build/x",
 		"dist/x", "build/x", "out/x", "a/build/sub/x",
 		".cache/x", ".next/x", ".nuxt/x", ".output/x", "playwright-report/x", "test-results/x",
-		".npm/x", "bower_components/x", ".pnpm-store/x", "venv/x",
+		".npm/x", "bower_components/x", ".pnpm-store/x", "venv/x", ".local/share/pnpm/x", "a/.local/share/pnpm/store/x",
 		".idea/x", "x.iml", "Thumbs.db", "desktop.ini", ".Spotlight-V100/x", ".Trashes/x",
 		"x.pyc", "x.wal", "db.pgdb/x",
 	}
 	kept := []string{
 		"Cargo.lock", "uv.lock", "flake.lock", "x.bea#", "2024", "notes.output.md", "x.errors/a.txt", "x.nfs",
+		".localized/", ".localized/x", ".local/share/x", "pnpm/x", "share/pnpm/x",
 		"conf.d/", "conf.d/x.conf", "foo.old/", "foo.old/x.txt", "x.log/y.txt", "a.tmp.d/",
 		"my_node_modules/x", "target/x", ".xcworkspace/x",
 		"build", "build/", "dist", "out/", ".yarn/releases/x.cjs", ".vscode/settings.json",

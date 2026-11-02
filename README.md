@@ -450,12 +450,12 @@ What is tracked is decided by the destination's rules (see **filter**), then:
 - a git destination leaves out `.git` folders and files at any level, whatever its rules say (`use nested-git`, applied by the git destination). A plain mirror copies them unless its rules say `use nested-git`; a sync then removes stale copies like any file, and restic backs them up, only the destination's own `.git` is skipped
 
 The built-in groups are rules files, `filters/NAME.filter`, compiled into the binary; other tools can read them as they are. [filters/README.md](filters/README.md) lists every rule, generated from them (`filter groups` prints the same). In short, `use default` leaves out:
-- **os:** `.DS_Store`, `Thumbs.db`, `desktop.ini`, `.nfs*` files; `.Spotlight-V100`, `.Trashes`, `.dropbox`
+- **os:** `.DS_Store`, `Thumbs.db`, `desktop.ini`, `.nfs*`, `.localized` files; `.Spotlight-V100`, `.Trashes`, `.dropbox`, `.fseventsd`
 - **editors:** `*.swp`, `*~`, Vim's `4913`, `*.iml` files; `.idea`
 - **temp:** `*.tmp`, `*.tmp.*`, `*.temp`, `*.bak`, `*.old` files
 - **logs:** `*.log`, `*.out`, `*.err`, `*.pid`, `*.dump` files
 - **build:** the content of `build/`, `dist/` and `out/`; `target/debug`, `target/release`, `.build`, `DerivedData`; `*.o`, `*.so`, `*.dylib`, `*.class`, `*.jar`, `*.pyc`, … files
-- **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.npm`, `.venv`, `venv`, `__pycache__`, `.gradle`
+- **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.local/share/pnpm`, `.npm`, `.venv`, `venv`, `__pycache__`, `.gradle`
 - **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.playwright-mcp`, `playwright-report`, `test-results`
 - **data:** `pgdata`, `*.pgdb`; `*.wal` files
 - **vcs:** `.hg`, `.svn`, `.cvs`

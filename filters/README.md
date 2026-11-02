@@ -62,6 +62,7 @@ use vcs
 
 ```
 exclude /**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,.gradle}
+exclude /**/.local/share/pnpm
 ```
 
 ## editors: editor swap, backup and project files
@@ -122,8 +123,8 @@ exclude /**/{.git,*.git}
 `use os`, [os.filter](os.filter)
 
 ```
-exclude f:/**/{.DS_Store,Thumbs.db,desktop.ini,.nfs*}
-exclude /**/{.Spotlight-V100,.Trashes,.dropbox,.dropbox.cache}
+exclude f:/**/{.DS_Store,Thumbs.db,desktop.ini,.nfs*,.localized}
+exclude /**/{.Spotlight-V100,.Trashes,.dropbox,.dropbox.cache,.fseventsd}
 ```
 
 ## photos: images and camera raw files
