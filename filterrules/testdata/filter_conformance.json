@@ -96,6 +96,26 @@
       "kept": ["b.old/", "b.old/x", "build", "c/", "c/e.old/", "c/e.old/y", "keep.txt", "w/"]
     },
     {
+      "name": "max-file-size drops kept files larger than the limit, not folders, not equal",
+      "tools": ["native", "restic", "rsync", "autoversion"],
+      "max_file_size": "4k",
+      "tree": ["big.bin", "docs/", "docs/big.pdf", "docs/ok.md", "edge.bin", "small.txt"],
+      "sizes": {"big.bin": 8192, "docs/big.pdf": 8192, "edge.bin": 4096, "small.txt": 100},
+      "exclude": [],
+      "include": [],
+      "kept": ["docs/", "docs/ok.md", "edge.bin", "small.txt"]
+    },
+    {
+      "name": "max-file-size: an include never overrides it",
+      "tools": ["native", "restic", "rsync", "autoversion"],
+      "max_file_size": "4k",
+      "tree": ["keep/", "keep/big.bin", "keep/small.txt", "other/", "other/x"],
+      "sizes": {"keep/big.bin": 8192},
+      "exclude": ["/*"],
+      "include": ["/keep"],
+      "kept": ["keep/", "keep/small.txt"]
+    },
+    {
       "name": "typed rules decay to both types on restic and borg",
       "tools": ["restic", "borg", "syncthing"],
       "types": "decay",
@@ -154,7 +174,12 @@
     {"text": "version 1\nfoo\n", "code": "unknown-directive", "line": 2},
     {"text": "version 1\nuse nothing-known\n", "code": "unknown-rules", "line": 2},
     {"text": "version 1\nnode_modules\n", "code": "no-root", "line": 2},
-    {"text": "version 1\n# comment\n\nexclude /a/\n", "code": "trailing-slash", "line": 4}
+    {"text": "version 1\n# comment\n\nexclude /a/\n", "code": "trailing-slash", "line": 4},
+    {"text": "version 1\nmax-file-size 10\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nmax-file-size 1.5m\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nmax-file-size 10mb\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nmax-file-size 4k\nmax-file-size 4k\n", "code": "bad-directive", "line": 3},
+    {"text": "version 1\nexclude /x\nmax-file-size 4k\n", "code": "bad-directive", "line": 3}
   ],
   "invalid_filters": [
     {"exclude": ["/*"], "include": [], "codes": ["whole-root"]},

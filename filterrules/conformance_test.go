@@ -11,7 +11,7 @@ import (
 )
 
 // testdata/filter_conformance.json is ownit's tests/filter_conformance.json,
-// copied unchanged from ownit commit b19fbdd.
+// copied unchanged from ownit commit ad5bcab.
 func TestConformance(t *testing.T) {
 	data, err := os.ReadFile("testdata/filter_conformance.json")
 	if err != nil {
