@@ -541,6 +541,24 @@ Libraries considered:
 * `fswatch` (CLI from brew)
   * Uses FSEvents, worked well in older scripts
 
+### Using the filter library from another Go module
+
+The filter syntax lives in two packages other tools can import, both standard library only: `filterrules` (parser, matcher, checks) and `filters` (the built-in groups, embedded; `filterrules` imports it). dvgo uses them to apply the same rules to its scans. The importing module needs Go 1.25 or later. For local checkouts, a workspace over both:
+
+```bash
+cd ~/projects && go work init ./autoversion ./dvgo     # or, in dvgo: go mod edit -replace github.com/nicolas/autoversion=../autoversion
+```
+
+The API, all in `filterrules`:
+- `ParseFile(r)` reads a rules file into a `File` (`Root`, `Types`, `MaxFileSize` as written, `Uses`, `Lines`, `Rules`); `File.Use`, `File.Add` and `File.Format` build one from flags. `ParseRule` expands one rule's sugar.
+- `New(file)` combines the file's rules with its groups and validates them (`whole-root`, `contradiction`).
+- `Rules.Decide(rel, isDir)` decides one entry (`Kept`, the `Rule` and `Level` that decided); `Rules.SkipDir(relDir)` says whether a walker can skip a folder; `Rules.CanMatchBelow(relDir)` whether an include can match under it.
+- `Rules.MaxFileSize()` and `Rules.TooLarge(size)` for the size limit; `ParseSize` for a `10M`-style value.
+- `Rules.Check(list)` finds dead rules and includes that change nothing, given a function that lists a folder; `Rules.Dump()` prints the expanded rules.
+- `Groups()`, `GroupNames()`, `Group(name)` for the built-in groups.
+
+Entry paths are relative to the root with `/` separators, no leading or trailing `/`; the root itself is `""`. What is autoversion's policy and not in the library: symlinks are never tracked, `/.autoversion` and `/.autoversion.filter` at the root are never copied, and a git destination always applies `nested-git`. The spec is ownit's `plans/spec_filter_syntax.md`; `filterrules/testdata/filter_conformance.json` is its test suite, copied unchanged.
+
 ### Project Structure
 
 ```
