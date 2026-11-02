@@ -184,6 +184,23 @@ The rules and settings moved from command line flags to the destination. `sync`,
 
 Then run `install` again: the plist loses the old flags, and the service is reloaded. Differences in the built-in exclusions are listed in `plans/feature_include_exclude_rules.md` (translation table): lock files such as `Cargo.lock`, `.vscode/` and names made only of digits are now tracked.
 
+### Migrating to explicit init (2026-11)
+
+`init` now requires how the destination versions (`--git`, `--restic`, `--mirror`) and its rules, the size limit is the rules file's `max-file-size` line, and `.git` folders are left out by `use nested-git`, not by default (a git destination still never copies them). A destination from before keeps working: its marker's `max_file_size_mb` applies until the rules file has the line, and a missing rules file reads as `use default` with a warning. To move a destination over, with its files and history untouched:
+
+```bash
+rm DEST_PATH/.autoversion
+./autoversion init --force-new-source --git --source SOURCE_PATH --destination DEST_PATH --filter - <<'EOF'
+version 1
+max-file-size 10M
+use default
+use nested-git
+EOF
+./autoversion install --source SOURCE_PATH --destination DEST_PATH   # an installed job: new plist, service reloaded
+```
+
+`--mirror` for a plain mirror. Do a mirror before building the new binary for its job, or right after: with `use default` alone the new binary copies `.git` folders into it. `init` on an initialized destination accepts the same rules again, so a script can keep running `init` before `install`.
+
 ## Commands
 
 ### install

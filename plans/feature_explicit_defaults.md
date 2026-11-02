@@ -182,3 +182,60 @@ no `make build`, no `make install`, no launchctl.
   `use nested-git` at migration (M4), dropbox-projects included, before
   the new binary runs its job. For the ownit spec: `vcs` and `nested-git`
   as above.
+
+## M4: migration (2026-11-02)
+
+The jobs of `~/dotfiles/bin/autoversion-install.sh`, `DESTINATION_BASE`
+= `~/Data/Backup/autoversion`. All get the same rules, `claude_settings`
+its allowlist on top; `dropbox-projects` is the mirror and keeps
+`use nested-git` (decided 2026-11-01). Order: `make build`, then the
+mirror first, since its old rules (`use default`) would copy `.git`
+under the new binary, then the others. Each step keeps the destination's
+files and history.
+
+```bash
+AV=~/bin/autoversion   # the repo binary, after make build
+B=~/Data/Backup/autoversion
+rules() { printf 'version 1\nmax-file-size 10M\nuse default\nuse nested-git\n'; "$@"; }
+migrate() {  # NAME SRC DEST --git|--mirror [extra rule lines...]
+	rm "$3/.autoversion"
+	{ rules; printf '%s\n' "${@:5}"; } | "$AV" init --force-new-source "$4" --source "$2" --destination "$3" --filter - &&
+		"$AV" install --source "$2" --destination "$3"
+}
+migrate dropbox-projects ~/projects "$HOME/Dropbox/Backup/autoversion/projects" --mirror
+migrate projects  ~/projects      "$B/projects"  --git
+migrate dotfiles  ~/dotfiles      "$B/dotfiles"  --git
+migrate notes     ~/notes         "$B/notes"     --git
+migrate sync      ~/Dropbox/Sync  "$B/Sync"      --git
+migrate sublime   ~/Dropbox/Apps/Sublime "$B/Sublime" --git
+migrate claude_settings ~/.claude "$B/claude_settings" --git \
+	'' 'exclude /*' '/CLAUDE.md' '/settings.json' '/settings.local.json' '/skills/!synced' '/projects/*/memory'
+```
+
+The `install` step rewrites the plist (new rules hash) and reloads the
+service. `check` afterwards: `autoversion-install.sh check`.
+
+Script changes, for the user to make so `install` stays idempotent:
+- `INIT_FLAGS`: `--git` for the six, `--mirror` for `dropbox-projects`.
+- `job_rules` prints the four lines above for every job, plus the
+  allowlist for `claude_settings`; `init` gets `--filter -` fed from it
+  (`init` now requires rules, and accepts the stored ones again).
+- `set_rules` stays for later changes.
+
+After the jobs run on new markers, remove: the `use default` fallback
+and its warning in `readRulesText`, the `defaultRules` written by
+`initDestination` when a test gives none, and the legacy
+`max_file_size_mb` reading (kept for now so a marker with the field
+still reads).
+
+## What differed from the plan
+
+- M2: `vcs` lost `*.git`, `nested-git` took `.git` and `*.git`, `default`
+  does not use `nested-git` (see "Notes while implementing").
+- M3/M4: `init` on an initialized destination accepts rules identical to
+  the stored ones, so a script can run `init` before `install` every
+  time; other rules still go through `filter set`.
+- M4 cleanup (legacy marker field, `use default` fallback) is deferred
+  until the jobs run on the new markers.
+- Conformance file unchanged at b19fbdd: ownit's size cases are not
+  landed yet. The harness reads `sizes` and `max_file_size` already.

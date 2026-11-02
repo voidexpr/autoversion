@@ -546,8 +546,13 @@ func initDestination(sourcePath, destPath string, opts initOptions) error {
 		return markerErr
 	}
 	if marker != nil && marker.Source == sourcePath && !opts.obliterate {
+		// The same rules again are fine (a script's init): others change
+		// with filter set
 		if opts.rules != "" {
-			return fmt.Errorf("destination %s is already initialized: change its rules with filter set --destination %s", destPath, destPath)
+			stored, err := os.ReadFile(filepath.Join(destPath, filterFileName))
+			if err != nil || string(stored) != opts.rules {
+				return fmt.Errorf("destination %s is already initialized with other rules: change them with filter set --destination %s", destPath, destPath)
+			}
 		}
 		return updateSettings(destPath, marker, opts)
 	}

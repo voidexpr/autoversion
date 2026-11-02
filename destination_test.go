@@ -523,11 +523,17 @@ func TestInitDestination_RulesAndSettings(t *testing.T) {
 		}
 	})
 
-	t.Run("initialized: rules go through filter set", func(t *testing.T) {
-		source, dest := initFresh(t, initOptions{})
-		err := initDestination(source, dest, initOptions{rules: "version 1\n"})
+	t.Run("initialized: other rules go through filter set, the same are fine", func(t *testing.T) {
+		source, dest := initFresh(t, initOptions{rules: starterRules})
+		err := initDestination(source, dest, initOptions{rules: "version 1\nuse default\n"})
 		if err == nil || !strings.Contains(err.Error(), "filter set") {
 			t.Errorf("error %v, want one pointing to filter set", err)
+		}
+		if err := initDestination(source, dest, initOptions{rules: starterRules}); err != nil {
+			t.Errorf("the same rules: %v", err)
+		}
+		if n := gitLogCount(t, dest, ""); n != 1 {
+			t.Errorf("commits %d, want 1 (nothing changed)", n)
 		}
 	})
 
