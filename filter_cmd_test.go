@@ -71,7 +71,7 @@ func defaultRulesWith(t *testing.T, lines ...string) *filterrules.Rules {
 
 func TestSourceRulesWalk(t *testing.T) {
 	source := newRulesSource(t)
-	s := &sourceRules{root: source, rules: defaultRulesWith(t, "exclude /skipped")}
+	s := &sourceRules{root: source, rules: defaultRulesWith(t, "exclude /skipped"), nestedGit: true}
 	walk := func(dir string, stopAt string) ([]string, int, error) {
 		var files []string
 		dirs, err := s.walk(dir, func(path string, _ fs.FileInfo) error {
@@ -104,16 +104,26 @@ func TestSourceRulesWalk(t *testing.T) {
 	if files, _, err := walk(source, "keep.txt"); len(files) != 2 || err != errDestMissing {
 		t.Errorf("an error stops the walk: files %q, error %v", files, err)
 	}
+
+	// A mirror walks .git folders, unless its rules say use nested-git
+	s.nestedGit = false
+	if files, dirs, _ := walk(source, ""); !slices.Contains(files, "sub/.git/config") || dirs != 4 {
+		t.Errorf("mirror: files %q, folders visited %d, want sub/.git/config and 4", files, dirs)
+	}
+	s.rules = defaultRulesWith(t, "use nested-git", "exclude /skipped")
+	if files, dirs, _ := walk(source, ""); slices.Contains(files, "sub/.git/config") || dirs != 3 {
+		t.Errorf("mirror with use nested-git: files %q, folders visited %d", files, dirs)
+	}
 }
 
 func TestExplain(t *testing.T) {
 	source := newRulesSource(t)
-	s := &sourceRules{root: source, rules: defaultRulesWith(t, "exclude /skipped")}
+	s := &sourceRules{root: source, rules: defaultRulesWith(t, "exclude /skipped"), nestedGit: true}
 	tests := map[string]string{
 		"keep.txt":             "keep.txt (file): kept: no rule matches it or a folder above it",
 		"node_modules/x.js":    "node_modules/x.js (file): left out by exclude /**/node_modules (group deps), matching node_modules",
 		"skipped":              "skipped (folder): left out by exclude /skipped, matching skipped",
-		"sub/.git/config":      "sub/.git/config (file): left out: always applied",
+		"sub/.git/config":      "sub/.git/config (file): left out: use nested-git, applied by the git destination",
 		filterFileName:         filterFileName + " (file): left out: always applied",
 		"link":                 "link (file): left out: not a regular file",
 		"big.bin":              "big.bin (file): left out: 1.00 MB, larger than the size limit 1.00 MB (kept: no rule",
@@ -512,5 +522,15 @@ func TestFilterScan_MaxFileSize(t *testing.T) {
 	out, err = runCLI(t, "filter", "scan", "--source", source, "--destination", dest, "--no-summary")
 	if err != nil || out != "small.bin\n" {
 		t.Errorf("scan --destination: %v\n%s", err, out)
+	}
+}
+
+func TestFilterDump_NestedGit(t *testing.T) {
+	for _, git := range []bool{true, false} {
+		_, dest := newSyncedDestination(t, git)
+		out, err := runCLI(t, "filter", "dump", "--destination", dest)
+		if err != nil || strings.Contains(out, "# "+nestedGitText+"\n") != git {
+			t.Errorf("git %v: %v\n%s", git, err, out)
+		}
 	}
 }

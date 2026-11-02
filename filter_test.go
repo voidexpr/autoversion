@@ -13,7 +13,7 @@ func setRules(t *testing.T, root string, lines ...string) {
 	t.Helper()
 	rules := defaultRulesWith(t, lines...)
 	old := activeRules
-	SetFilter(root, rules)
+	SetFilter(root, rules, false)
 	t.Cleanup(func() { activeRules = old })
 }
 
@@ -61,8 +61,9 @@ func TestShouldTrack(t *testing.T) {
 		{"tilde backup", "file~", "backup", 0, false},
 
 		// Should exclude - paths
-		{"git dir file", ".git/config", "git", 0, false},
-		{"git worktree file", "subdir/.git", "gitdir: ../.git/worktrees/x", 0, false},
+		// .git is a rule (use nested-git), or a git destination's constraint: see TestShouldTrack_NestedGit
+		{"git dir file", ".git/config", "git", 0, true},
+		{"git worktree file", "subdir/.git", "gitdir: ../.git/worktrees/x", 0, true},
 		{"node_modules", "node_modules/pkg/index.js", "code", 0, false},
 		{"pycache", "__pycache__/module.pyc", "bytecode", 0, false},
 		{"venv", ".venv/lib/python", "py", 0, false},
@@ -233,9 +234,54 @@ func TestShouldTrack_Rules(t *testing.T) {
 	}
 }
 
+// TestShouldTrack_NestedGit: .git folders are left out by the nested-git
+// group, and by a git destination whatever its rules say
+func TestShouldTrack_NestedGit(t *testing.T) {
+	root := resolvedTempDir(t)
+	for _, name := range []string{".git/config", "sub/.git", "a/b/.git/objects/x", "sub/git/x", "sub/.gitignore"} {
+		writeFile(t, filepath.Join(root, name), "x")
+	}
+	gitEntries := []string{".git/config", "sub/.git", "a/b/.git/objects/x"}
+	others := []string{"sub/git/x", "sub/.gitignore"}
+	check := func(t *testing.T, want bool) {
+		t.Helper()
+		for _, name := range gitEntries {
+			if got, _ := ShouldTrack(filepath.Join(root, name), 0, false); got != want {
+				t.Errorf("ShouldTrack(%s) = %v, want %v", name, got, want)
+			}
+		}
+		for _, name := range others {
+			if got, _ := ShouldTrack(filepath.Join(root, name), 0, false); !got {
+				t.Errorf("ShouldTrack(%s) = false, want true", name)
+			}
+		}
+	}
+	old := activeRules
+	t.Cleanup(func() { activeRules = old })
+
+	SetFilter(root, defaultRulesWith(t), false)
+	check(t, true)
+	SetFilter(root, defaultRulesWith(t, "use nested-git"), false)
+	check(t, false)
+	// A git destination, even with rules that include .git
+	SetFilter(root, defaultRulesWith(t, "/**/.git"), true)
+	check(t, false)
+	if !skipDir(filepath.Join(root, "a/b/.git")) || skipDir(filepath.Join(root, "sub/git")) {
+		t.Error("skipDir: a .git is skipped, a folder named git is not")
+	}
+
+	// gitExcluded decides like the group
+	group := defaultRulesWith(t, "use nested-git")
+	for _, name := range append(append([]string{}, gitEntries...), others...) {
+		if got, want := gitExcluded(name), !group.Decide(name, false).Kept; got != want {
+			t.Errorf("gitExcluded(%s) = %v, the nested-git group says %v", name, got, want)
+		}
+	}
+}
+
 func TestSkipDir(t *testing.T) {
 	root := resolvedTempDir(t)
-	setRules(t, root, "exclude /Backup")
+	setRules(t, root, "use nested-git", "exclude /Backup")
 	for dir, want := range map[string]bool{
 		"":                         false,
 		"project":                  false,

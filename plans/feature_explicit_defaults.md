@@ -169,3 +169,16 @@ no `make build`, no `make install`, no launchctl.
 - Symlinks as a directive.
 - Bundling or snapshotting `.git` before copying (mid-run copies are
   accepted, 2026-10-31).
+
+## Notes while implementing
+
+- **M2, 2026-11-02:** the `vcs` group's `*.git` rule (bare repositories)
+  also matched `.git` itself, folders and files, since `*` matches the
+  empty string: `use default` already excluded `.git` at any level, hidden
+  by the hardcoded check. Decided: `vcs` keeps `.hg`, `.svn`, `.cvs`;
+  `nested-git` is `exclude /**/{.git,*.git}` (`.git` folders and files,
+  bare repositories); `default` does not use it. So `use default` alone
+  now keeps `.git` and bare repositories: every job's rules say
+  `use nested-git` at migration (M4), dropbox-projects included, before
+  the new binary runs its job. For the ownit spec: `vcs` and `nested-git`
+  as above.

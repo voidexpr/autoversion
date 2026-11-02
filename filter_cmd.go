@@ -232,7 +232,10 @@ shared with ownit. Without the file, they are "use default". Example, for
 - The closest match wins: the entry itself, then each folder above it. On
   one level, a literal rule beats a wildcard, then an include beats an
   exclude. Line order means nothing.
-- Always applied: ` + alwaysAppliedText + `.
+- Always applied: ` + alwaysAppliedText + `. A git destination also applies
+  use nested-git (exclude /**/.git) whatever its rules say: git would record
+  a copied .git as a nested repository, not its files. A mirror copies .git
+  folders unless its rules say use nested-git.
 
 Rules on the command line (init, filter scan, dump and set, watch
 --report-only), combined:
@@ -272,7 +275,7 @@ are the destination's (--destination), or the ones given (none: use default).
 			return err
 		}
 
-		var rules *filterrules.Rules
+		s := &sourceRules{root: sourcePath}
 		var maxSize int64
 		if destFlag != "" {
 			if ruleFlagsGiven() {
@@ -285,15 +288,14 @@ are the destination's (--destination), or the ones given (none: use default).
 			if problems := result.problems(); len(problems) > 0 {
 				return errors.New(problems[0])
 			}
-			rules, maxSize = result.Rules, result.MaxFileSize
+			s.rules, s.nestedGit, maxSize = result.Rules, result.Settings.Git, result.MaxFileSize
 		} else {
-			if rules, err = rulesFromFlags(sourcePath); err != nil {
+			if s.rules, err = rulesFromFlags(sourcePath); err != nil {
 				return err
 			}
-			_, maxSize = rules.MaxFileSize()
+			_, maxSize = s.rules.MaxFileSize()
 		}
 
-		s := &sourceRules{root: sourcePath, rules: rules}
 		if explainFlag != "" {
 			return explain(s, explainFlag, maxSize)
 		}
@@ -349,6 +351,8 @@ func explain(s *sourceRules, path string, maxSize int64) error {
 		result = "left out: not a regular file (symlinks are never tracked)"
 	case alwaysExcluded(rel):
 		result = "left out: always applied (" + alwaysAppliedText + ")"
+	case s.nestedGit && gitExcluded(rel):
+		result = "left out: " + nestedGitText
 	default:
 		d := s.rules.Decide(rel, isDir)
 		switch {
@@ -401,6 +405,9 @@ var filterDumpCmd = &cobra.Command{
 			}
 			_, from := sizeLimit(rules, marker.destinationSettings)
 			fmt.Printf("# size limit: %s\n", from)
+			if marker.Git {
+				fmt.Printf("# %s\n", nestedGitText)
+			}
 		} else {
 			sourcePath := ""
 			if sourceFlag != "" {
@@ -540,7 +547,7 @@ func applyRules(result *PathValidationResult, text string, replace bool) error {
 
 	kept := map[string]bool{}
 	maxSize, _ := sizeLimit(rules, settings)
-	(&sourceRules{root: sourcePath, rules: rules}).walk(sourcePath, func(path string, info fs.FileInfo) error {
+	(&sourceRules{root: sourcePath, rules: rules, nestedGit: settings.Git}).walk(sourcePath, func(path string, info fs.FileInfo) error {
 		if !tooLarge(info.Size(), maxSize) {
 			rel, _ := filepath.Rel(sourcePath, path)
 			kept[rel] = true

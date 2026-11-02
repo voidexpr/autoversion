@@ -145,3 +145,42 @@ func TestProcessEvents_SkipsUnchangedFiles(t *testing.T) {
 		t.Errorf("changed file not copied: %q", out)
 	}
 }
+
+// A mirror copies .git folders and removes stale ones; a git destination
+// copies none, whatever its rules say
+func TestScanPaths_NestedGit(t *testing.T) {
+	setGlobals(t, false)
+	source := resolvedTempDir(t)
+	dest := resolvedTempDir(t)
+	for _, file := range []string{"a/.git/objects/x", "a/f.txt", "b/f.txt"} {
+		writeFile(t, filepath.Join(source, file), "x")
+	}
+	writeFile(t, filepath.Join(dest, "b/.git/y"), "stale")
+	copied := func() string {
+		var files []string
+		walkDestination(dest, "", func(rel string) { files = append(files, rel) })
+		return strings.Join(files, ",")
+	}
+
+	old := activeRules
+	t.Cleanup(func() { activeRules = old })
+	SetFilter(source, defaultRulesWith(t), false)
+	captureStdout(t, func() {
+		if err := scanPaths(source, dest, 0, false); err != nil {
+			t.Error(err)
+		}
+	})
+	if got := copied(); got != "a/.git/objects/x,a/f.txt,b/f.txt" {
+		t.Errorf("mirror: destination has %s", got)
+	}
+
+	SetFilter(source, defaultRulesWith(t, "/**/.git"), true)
+	captureStdout(t, func() {
+		if err := scanPaths(source, dest, 0, false); err != nil {
+			t.Error(err)
+		}
+	})
+	if got := copied(); got != "a/f.txt,b/f.txt" {
+		t.Errorf("git destination: destination has %s", got)
+	}
+}

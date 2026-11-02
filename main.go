@@ -274,7 +274,7 @@ var errDestinationSettings = errors.New("settings and rules belong to the destin
 // destination: its settings, its rules and the size limit in force
 func useDestination(result *PathValidationResult) {
 	noGit, useRestic, maxFileSize = !result.Settings.Git, result.Settings.Restic, result.MaxFileSize
-	SetFilter(result.SourceResolved, result.Rules)
+	SetFilter(result.SourceResolved, result.Rules, result.Settings.Git)
 }
 
 // printRuleWarnings prints what the rules' checks find. When a copy starts,
@@ -369,7 +369,7 @@ default), the size limit with --max-file-size.`,
 				return err
 			}
 			_, maxFileSize = rules.MaxFileSize()
-			SetFilter(absSourcePath, rules)
+			SetFilter(absSourcePath, rules, false)
 			printRuleWarnings(absSourcePath, rules)
 		} else {
 			if ruleFlagsGiven() {

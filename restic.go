@@ -137,7 +137,8 @@ func IsResticRepo(destPath string) bool {
 	return info.IsDir()
 }
 
-// BackupRestic creates a snapshot of destPath (excluding .git/)
+// BackupRestic creates a snapshot of destPath, without the destination's
+// own .git (a .git below the root is a mirror's copy, backed up)
 func BackupRestic(destPath string, debug bool) error {
 	repoPath, passwordPath := computeResticPaths(destPath)
 
@@ -150,8 +151,7 @@ func BackupRestic(destPath string, debug bool) error {
 		return fmt.Errorf("password file not found at %s", passwordPath)
 	}
 
-	// Backup with .git exclusion
-	_, err := runRestic(repoPath, passwordPath, "backup", destPath, "--exclude", ".git")
+	_, err := runRestic(repoPath, passwordPath, "backup", destPath, "--exclude", filepath.Join(destPath, ".git"))
 	if err != nil {
 		return fmt.Errorf("restic backup failed: %v", err)
 	}

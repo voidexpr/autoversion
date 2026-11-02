@@ -99,7 +99,7 @@ func TestDefaultGroups(t *testing.T) {
 		".DS_Store", "a/.DS_Store", ".nfs000123",
 		"lib.o", "x.obj", "x.so", "x.a", "x.dylib", "x.rlib", "x.rmeta", "x.dll", "x.exe", "x.pdb", "x.d", "x.gch",
 		"A.class", "x.jar", "x.war", "x.ear",
-		"repo.git/HEAD", ".hg/x", ".svn/x", ".cvs/x",
+		".hg/x", ".svn/x", ".cvs/x",
 		"x.tmp.1", "x.tmp.1.2", "PLAN.md.tmp.18812.1760578375713",
 		".venv/x", ".pytest_cache/x", ".playwright-mcp/x",
 		"node_modules/x", "a/node_modules/x", "__pycache__/x.pyc", "pgdata/x",
@@ -118,8 +118,14 @@ func TestDefaultGroups(t *testing.T) {
 		"build", "build/", "dist", "out/", ".yarn/releases/x.cjs", ".vscode/settings.json",
 		"src/main.go", "README.md",
 		"a.jpg", "a.mp4", "@eaDir/x", "a.jpg@SynoResource",
+		".git/config", "a/.git/x", "repo.git/HEAD", // nested-git, not in default
 	}
 	checkDecisions(t, r, out, kept)
+
+	// nested-git: .git folders and files, bare repositories, at any level
+	checkDecisions(t, newRules(t, nil, nil, "nested-git"),
+		[]string{".git/", ".git/config", "a/.git/x", "a/b/.git", "repo.git/", "repo.git/HEAD"},
+		[]string{".gitignore", ".gitmodules", ".github/x", "sub/git/x", "git.txt"})
 }
 
 // checkDecisions checks the entries r leaves out and keeps
@@ -150,7 +156,7 @@ func TestMediaAndNASGroups(t *testing.T) {
 }
 
 func TestGroups(t *testing.T) {
-	want := []string{"build", "caches", "data", "default", "deps", "editors", "logs", "media", "music", "nas", "os", "photos", "temp", "vcs", "videos"}
+	want := []string{"build", "caches", "data", "default", "deps", "editors", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "vcs", "videos"}
 	if got := GroupNames(); !slices.Equal(got, want) {
 		t.Errorf("groups %q, want %q", got, want)
 	}

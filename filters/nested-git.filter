@@ -1,0 +1,4 @@
+# nested-git: repositories inside the source, .git folders and files and bare repositories, at any level
+version 1
+
+exclude /**/{.git,*.git}

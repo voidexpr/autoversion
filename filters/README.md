@@ -109,6 +109,14 @@ exclude /**/@eaDir
 exclude f:/**/{*@SynoResource,*@SynoEAStream}
 ```
 
+## nested-git: repositories inside the source, .git folders and files and bare repositories, at any level
+
+`use nested-git`, [nested-git.filter](nested-git.filter)
+
+```
+exclude /**/{.git,*.git}
+```
+
 ## os: operating system and sync client files
 
 `use os`, [os.filter](os.filter)
@@ -135,12 +143,12 @@ exclude f:/**/{*.JPG,*.JPEG,*.PNG,*.HEIC,*.HEIF,*.GIF,*.TIF,*.TIFF,*.BMP,*.WEBP,
 exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
 ```
 
-## vcs: other version control folders and bare git repositories
+## vcs: other version control folders
 
 `use vcs`, [vcs.filter](vcs.filter)
 
 ```
-exclude /**/{.hg,.svn,.cvs,*.git}
+exclude /**/{.hg,.svn,.cvs}
 ```
 
 ## videos: video files

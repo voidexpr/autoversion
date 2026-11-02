@@ -341,7 +341,7 @@ exclude /*              # an allowlist: only what is listed below
 - Every rule starts at the source root (`/`). `*` matches within a name, a `/**/` segment any number of folders. `f:` makes a rule match files only (`f:/**/*.old` keeps a folder named `x.old`).
 - A bare line is an include. `{a,b}` gives one rule per name. `P/!Q` is an exception: in an include, `P` minus `P/Q`; in an exclude, `P`'s content except `P/Q`.
 - The closest match wins: the entry itself is checked first, then each folder above it. On one level, a literal rule beats a wildcard, then an include beats an exclude. Line order means nothing. Nothing is implied: an allowlist says `exclude /*`.
-- Always applied: `/**/.git`, symlinks, and `/.autoversion` and `/.autoversion.filter` at the source root.
+- Always applied: symlinks, and `/.autoversion` and `/.autoversion.filter` at the source root. A git destination also applies `use nested-git` whatever its rules say (git would record a copied `.git` as a nested repository, not its files); `filter dump --destination` and `--explain` show it. A mirror copies `.git` folders unless its rules say `use nested-git`.
 
 Rules on the command line (`init`, `filter scan`, `filter dump`, `filter set`, `watch --report-only`): `--filter FILE` (a rules file, `-` for stdin; a `root` line must name the source), `--use GROUP`, `--include RULE` and `--exclude RULE` (repeatable), and `--max-file-size SIZE`. They combine: `init` and `filter set` store the file as written, comments kept, with the directives of the flags after its version line and their rules at the end. Without a `use` line or `--use`, the built-in groups don't apply. A rules file starts with `version 1`. For example:
 
@@ -427,7 +427,8 @@ Shows symlink resolution and the marker status, and validates:
 What is tracked is decided by the destination's rules (see **filter**), then:
 - symlinks and other files that are not regular files are never tracked
 - files over the rules file's `max-file-size` are skipped (`max-file-size 10M`: an integer with a unit `k`, `m` or `g`, binary, either case, or `none`; a file of exactly that size is kept). Without the line there is no limit, unless the marker still carries a legacy `max_file_size_mb` (see **Destination Marker**)
-- `/**/.git`, and `/.autoversion` and `/.autoversion.filter` at the source root, are always left out
+- `/.autoversion` and `/.autoversion.filter` at the source root are always left out
+- a git destination leaves out `.git` folders and files at any level, whatever its rules say (`use nested-git`, applied by the git destination). A plain mirror copies them unless its rules say `use nested-git`; a sync then removes stale copies like any file, and restic backs them up, only the destination's own `.git` is skipped
 
 The built-in groups are rules files, `filters/NAME.filter`, compiled into the binary; other tools can read them as they are. [filters/README.md](filters/README.md) lists every rule, generated from them (`filter groups` prints the same). In short, `use default` leaves out:
 - **os:** `.DS_Store`, `Thumbs.db`, `desktop.ini`, `.nfs*` files; `.Spotlight-V100`, `.Trashes`, `.dropbox`
@@ -438,9 +439,10 @@ The built-in groups are rules files, `filters/NAME.filter`, compiled into the bi
 - **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.npm`, `.venv`, `venv`, `__pycache__`, `.gradle`
 - **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.playwright-mcp`, `playwright-report`, `test-results`
 - **data:** `pgdata`, `*.pgdb`; `*.wal` files
-- **vcs:** `.hg`, `.svn`, `.cvs`, `*.git` (bare repositories)
+- **vcs:** `.hg`, `.svn`, `.cvs`
 
-Opt-in groups, not in `default` (`use default` and `use nas`, for example):
+Opt-in groups, not in `default` (`use default` and `use nested-git`, for example):
+- **nested-git:** repositories inside the source: `.git` folders and files (worktrees, submodules) and bare `*.git` repositories, at any level. A git destination applies it always; a mirror only with the line, so a backup of a work area that must keep its repositories leaves it out.
 - **music**, **photos**, **videos**, and **media** for the three: media files by extension (`*.mp3`, `*.heic`, `*.mov`, …), lowercase and uppercase, files only. Only excludes: "only my photos" is an allowlist, `exclude /*` and `f:/**/*.{jpg,png}`.
 - **nas:** Synology metadata, `@eaDir` folders and `*@SynoResource`, `*@SynoEAStream` files
 

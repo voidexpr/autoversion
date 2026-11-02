@@ -8,17 +8,23 @@ import (
 	"github.com/nicolas/autoversion/filterrules"
 )
 
-const alwaysAppliedText = "/**/.git, symlinks, /" + markerFileName + " and /" + filterFileName
+const alwaysAppliedText = "symlinks, /" + markerFileName + " and /" + filterFileName
+
+// nestedGitText says why a git destination leaves out a .git
+const nestedGitText = "use nested-git, applied by the git destination"
 
 // alwaysExcluded reports whether an entry of the source (rel, see rel) is
-// left out whatever the rules: a .git, or anything under one (a nested
-// repository's .git would break a git destination), and a destination's
-// own files at the source root. Like the rules exclude /**/.git,
-// /.autoversion and /.autoversion.filter, applied first.
+// left out whatever the rules: a destination's own files at the source
+// root, like the rules exclude /.autoversion and /.autoversion.filter
 func alwaysExcluded(rel string) bool {
-	if rel == markerFileName || rel == filterFileName {
-		return true
-	}
+	return rel == markerFileName || rel == filterFileName
+}
+
+// gitExcluded reports whether an entry is a .git or anything under one:
+// what the nested-git group leaves out (exclude /**/.git), decided without
+// a rules walk. A git destination applies it whatever its rules say: git
+// would record a copied .git as a nested repository, not its files.
+func gitExcluded(rel string) bool {
 	for rel != "" {
 		var name string
 		name, rel, _ = strings.Cut(rel, "/")
@@ -30,10 +36,16 @@ func alwaysExcluded(rel string) bool {
 }
 
 // sourceRules decides what autoversion tracks in a source: alwaysExcluded,
-// then the destination's rules
+// gitExcluded for a git destination, then the destination's rules
 type sourceRules struct {
-	root  string
-	rules *filterrules.Rules
+	root      string
+	rules     *filterrules.Rules
+	nestedGit bool // a git destination: .git folders are left out whatever the rules say
+}
+
+// leftOut reports whether an entry is left out before the rules
+func (s *sourceRules) leftOut(rel string) bool {
+	return alwaysExcluded(rel) || s.nestedGit && gitExcluded(rel)
 }
 
 // rel returns path relative to the root with "/" separators ("" for the
@@ -52,14 +64,14 @@ func (s *sourceRules) rel(path string) (string, bool) {
 // tracked reports whether the rules keep an entry of the source
 func (s *sourceRules) tracked(path string, isDir bool) bool {
 	rel, ok := s.rel(path)
-	return ok && !alwaysExcluded(rel) && s.rules.Decide(rel, isDir).Kept
+	return ok && !s.leftOut(rel) && s.rules.Decide(rel, isDir).Kept
 }
 
 // skipDir reports whether a walker can skip a folder of the source: it is
 // left out, and nothing below it can be kept
 func (s *sourceRules) skipDir(path string) bool {
 	rel, ok := s.rel(path)
-	return !ok || alwaysExcluded(rel) || s.rules.SkipDir(rel)
+	return !ok || s.leftOut(rel) || s.rules.SkipDir(rel)
 }
 
 // walk calls fn for each file the rules keep under dir, a folder of the
@@ -94,14 +106,16 @@ func (s *sourceRules) walk(dir string, fn func(path string, info fs.FileInfo) er
 
 // walkDestination calls fn with the path, relative to the destination, of
 // each file in its folder dir ("" for the whole destination), leaving out
-// .git folders and the destination's marker and rules file
+// the destination's own .git, marker and rules file. A .git below the root
+// is a copy from the source (a mirror's), walked like any folder.
 func walkDestination(destPath, dir string, fn func(rel string)) {
+	ownGit := filepath.Join(destPath, ".git")
 	filepath.Walk(filepath.Join(destPath, dir), func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
 		if info.IsDir() {
-			if info.Name() == ".git" {
+			if path == ownGit {
 				return filepath.SkipDir
 			}
 			return nil

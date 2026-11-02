@@ -13,9 +13,11 @@ var activeRules *sourceRules
 // written would otherwise be reported on every event
 var reportedLargeFiles = map[string]bool{}
 
-// SetFilter sets the source and the rules that decide what is tracked
-func SetFilter(root string, rules *filterrules.Rules) {
-	activeRules = &sourceRules{root: root, rules: rules}
+// SetFilter sets the source and the rules that decide what is tracked.
+// nestedGit is set for a git destination: .git folders are left out
+// whatever the rules say (see gitExcluded).
+func SetFilter(root string, rules *filterrules.Rules, nestedGit bool) {
+	activeRules = &sourceRules{root: root, rules: rules, nestedGit: nestedGit}
 }
 
 // rulesSet returns the active rules. Without them nothing would be kept, and
