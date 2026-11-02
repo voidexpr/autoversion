@@ -45,10 +45,11 @@ func (t Type) prefix() string {
 
 // Rule is one include or exclude, after sugar expansion.
 type Rule struct {
-	Kind  Kind
-	Type  Type
-	Text  string // without the type prefix: "/**/*.old"
-	Group string // the built-in group it comes from, "" for a filter's own rules
+	Kind   Kind
+	Type   Type
+	Text   string // without the type prefix: "/**/*.old", or "marker:NAME"
+	Group  string // the built-in group it comes from, "" for a filter's own rules
+	Marker string // for "exclude marker:NAME", the entry name; "" for a path rule
 
 	segments []pattern
 	star     int // position of the "**" segment, -1 without one
@@ -94,9 +95,10 @@ func (r Rule) String() string {
 	return r.Kind.String() + " " + r.Type.prefix() + r.Text
 }
 
-// Literal reports whether the rule has no "*": it names one path.
+// Literal reports whether the rule has no "*": it names one path. A marker
+// rule names no path.
 func (r Rule) Literal() bool {
-	return !strings.Contains(r.Text, "*")
+	return r.Marker == "" && !strings.Contains(r.Text, "*")
 }
 
 func (r *Rule) fits(isDir bool) bool {
@@ -163,6 +165,9 @@ func ParseRule(kind Kind, text string) ([]Rule, error) {
 }
 
 func parseSugar(kind Kind, text string) ([]Rule, error) {
+	if name, ok := strings.CutPrefix(text, "marker:"); ok {
+		return parseMarkers(kind, name)
+	}
 	typ := TypeAny
 	if len(text) >= 2 && text[1] == ':' && isLetter(text[0]) {
 		switch text[0] {
@@ -186,6 +191,34 @@ func parseSugar(kind Kind, text string) ([]Rule, error) {
 			return nil, err
 		}
 		rules = append(rules, split...)
+	}
+	return dedupe(rules), nil
+}
+
+// parseMarkers parses "exclude marker:NAME" (NAME with braces): a folder
+// that directly holds an entry named NAME is left out, stored bare with the
+// entry. NAME is one entry name: no "/" or "*".
+func parseMarkers(kind Kind, text string) ([]Rule, error) {
+	names, err := expandBraces(text)
+	if err != nil {
+		return nil, err
+	}
+	var rules []Rule
+	for _, name := range names {
+		switch {
+		case name == "" || strings.ContainsAny(name, "/*"):
+			return nil, ruleError("bad-marker", "one entry name: marker:CACHEDIR.TAG")
+		case name == "." || name == "..":
+			return nil, ruleError("dot-segment", ". and .. are not allowed")
+		case name != strings.Trim(name, " "):
+			return nil, ruleError("space-edge", "a name doesn't start or end with a space")
+		case strings.ContainsFunc(name, isForbidden):
+			return nil, ruleError("forbidden-char", "not allowed: ? [ ] { } \\ $ ! and control characters")
+		}
+		rules = append(rules, Rule{Kind: Exclude, Text: "marker:" + name, Marker: name, star: -1})
+	}
+	if kind != Exclude {
+		return nil, ruleError("bad-marker", "a marker is an exclude")
 	}
 	return dedupe(rules), nil
 }

@@ -19,6 +19,11 @@ type Rules struct {
 	literal     map[string][]*Rule // literal rules by path
 	wildcard    []*Rule
 	includes    []*Rule
+	markers     []*Rule // exclude marker:NAME rules
+
+	// markerExists reports whether the folder relDir directly holds an
+	// entry named name; nil until UseMarkers, then markers never match
+	markerExists func(relDir, name string) bool
 }
 
 // New combines a file's rules with the groups it uses, and validates them
@@ -64,9 +69,13 @@ func compile(all []Rule) *Rules {
 	r := &Rules{all: all, literal: map[string][]*Rule{}}
 	for i := range r.all {
 		rule := &r.all[i]
-		if rule.Literal() {
+		switch {
+		case rule.Marker != "":
+			r.markers = append(r.markers, rule)
+			continue
+		case rule.Literal():
 			r.literal[rule.Text[1:]] = append(r.literal[rule.Text[1:]], rule)
-		} else {
+		default:
 			r.wildcard = append(r.wildcard, rule)
 		}
 		if rule.Kind == Include {
@@ -74,6 +83,47 @@ func compile(all []Rule) *Rules {
 		}
 	}
 	return r
+}
+
+// UseMarkers gives the rules the tree lookup their marker rules need: exists
+// reports whether the folder relDir ("" for the root) directly holds an
+// entry named name. Without it, markers never match.
+func (r *Rules) UseMarkers(exists func(relDir, name string) bool) {
+	r.markerExists = exists
+}
+
+// Markers returns the entry names of the marker rules (exclude marker:NAME)
+func (r *Rules) Markers() []string {
+	var names []string
+	for _, m := range r.markers {
+		names = append(names, m.Marker)
+	}
+	return names
+}
+
+// markedBy returns the marker rule that leaves out the folder relDir: it
+// holds the marker's entry. A marker named except doesn't count: the
+// marker entry itself is decided as if its folder had no such marker.
+func (r *Rules) markedBy(relDir, except string) *Rule {
+	if r.markerExists == nil {
+		return nil
+	}
+	for _, m := range r.markers {
+		if m.Marker != except && r.markerExists(relDir, m.Marker) {
+			return m
+		}
+	}
+	return nil
+}
+
+// isMarkerName reports whether an entry named name is a marker entry
+func (r *Rules) isMarkerName(name string) bool {
+	for _, m := range r.markers {
+		if m.Marker == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Rules) validate() error {
@@ -115,19 +165,32 @@ type Decision struct {
 }
 
 // Decide decides an entry. The closest match wins: the entry itself is
-// checked first, then each folder above it.
+// checked first, then each folder above it. A folder holding a marker entry
+// (see UseMarkers) counts as a wildcard exclude at its own level, except
+// for the marker entry itself, decided as if its folder had no marker.
 func (r *Rules) Decide(rel string, isDir bool) Decision {
 	if rel == "" {
 		return Decision{Kept: true}
 	}
 	names := strings.Split(rel, "/")
+	except := ""
+	if r.isMarkerName(names[len(names)-1]) {
+		except = names[len(names)-1]
+	}
 	end := len(rel)
 	for d := len(names); d >= 1; d-- {
 		if d < len(names) {
 			end -= len(names[d]) + 1
 		}
-		if rule := r.decideLevel(names[:d], rel[:end], isDir || d < len(names)); rule != nil {
+		levelIsDir := isDir || d < len(names)
+		if rule := r.decideLevel(names[:d], rel[:end], levelIsDir); rule != nil {
 			return Decision{Kept: rule.Kind == Include, Level: d, Rule: rule}
+		}
+		if levelIsDir && len(r.markers) > 0 {
+			parentOfEntry := d == len(names)-1
+			if m := r.markedBy(rel[:end], map[bool]string{true: except, false: ""}[parentOfEntry]); m != nil {
+				return Decision{Level: d, Rule: m}
+			}
 		}
 	}
 	return Decision{Kept: true}
@@ -175,9 +238,18 @@ func (r *Rules) CanMatchBelow(relDir string) bool {
 }
 
 // SkipDir reports whether a walker can skip the folder relDir: it is left
-// out, and no include can match below it
+// out, no include can match below it, and it holds no marker entry that is
+// kept (a marked folder is stored bare with its marker)
 func (r *Rules) SkipDir(relDir string) bool {
-	return !r.Decide(relDir, true).Kept && !r.CanMatchBelow(relDir)
+	if r.Decide(relDir, true).Kept || r.CanMatchBelow(relDir) {
+		return false
+	}
+	for _, m := range r.markers {
+		if r.markerExists != nil && r.markerExists(relDir, m.Marker) && r.Decide(relDir+"/"+m.Marker, false).Kept {
+			return false
+		}
+	}
+	return true
 }
 
 func splitPath(rel string) []string {
@@ -245,9 +317,45 @@ func (r *Rules) Check(list ListFunc) []Problem {
 		}
 		return true
 	}
+	// Markers on disk, for restic and borg (shared spec): a marker in the
+	// root leaves out everything there, and an include at or under a marked
+	// folder is never reached. The native matcher keeps the closest match.
+	holdsMarker := func(dir string) string {
+		exists(dir + "/x") // fills the listing of dir
+		for _, m := range r.markers {
+			if listings[dir][m.Marker] {
+				return m.Marker
+			}
+		}
+		return ""
+	}
+	if len(r.markers) > 0 {
+		if m := holdsMarker(""); m != "" {
+			problems = append(problems, Problem{Code: "root-marked",
+				Message: "the root holds " + m + ": restic and borg would leave out everything (the native matcher ignores a marker in the root)"})
+		}
+		for _, inc := range r.includes {
+			if !inc.Literal() {
+				continue
+			}
+			names := strings.Split(inc.Text[1:], "/")
+			for i := range names {
+				dir := strings.Join(names[:i+1], "/")
+				if m := holdsMarker(dir); m != "" {
+					problems = append(problems, Problem{Code: "include-under-marker",
+						Message: inc.String() + ": " + dir + " holds " + m + ", restic and borg never reach the include"})
+					break
+				}
+			}
+		}
+	}
+
 	allowlist, literalInclude, aliveInclude, wildcardInclude := false, false, false, false
 	for i := range r.all {
 		rule := &r.all[i]
+		if rule.Marker != "" {
+			continue
+		}
 		if rule.Kind == Exclude && rule.Type == TypeAny && rule.Text == "/*" {
 			allowlist = true
 		}

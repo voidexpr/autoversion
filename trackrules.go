@@ -2,8 +2,10 @@ package main
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/nicolas/autoversion/filterrules"
 )
@@ -41,6 +43,52 @@ type sourceRules struct {
 	root      string
 	rules     *filterrules.Rules
 	nestedGit bool // a git destination: .git folders are left out whatever the rules say
+
+	// markers caches which folders hold a marker entry during a walk
+	// (relDir + "/" + name); nil outside a walk, where each lookup stats
+	markerMu sync.Mutex
+	markers  map[string]bool
+}
+
+// newSourceRules returns the rules of a source, with the marker lookup the
+// rules' exclude marker:NAME lines need
+func newSourceRules(root string, rules *filterrules.Rules, nestedGit bool) *sourceRules {
+	s := &sourceRules{root: root, rules: rules, nestedGit: nestedGit}
+	rules.UseMarkers(s.holdsMarker)
+	return s
+}
+
+// holdsMarker reports whether the folder relDir of the source directly holds
+// an entry named name
+func (s *sourceRules) holdsMarker(relDir, name string) bool {
+	key := relDir + "/" + name
+	s.markerMu.Lock()
+	defer s.markerMu.Unlock()
+	if held, ok := s.markers[key]; ok {
+		return held
+	}
+	_, err := os.Lstat(filepath.Join(s.root, filepath.FromSlash(relDir), name))
+	held := err == nil
+	if s.markers != nil {
+		s.markers[key] = held
+	}
+	return held
+}
+
+// cacheMarkers turns the marker cache on for a walk; the function returned
+// turns it off. Outside a walk a marker entry may appear or go at any time.
+func (s *sourceRules) cacheMarkers() func() {
+	s.markerMu.Lock()
+	defer s.markerMu.Unlock()
+	if s.markers != nil || len(s.rules.Markers()) == 0 {
+		return func() {}
+	}
+	s.markers = map[string]bool{}
+	return func() {
+		s.markerMu.Lock()
+		s.markers = nil
+		s.markerMu.Unlock()
+	}
 }
 
 // leftOut reports whether an entry is left out before the rules
@@ -80,6 +128,7 @@ func (s *sourceRules) skipDir(path string) bool {
 // An error from fn stops the walk. walk returns the number of folders
 // visited: the watches a Linux watcher needs.
 func (s *sourceRules) walk(dir string, fn func(path string, info fs.FileInfo) error) (int, error) {
+	defer s.cacheMarkers()()
 	dirs := 0
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

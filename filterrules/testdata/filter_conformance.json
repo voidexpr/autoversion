@@ -116,6 +116,25 @@
       "kept": ["keep/", "keep/small.txt"]
     },
     {
+      "name": "markers: a folder holding the entry is left out, stored bare with the entry",
+      "tools": ["native", "restic", "borg"],
+      "tree": [
+        "cache/", "cache/CACHEDIR.TAG", "cache/data.bin", "keep.txt",
+        "proj/", "proj/.venv/", "proj/.venv/pyvenv.cfg", "proj/.venv/lib/", "proj/.venv/lib/x", "proj/main.py"
+      ],
+      "exclude": ["marker:{CACHEDIR.TAG,pyvenv.cfg}"],
+      "include": [],
+      "kept": ["cache/", "cache/CACHEDIR.TAG", "keep.txt", "proj/", "proj/.venv/", "proj/.venv/pyvenv.cfg", "proj/main.py"]
+    },
+    {
+      "name": "markers: a literal include on the marked folder wins (native only: restic and borg can't)",
+      "tools": ["native"],
+      "tree": ["tools/", "tools/env/", "tools/env/pyvenv.cfg", "tools/env/bin/", "tools/env/bin/run", "other/", "other/env/", "other/env/pyvenv.cfg", "other/env/x"],
+      "exclude": ["marker:pyvenv.cfg"],
+      "include": ["/tools/env"],
+      "kept": ["tools/", "tools/env/", "tools/env/pyvenv.cfg", "tools/env/bin/", "tools/env/bin/run", "other/", "other/env/", "other/env/pyvenv.cfg"]
+    },
+    {
       "name": "typed rules decay to both types on restic and borg",
       "tools": ["restic", "borg", "syncthing"],
       "types": "decay",
@@ -149,7 +168,11 @@
     {"rule": "/", "code": "trailing-slash"},
     {"rule": "foo:/a", "code": "no-root"},
     {"rule": "C:/a", "code": "bad-type"},
-    {"rule": "/a}/{b}", "code": "forbidden-char"}
+    {"rule": "/a}/{b}", "code": "forbidden-char"},
+    {"rule": "marker:", "code": "bad-marker"},
+    {"rule": "marker:a/b", "code": "bad-marker"},
+    {"rule": "marker:*.tag", "code": "bad-marker"},
+    {"rule": "marker:a?b", "code": "forbidden-char"}
   ],
   "sugar": [
     {"kind": "include", "rule": "/a/!b", "expanded": ["include /a", "exclude /a/b"]},

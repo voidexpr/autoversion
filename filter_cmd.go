@@ -229,6 +229,9 @@ shared with ownit. Without the file, they are "use default". Example, for
 - Every rule starts at the source root (/). * matches within a name, and a
   /**/ segment any number of folders. f: makes a rule match files only.
 - A bare line is an include. {a,b} gives one rule per name.
+- exclude marker:NAME leaves out every folder that directly holds an entry
+  named NAME (marker:{CACHEDIR.TAG,pyvenv.cfg}), except that entry: the
+  folder is stored bare with the marker.
 - The closest match wins: the entry itself, then each folder above it. On
   one level, a literal rule beats a wildcard, then an include beats an
   exclude. Line order means nothing.
@@ -275,7 +278,8 @@ are the destination's (--destination), or the ones given (none: use default).
 			return err
 		}
 
-		s := &sourceRules{root: sourcePath}
+		var rules *filterrules.Rules
+		var nestedGit bool
 		var maxSize int64
 		if destFlag != "" {
 			if ruleFlagsGiven() {
@@ -288,13 +292,14 @@ are the destination's (--destination), or the ones given (none: use default).
 			if problems := result.problems(); len(problems) > 0 {
 				return errors.New(problems[0])
 			}
-			s.rules, s.nestedGit, maxSize = result.Rules, result.Settings.Git, result.MaxFileSize
+			rules, nestedGit, maxSize = result.Rules, result.Settings.Git, result.MaxFileSize
 		} else {
-			if s.rules, err = rulesFromFlags(sourcePath); err != nil {
+			if rules, err = rulesFromFlags(sourcePath); err != nil {
 				return err
 			}
-			_, maxSize = s.rules.MaxFileSize()
+			_, maxSize = rules.MaxFileSize()
 		}
+		s := newSourceRules(sourcePath, rules, nestedGit)
 
 		if explainFlag != "" {
 			return explain(s, explainFlag, maxSize)
@@ -546,7 +551,7 @@ func applyRules(result *PathValidationResult, text string, replace bool) error {
 
 	kept := map[string]bool{}
 	_, maxSize := rules.MaxFileSize()
-	(&sourceRules{root: sourcePath, rules: rules, nestedGit: settings.Git}).walk(sourcePath, func(path string, info fs.FileInfo) error {
+	newSourceRules(sourcePath, rules, settings.Git).walk(sourcePath, func(path string, info fs.FileInfo) error {
 		if !tooLarge(info.Size(), maxSize) {
 			rel, _ := filepath.Rel(sourcePath, path)
 			kept[rel] = true

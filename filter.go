@@ -17,7 +17,7 @@ var reportedLargeFiles = map[string]bool{}
 // nestedGit is set for a git destination: .git folders are left out
 // whatever the rules say (see gitExcluded).
 func SetFilter(root string, rules *filterrules.Rules, nestedGit bool) {
-	activeRules = &sourceRules{root: root, rules: rules, nestedGit: nestedGit}
+	activeRules = newSourceRules(root, rules, nestedGit)
 }
 
 // rulesSet returns the active rules. Without them nothing would be kept, and

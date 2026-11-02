@@ -71,7 +71,7 @@ func defaultRulesWith(t *testing.T, lines ...string) *filterrules.Rules {
 
 func TestSourceRulesWalk(t *testing.T) {
 	source := newRulesSource(t)
-	s := &sourceRules{root: source, rules: defaultRulesWith(t, "exclude /skipped"), nestedGit: true}
+	s := newSourceRules(source, defaultRulesWith(t, "exclude /skipped"), true)
 	walk := func(dir string, stopAt string) ([]string, int, error) {
 		var files []string
 		dirs, err := s.walk(dir, func(path string, _ fs.FileInfo) error {
@@ -118,7 +118,7 @@ func TestSourceRulesWalk(t *testing.T) {
 
 func TestExplain(t *testing.T) {
 	source := newRulesSource(t)
-	s := &sourceRules{root: source, rules: defaultRulesWith(t, "exclude /skipped"), nestedGit: true}
+	s := newSourceRules(source, defaultRulesWith(t, "exclude /skipped"), true)
 	tests := map[string]string{
 		"keep.txt":             "keep.txt (file): kept: no rule matches it or a folder above it",
 		"node_modules/x.js":    "node_modules/x.js (file): left out by exclude /**/node_modules (group deps), matching node_modules",
@@ -532,5 +532,39 @@ func TestFilterDump_NestedGit(t *testing.T) {
 		if err != nil || strings.Contains(out, "# "+nestedGitText+"\n") != git {
 			t.Errorf("git %v: %v\n%s", git, err, out)
 		}
+	}
+}
+
+// exclude marker:NAME: a marked folder is stored bare with its marker
+func TestFilterScan_Markers(t *testing.T) {
+	setGlobals(t, false)
+	source := resolvedTempDir(t)
+	for _, file := range []string{"cache/CACHEDIR.TAG", "cache/data.bin", "cache/sub/x", "src/main.go", "env/pyvenv.cfg", "env/lib/y"} {
+		writeFile(t, filepath.Join(source, file), "x")
+	}
+	out, err := runCLI(t, "filter", "scan", "--source", source, "--exclude", "marker:{CACHEDIR.TAG,pyvenv.cfg}", "--no-summary")
+	if err != nil || out != "cache/CACHEDIR.TAG\nenv/pyvenv.cfg\nsrc/main.go\n" {
+		t.Errorf("scan: %v\n%s", err, out)
+	}
+	out, err = runCLI(t, "filter", "scan", "--source", source, "--exclude", "marker:CACHEDIR.TAG", "--explain", "cache/data.bin")
+	if err != nil || !strings.Contains(out, "left out by exclude marker:CACHEDIR.TAG, matching cache") {
+		t.Errorf("explain: %v\n%s", err, out)
+	}
+
+	// A sync copies the marker and nothing else of the folder
+	dest := resolvedTempDir(t)
+	writeFile(t, filepath.Join(dest, "cache", "stale.bin"), "x")
+	old := activeRules
+	t.Cleanup(func() { activeRules = old })
+	SetFilter(source, defaultRulesWith(t, "exclude marker:CACHEDIR.TAG"), false)
+	captureStdout(t, func() {
+		if err := scanPaths(source, dest, 0, false); err != nil {
+			t.Error(err)
+		}
+	})
+	var copied []string
+	walkDestination(dest, "", func(rel string) { copied = append(copied, rel) })
+	if want := "cache/CACHEDIR.TAG,env/lib/y,env/pyvenv.cfg,src/main.go"; strings.Join(copied, ",") != want {
+		t.Errorf("destination has %v, want %s", copied, want)
 	}
 }

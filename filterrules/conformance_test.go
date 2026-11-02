@@ -11,7 +11,7 @@ import (
 )
 
 // testdata/filter_conformance.json is ownit's tests/filter_conformance.json,
-// copied unchanged from ownit commit ad5bcab.
+// copied unchanged from ownit commit 826f85b.
 func TestConformance(t *testing.T) {
 	data, err := os.ReadFile("testdata/filter_conformance.json")
 	if err != nil {
@@ -69,6 +69,7 @@ func TestConformance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			r.UseMarkers(treeHas(c.Tree))
 			got, want := selectTree(r, c.Tree, c.Sizes), slices.Clone(c.Kept)
 			slices.Sort(got)
 			slices.Sort(want)
@@ -204,6 +205,17 @@ func checkSkipDir(t *testing.T, r *Rules, tree []string) {
 }
 
 // listTree lists the names in a folder of a tree (folders end with "/")
+// treeHas is the marker lookup for a tree: whether dir directly holds name
+func treeHas(tree []string) func(dir, name string) bool {
+	entries := map[string]bool{}
+	for _, entry := range tree {
+		entries[strings.TrimSuffix(entry, "/")] = true
+	}
+	return func(dir, name string) bool {
+		return entries[path.Join(dir, name)]
+	}
+}
+
 func listTree(tree []string) ListFunc {
 	return func(rel string) ([]string, error) {
 		var names []string
