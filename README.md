@@ -179,14 +179,14 @@ The rules and settings moved from command line flags to the destination. `sync`,
 | `--exclude-dir X` | `filter set --use default --exclude /X` |
 | `--only-include-extensions md,csv` | `filter set --use default --exclude '/*' --include 'f:/**/*.{md,csv}'` |
 | `--only-include-file F` | `filter set --use default --exclude '/*' --include /F` |
-| `--max-file-size N` | a `max-file-size NM` line in the rules file: `filter set --destination D --filter - < rules` or `filter set ... --max-file-size NM` with the rule flags. Until the rules file has the line, a marker's `max_file_size_mb` still applies (10 MB when it has none) |
+| `--max-file-size N` | a `max-file-size NM` line in the rules file: `filter set --destination D --filter - < rules` or `filter set ... --max-file-size NM` with the rule flags. A marker's old `max_file_size_mb` field is kept but ignored |
 | `--no-git`, `--restic` | `init --mirror`, `init --restic`: `init` stores them in the marker, and requires one of `--git`, `--restic`, `--mirror` (`--mirror` is refused on a destination with a `.git` folder). `sync`, `watch`, `install` and `check-paths` refuse them |
 
 Then run `install` again: the plist loses the old flags, and the service is reloaded. Differences in the built-in exclusions are listed in `plans/feature_include_exclude_rules.md` (translation table): lock files such as `Cargo.lock`, `.vscode/` and names made only of digits are now tracked.
 
 ### Migrating to explicit init (2026-11)
 
-`init` now requires how the destination versions (`--git`, `--restic`, `--mirror`) and its rules, the size limit is the rules file's `max-file-size` line, and `.git` folders are left out by `use nested-git`, not by default (a git destination still never copies them). A destination from before keeps working: its marker's `max_file_size_mb` applies until the rules file has the line, and a missing rules file reads as `use default` with a warning. To move a destination over, with its files and history untouched:
+`init` now requires how the destination versions (`--git`, `--restic`, `--mirror`) and its rules, the size limit is the rules file's `max-file-size` line, and `.git` folders are left out by `use nested-git`, not by default (a git destination still never copies them). A destination from before must be moved over: its marker's `max_file_size_mb` is ignored, and a destination without a rules file is refused by `sync`, `watch` and `install`. With its files and history untouched:
 
 ```bash
 rm DEST_PATH/.autoversion
@@ -436,7 +436,7 @@ Shows symlink resolution and the marker status, and validates:
 `sync`, `watch` and `install` refuse to copy anything unless the marker exists and names their source. This catches typos in either path (a mistyped destination is never silently created) and prevents two sources from syncing into the same destination.
 
 - Settings missing from a marker (markers written before settings were stored) describe the destination as it is: `git` when it has a `.git` folder, `restic` when it has a restic repository. They are worked out each time, until `init` is given the setting and stores it.
-- `max_file_size_mb` is legacy: the size limit is the rules file's `max-file-size` line. A marker that has the field keeps it, and it applies while the rules file has no `max-file-size` line (a marker without the field: 10 MB). `filter dump --destination` prints the limit in force and where it comes from.
+- A `max_file_size_mb` field, from before the size limit was the rules file's `max-file-size` line, is kept like any unknown field and ignored. `filter dump --destination` prints the size limit.
 - Fields autoversion doesn't know are kept when the marker is rewritten.
 - The marker and the rules file (`.autoversion.filter`) are never deleted or overwritten by a sync, and files with these names at the root of a source are not tracked.
 - With git, both are versioned like the other files: `git log -p .autoversion` shows which source the destination belonged to over time, and `git log -p .autoversion.filter` every rule change.
@@ -445,7 +445,7 @@ Shows symlink resolution and the marker status, and validates:
 
 What is tracked is decided by the destination's rules (see **filter**), then:
 - symlinks and other files that are not regular files are never tracked
-- files over the rules file's `max-file-size` are skipped (`max-file-size 10M`: an integer with a unit `k`, `m` or `g`, binary, either case, or `none`; a file of exactly that size is kept). Without the line there is no limit, unless the marker still carries a legacy `max_file_size_mb` (see **Destination Marker**)
+- files over the rules file's `max-file-size` are skipped (`max-file-size 10M`: an integer with a unit `k`, `m` or `g`, binary, either case, or `none`; a file of exactly that size is kept). Without the line there is no limit
 - `/.autoversion` and `/.autoversion.filter` at the source root are always left out
 - a git destination leaves out `.git` folders and files at any level, whatever its rules say (`use nested-git`, applied by the git destination). A plain mirror copies them unless its rules say `use nested-git`; a sync then removes stale copies like any file, and restic backs them up, only the destination's own `.git` is skipped
 

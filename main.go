@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	defaultMaxFileSizeMB = 10
-	defaultBufferTime    = 3
+	defaultBufferTime = 3
 )
 
 var (
@@ -249,9 +248,6 @@ change with filter set.`,
 		rules, err := rulesText(result.SourceResolved)
 		if err != nil {
 			return err
-		}
-		if rules == "" {
-			return errors.New("init needs rules: --filter FILE, or --use, --include, --exclude and --max-file-size (see filter --help). For example, a file:\n" + starterRules)
 		}
 		settings := settingsFlags{git: &gitFlag, restic: &useRestic}
 		return initDestination(result.SourceResolved, result.DestinationResolved, initOptions{

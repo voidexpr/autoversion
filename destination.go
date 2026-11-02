@@ -21,24 +21,22 @@ const markerFileName = ".autoversion"
 // (filterrules)
 const filterFileName = ".autoversion.filter"
 
-// defaultRules are the rules of a destination without a rules file, from
-// before init required rules (the file is written at migration)
+// defaultRules are the rules of filter scan, filter dump and watch
+// --report-only when none are given
 const defaultRules = "version 1\nuse default\n"
 
 // starterRules is the rules file init suggests when it is given none
 const starterRules = "version 1\nmax-file-size 10M\nuse default\nuse nested-git\n"
 
-// destinationSettings are what a destination's marker says besides its source
+// destinationSettings are what a destination's marker says besides its
+// source. A max_file_size_mb field, from before the size limit was the rules
+// file's max-file-size line, is kept as an unknown field and ignored.
 type destinationSettings struct {
 	Git    bool
 	Restic bool
-	// Legacy: the size limit of a marker written before it was the rules
-	// file's max-file-size directive. 0: no limit. Read, kept as stored,
-	// never added; it applies while the rules file has no directive.
-	MaxFileSizeMB int64
 }
 
-var defaultSettings = destinationSettings{Git: true, MaxFileSizeMB: defaultMaxFileSizeMB}
+var defaultSettings = destinationSettings{Git: true}
 
 var onOff = map[bool]string{true: "on", false: "off"}
 
@@ -46,17 +44,12 @@ func (s destinationSettings) String() string {
 	return fmt.Sprintf("git %s, restic %s", onOff[s.Git], onOff[s.Restic])
 }
 
-// sizeLimit returns the size limit in force for a destination, in bytes (0:
-// none), and where it comes from: the rules file's max-file-size, else the
-// marker's legacy max_file_size_mb
-func sizeLimit(rules *filterrules.Rules, settings destinationSettings) (bytes int64, from string) {
-	if text, bytes := rules.MaxFileSize(); text != "" {
-		return bytes, "max-file-size " + text + " (rules file)"
+// sizeLimitText says the size limit of rules, for filter dump
+func sizeLimitText(rules *filterrules.Rules) string {
+	if text, _ := rules.MaxFileSize(); text != "" {
+		return "max-file-size " + text
 	}
-	if settings.MaxFileSizeMB == 0 {
-		return 0, "none (no max-file-size in the rules file)"
-	}
-	return settings.MaxFileSizeMB << 20, fmt.Sprintf("%d MB (the marker's legacy max_file_size_mb: add max-file-size %dM to the rules file)", settings.MaxFileSizeMB, settings.MaxFileSizeMB)
+	return "none (no max-file-size line)"
 }
 
 type destinationMarker struct {
@@ -68,8 +61,7 @@ type destinationMarker struct {
 
 // readMarker returns the marker of a destination, or nil if it has none.
 // Settings missing from it describe the destination as it is: git when it
-// has a .git folder, restic when it has a restic repository, and the default
-// size limit.
+// has a .git folder, restic when it has a restic repository.
 func readMarker(destPath string) (*destinationMarker, error) {
 	path := filepath.Join(destPath, markerFileName)
 	data, err := os.ReadFile(path)
@@ -88,9 +80,8 @@ func readMarker(destPath string) (*destinationMarker, error) {
 	}
 	marker := &destinationMarker{
 		destinationSettings: destinationSettings{
-			Git:           IsGitRepo(destPath),
-			Restic:        IsResticRepo(destPath),
-			MaxFileSizeMB: defaultMaxFileSizeMB,
+			Git:    IsGitRepo(destPath),
+			Restic: IsResticRepo(destPath),
 		},
 		stored: map[string]bool{},
 		other:  map[string]json.RawMessage{},
@@ -106,12 +97,6 @@ func readMarker(destPath string) (*destinationMarker, error) {
 		case "restic":
 			marker.stored[key] = true
 			err = json.Unmarshal(raw, &marker.Restic)
-		case "max_file_size_mb":
-			marker.stored[key] = true
-			err = json.Unmarshal(raw, &marker.MaxFileSizeMB)
-			if err == nil && marker.MaxFileSizeMB < 0 {
-				err = errors.New("negative")
-			}
 		default:
 			marker.other[key] = raw
 		}
@@ -136,9 +121,6 @@ func writeMarker(destPath string, marker *destinationMarker) error {
 		{"source", marker.Source},
 		{"git", marker.Git},
 		{"restic", marker.Restic},
-	}
-	if marker.stored["max_file_size_mb"] {
-		fields = append(fields, field{"max_file_size_mb", marker.MaxFileSizeMB})
 	}
 	for _, key := range slices.Sorted(maps.Keys(marker.other)) {
 		fields = append(fields, field{key, marker.other[key]})
@@ -169,13 +151,11 @@ func writeMarker(destPath string, marker *destinationMarker) error {
 	return os.WriteFile(filepath.Join(destPath, markerFileName), out.Bytes(), 0644)
 }
 
-// readRulesText returns a destination's rules file, or defaultRules with a
-// warning when it has none (destinations made before init required rules)
+// readRulesText returns a destination's rules file
 func readRulesText(destPath string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(destPath, filterFileName))
 	if os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "warning: %s has no %s, using the rules \"use default\": write its rules with filter set\n", destPath, filterFileName)
-		return defaultRules, nil
+		return "", fmt.Errorf("%s has no %s: write its rules with filter set, or init it again (see README, migrating)", destPath, filterFileName)
 	}
 	return string(data), err
 }
@@ -267,7 +247,7 @@ type PathValidationResult struct {
 	// When the marker names the source
 	Settings    destinationSettings
 	Rules       *filterrules.Rules
-	MaxFileSize int64 // the size limit in force, in bytes (0: none), see sizeLimit
+	MaxFileSize int64 // the rules' size limit, in bytes (0: none)
 	RulesErr    error // the rules file can't be read or is invalid
 }
 
@@ -339,7 +319,7 @@ func ValidateSourceAndDestination(sourcePath, destPath string) (*PathValidationR
 			result.Settings = marker.destinationSettings
 			result.Rules, result.RulesErr = readRules(resolvedDest)
 			if result.Rules != nil {
-				result.MaxFileSize, _ = sizeLimit(result.Rules, result.Settings)
+				_, result.MaxFileSize = result.Rules.MaxFileSize()
 			}
 		default:
 			result.Marker = MarkerOtherSource
@@ -584,14 +564,15 @@ func initDestination(sourcePath, destPath string, opts initOptions) error {
 		return gitToMirrorError(destPath)
 	}
 
-	// A destination kept for a new source keeps its rules
+	// Rules are required; a destination kept for a new source keeps its own
+	// when none are given
 	rules := opts.rules
 	if rules == "" {
-		rules = defaultRules
-		if keptContents {
-			if rules, err = readRulesText(destPath); err != nil {
-				return fmt.Errorf("failed to read rules: %v", err)
-			}
+		if !keptContents {
+			return errors.New("init needs rules: --filter FILE, or --use, --include, --exclude and --max-file-size (see filter --help). For example, a file:\n" + starterRules)
+		}
+		if rules, err = readRulesText(destPath); err != nil {
+			return fmt.Errorf("failed to read rules: %v", err)
 		}
 	}
 	if _, err := checkRules(sourcePath, rules); err != nil {

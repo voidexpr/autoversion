@@ -403,8 +403,7 @@ var filterDumpCmd = &cobra.Command{
 			if rules, err = readRules(destPath); err != nil {
 				return err
 			}
-			_, from := sizeLimit(rules, marker.destinationSettings)
-			fmt.Printf("# size limit: %s\n", from)
+			fmt.Printf("# size limit: %s\n", sizeLimitText(rules))
 			if marker.Git {
 				fmt.Printf("# %s\n", nestedGitText)
 			}
@@ -546,7 +545,7 @@ func applyRules(result *PathValidationResult, text string, replace bool) error {
 	}
 
 	kept := map[string]bool{}
-	maxSize, _ := sizeLimit(rules, settings)
+	_, maxSize := rules.MaxFileSize()
 	(&sourceRules{root: sourcePath, rules: rules, nestedGit: settings.Git}).walk(sourcePath, func(path string, info fs.FileInfo) error {
 		if !tooLarge(info.Size(), maxSize) {
 			rel, _ := filepath.Rel(sourcePath, path)

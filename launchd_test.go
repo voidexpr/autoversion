@@ -53,15 +53,14 @@ func TestConfigHash(t *testing.T) {
 	if _, err := configHash(dest); err == nil {
 		t.Error("a destination without a marker has a hash")
 	}
-	writeOldMarker(t, dest, "/src")
+	writeFile(t, filepath.Join(dest, markerFileName), `{"source": "/src"}`+"\n")
+	if _, err := configHash(dest); err == nil {
+		t.Error("a destination without a rules file has a hash")
+	}
+	writeOldMarker(t, dest, "/src") // writes the default rules too
 	withoutRules, err := configHash(dest)
 	if err != nil {
 		t.Fatal(err)
-	}
-	// No rules file means use default: writing it out changes nothing
-	writeFile(t, filepath.Join(dest, filterFileName), defaultRules)
-	if hash, _ := configHash(dest); hash != withoutRules {
-		t.Errorf("hash %s with the default rules written, %s without a rules file", hash, withoutRules)
 	}
 	writeFile(t, filepath.Join(dest, filterFileName), defaultRules+"exclude /Backup\n")
 	withRule, _ := configHash(dest)

@@ -225,3 +225,13 @@ still reads).
   until the jobs run on the new markers.
 - Conformance file unchanged at b19fbdd: ownit's size cases are not
   landed yet. The harness reads `sizes` and `max_file_size` already.
+
+## Cleanup (2026-11-02, after the migration)
+
+Done once `autoversion-install.sh migrate` and `check` ran clean: a
+destination without a rules file is refused (`readRulesText` errors, no
+`use default` fallback), `initDestination` requires rules unless it keeps
+a destination's own with `--force-new-source`, and the marker's
+`max_file_size_mb` is no longer read as a setting: it stays in the file
+as an unknown field and is ignored. The conformance file is ownit's at
+ad5bcab (max-file-size cases).

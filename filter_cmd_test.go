@@ -269,7 +269,7 @@ func newSyncedDestination(t *testing.T, git bool) (*PathValidationResult, string
 		writeFile(t, filepath.Join(source, file), file)
 	}
 	dest := filepath.Join(resolvedTempDir(t), "dest")
-	if err := initDestination(source, dest, initOptions{settings: settingsFlags{git: &git}}); err != nil {
+	if err := initDestination(source, dest, initOptions{rules: defaultRules, settings: settingsFlags{git: &git}}); err != nil {
 		t.Fatal(err)
 	}
 	setRules(t, source)
@@ -505,18 +505,18 @@ func TestFilterScan_MaxFileSize(t *testing.T) {
 		t.Errorf("dump: %v\n%s", err, out)
 	}
 
-	// A destination: the rules file's directive, else the marker's legacy value
+	// A destination: the rules file's directive, none without the line
 	dest := filepath.Join(resolvedTempDir(t), "dest")
 	if err := initDestination(source, dest, initOptions{settings: settingsFlags{git: ptr(false)}, rules: "version 1\nuse default\n"}); err != nil {
 		t.Fatal(err)
 	}
 	out, err = runCLI(t, "filter", "dump", "--destination", dest)
-	if err != nil || !strings.Contains(out, "# size limit: 10 MB (the marker's legacy max_file_size_mb") {
-		t.Errorf("dump --destination, legacy: %v\n%s", err, out)
+	if err != nil || !strings.Contains(out, "# size limit: none (no max-file-size line)") {
+		t.Errorf("dump --destination, no line: %v\n%s", err, out)
 	}
 	writeFile(t, filepath.Join(dest, filterFileName), "version 1\nmax-file-size 4k\nuse default\n")
 	out, err = runCLI(t, "filter", "dump", "--destination", dest)
-	if err != nil || !strings.Contains(out, "# size limit: max-file-size 4k (rules file)") {
+	if err != nil || !strings.Contains(out, "# size limit: max-file-size 4k") {
 		t.Errorf("dump --destination, directive: %v\n%s", err, out)
 	}
 	out, err = runCLI(t, "filter", "scan", "--source", source, "--destination", dest, "--no-summary")
