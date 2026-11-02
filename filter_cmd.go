@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nicolas/autoversion/filterrules"
+	"github.com/nicad/autoversion/filterrules"
 	"github.com/spf13/cobra"
 )
 

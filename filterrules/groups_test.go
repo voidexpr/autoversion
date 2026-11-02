@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/nicolas/autoversion/filters"
+	"github.com/nicad/autoversion/filters"
 )
 
 // TestGroupFiles checks the group files as they load: a "# NAME: about"

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nicolas/autoversion/filterrules"
+	"github.com/nicad/autoversion/filterrules"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )

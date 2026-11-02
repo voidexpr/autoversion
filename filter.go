@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/nicolas/autoversion/filterrules"
+	"github.com/nicad/autoversion/filterrules"
 )
 
 // activeRules decide what sync, watch and the watchers track, see SetFilter

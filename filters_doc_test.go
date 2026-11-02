@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nicolas/autoversion/filterrules"
+	"github.com/nicad/autoversion/filterrules"
 )
 
 // filtersDoc is the generated listing of the built-in groups

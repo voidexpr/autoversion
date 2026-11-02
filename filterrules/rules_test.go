@@ -316,3 +316,17 @@ func BenchmarkDecideDefault(b *testing.B) {
 		r.Decide("projects/autoversion/filterrules/testdata/filter_conformance.json", false)
 	}
 }
+
+func TestList(t *testing.T) {
+	r := newFileRules(t, "version 1\nuse default\nexclude /a\nexclude /**/.DS_Store\n")
+	list := r.List()
+	if len(list) != len(r.all) || list[0].String() != "exclude /a" || list[0].Group != "" || list[len(list)-1].Group == "" {
+		t.Errorf("List(): %d rules, first %v, last group %q", len(list), list[0], list[len(list)-1].Group)
+	}
+	for _, entry := range []string{"a", "x/.DS_Store", "node_modules/y"} {
+		d := r.Decide(entry, false)
+		if d.Rule == nil || !slices.Contains(list, d.Rule) {
+			t.Errorf("%s: decided by %v, not a pointer into List()", entry, d.Rule)
+		}
+	}
+}

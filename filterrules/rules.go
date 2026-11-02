@@ -85,6 +85,16 @@ func compile(all []Rule) *Rules {
 	return r
 }
 
+// List returns the combined rules, the filter's own first, then its groups',
+// duplicates removed. Decide's Decision.Rule points into this list.
+func (r *Rules) List() []*Rule {
+	list := make([]*Rule, len(r.all))
+	for i := range r.all {
+		list[i] = &r.all[i]
+	}
+	return list
+}
+
 // UseMarkers gives the rules the tree lookup their marker rules need: exists
 // reports whether the folder relDir ("" for the root) directly holds an
 // entry named name. Without it, markers never match.

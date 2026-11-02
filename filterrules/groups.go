@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nicolas/autoversion/filters"
+	"github.com/nicad/autoversion/filters"
 )
 
 // GroupInfo is a built-in group: filters/NAME.filter, a rules file whose

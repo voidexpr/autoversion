@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nicolas/autoversion/filterrules"
+	"github.com/nicad/autoversion/filterrules"
 )
 
 const alwaysAppliedText = "symlinks, /" + markerFileName + " and /" + filterFileName

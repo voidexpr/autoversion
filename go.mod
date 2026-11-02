@@ -1,4 +1,4 @@
-module github.com/nicolas/autoversion
+module github.com/nicad/autoversion
 
 go 1.25.0
 
