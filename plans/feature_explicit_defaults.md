@@ -185,42 +185,28 @@ no `make build`, no `make install`, no launchctl.
 
 ## M4: migration (2026-11-02)
 
-The jobs of `~/dotfiles/bin/autoversion-install.sh`, `DESTINATION_BASE`
-= `~/Data/Backup/autoversion`. All get the same rules, `claude_settings`
-its allowlist on top; `dropbox-projects` is the mirror and keeps
-`use nested-git` (decided 2026-11-01). Order: `make build`, then the
-mirror first, since its old rules (`use default`) would copy `.git`
-under the new binary, then the others. Each step keeps the destination's
-files and history.
+`~/dotfiles/bin/autoversion-install.sh` was updated (2026-11-02): every
+job has `--git` or `--mirror` in `INIT_FLAGS`, `job_rules` prints
+`version 1`, `max-file-size 10M`, `use default`, `use nested-git` for
+every job (plus the allowlist for `claude_settings`), `install` runs
+`init` with the destination's own rules file when it has one and the
+job's rules otherwise, and a one-off `migrate` command rewrites each
+destination: marker removed, `init --force-new-source` with the job's
+rules, then `install` (new plist, service reloaded). `dropbox-projects`,
+the mirror, comes first in `JOBS`: under the new binary its old rules
+(`use default`) would copy `.git` folders until it is migrated.
+
+The commands, in order:
 
 ```bash
-AV=~/bin/autoversion   # the repo binary, after make build
-B=~/Data/Backup/autoversion
-rules() { printf 'version 1\nmax-file-size 10M\nuse default\nuse nested-git\n'; "$@"; }
-migrate() {  # NAME SRC DEST --git|--mirror [extra rule lines...]
-	rm "$3/.autoversion"
-	{ rules; printf '%s\n' "${@:5}"; } | "$AV" init --force-new-source "$4" --source "$2" --destination "$3" --filter - &&
-		"$AV" install --source "$2" --destination "$3"
-}
-migrate dropbox-projects ~/projects "$HOME/Dropbox/Backup/autoversion/projects" --mirror
-migrate projects  ~/projects      "$B/projects"  --git
-migrate dotfiles  ~/dotfiles      "$B/dotfiles"  --git
-migrate notes     ~/notes         "$B/notes"     --git
-migrate sync      ~/Dropbox/Sync  "$B/Sync"      --git
-migrate sublime   ~/Dropbox/Apps/Sublime "$B/Sublime" --git
-migrate claude_settings ~/.claude "$B/claude_settings" --git \
-	'' 'exclude /*' '/CLAUDE.md' '/settings.json' '/settings.local.json' '/skills/!synced' '/projects/*/memory'
+cd ~/projects/autoversion && make build     # the binary the jobs run
+autoversion-install.sh migrate              # all seven jobs, mirror first
+autoversion-install.sh check                # or status
 ```
 
-The `install` step rewrites the plist (new rules hash) and reloads the
-service. `check` afterwards: `autoversion-install.sh check`.
-
-Script changes, for the user to make so `install` stays idempotent:
-- `INIT_FLAGS`: `--git` for the six, `--mirror` for `dropbox-projects`.
-- `job_rules` prints the four lines above for every job, plus the
-  allowlist for `claude_settings`; `init` gets `--filter -` fed from it
-  (`init` now requires rules, and accepts the stored ones again).
-- `set_rules` stays for later changes.
+Both commands were exercised on temp destinations with the dev binary
+(install step replaced by check-paths): migrate keeps files and history,
+install is idempotent afterwards and initializes a new destination.
 
 After the jobs run on new markers, remove: the `use default` fallback
 and its warning in `readRulesText`, the `defaultRules` written by
