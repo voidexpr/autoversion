@@ -204,7 +204,6 @@ func checkSkipDir(t *testing.T, r *Rules, tree []string) {
 	}
 }
 
-// listTree lists the names in a folder of a tree (folders end with "/")
 // treeHas is the marker lookup for a tree: whether dir directly holds name
 func treeHas(tree []string) func(dir, name string) bool {
 	entries := map[string]bool{}
@@ -216,6 +215,7 @@ func treeHas(tree []string) func(dir, name string) bool {
 	}
 }
 
+// listTree lists the names in a folder of a tree (folders end with "/")
 func listTree(tree []string) ListFunc {
 	return func(rel string) ([]string, error) {
 		var names []string

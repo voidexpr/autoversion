@@ -197,8 +197,11 @@ func (r *Rules) Decide(rel string, isDir bool) Decision {
 			return Decision{Kept: rule.Kind == Include, Level: d, Rule: rule}
 		}
 		if levelIsDir && len(r.markers) > 0 {
-			parentOfEntry := d == len(names)-1
-			if m := r.markedBy(rel[:end], map[bool]string{true: except, false: ""}[parentOfEntry]); m != nil {
+			levelExcept := ""
+			if d == len(names)-1 {
+				levelExcept = except
+			}
+			if m := r.markedBy(rel[:end], levelExcept); m != nil {
 				return Decision{Level: d, Rule: m}
 			}
 		}
