@@ -53,6 +53,7 @@ type Rule struct {
 
 	segments []pattern
 	star     int // position of the "**" segment, -1 without one
+	pos      int // index in the combined rules, for their order
 }
 
 // pattern is one name of a rule: a literal, or a glob cut at its "*"

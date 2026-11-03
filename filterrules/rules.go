@@ -17,7 +17,9 @@ type Rules struct {
 	maxBytes    int64              // 0: no limit
 	all         []Rule             // own rules first, then the groups'
 	literal     map[string][]*Rule // literal rules by path
-	wildcard    []*Rule
+	byName      map[string][]*Rule // wildcard rules by the name a level must have: /**/node_modules
+	byExt       map[string][]*Rule // wildcard rules by the extension a level must have: f:/**/*.log
+	wildcard    []*Rule            // the other wildcard rules, tried at each level
 	includes    []*Rule
 	markers     []*Rule // exclude marker:NAME rules
 
@@ -66,9 +68,10 @@ func (r *Rules) TooLarge(size int64) bool {
 }
 
 func compile(all []Rule) *Rules {
-	r := &Rules{all: all, literal: map[string][]*Rule{}}
+	r := &Rules{all: all, literal: map[string][]*Rule{}, byName: map[string][]*Rule{}, byExt: map[string][]*Rule{}}
 	for i := range r.all {
 		rule := &r.all[i]
+		rule.pos = i
 		switch {
 		case rule.Marker != "":
 			r.markers = append(r.markers, rule)
@@ -76,13 +79,37 @@ func compile(all []Rule) *Rules {
 		case rule.Literal():
 			r.literal[rule.Text[1:]] = append(r.literal[rule.Text[1:]], rule)
 		default:
-			r.wildcard = append(r.wildcard, rule)
+			r.indexWildcard(rule)
 		}
 		if rule.Kind == Include {
 			r.includes = append(r.includes, rule)
 		}
 	}
 	return r
+}
+
+// indexWildcard files a wildcard rule by what its last name requires of an
+// entry's name: being NAME, or ending with .EXT (*.EXT, no "." in EXT, which
+// is then the name's last "." on). decideLevel only tries the rules filed
+// under the name and the extension of a level, and the others.
+func (r *Rules) indexWildcard(rule *Rule) {
+	last := rule.segments[len(rule.segments)-1]
+	switch {
+	case last.parts == nil:
+		r.byName[last.text] = append(r.byName[last.text], rule)
+	case len(last.parts) == 2 && last.parts[0] == "" && strings.LastIndexByte(last.parts[1], '.') == 0:
+		r.byExt[last.parts[1]] = append(r.byExt[last.parts[1]], rule)
+	default:
+		r.wildcard = append(r.wildcard, rule)
+	}
+}
+
+// extension returns a name from its last "." on, "" without a "."
+func extension(name string) string {
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		return name[i:]
+	}
+	return ""
 }
 
 // List returns the combined rules, the filter's own first, then its groups',
@@ -211,9 +238,9 @@ func (r *Rules) Decide(rel string, isDir bool) Decision {
 
 // decideLevel returns the rule that decides the level q (path qPath), or nil
 // when no rule matches it. A literal rule beats a wildcard rule, then an
-// include beats an exclude.
+// include beats an exclude, then the first rule in order wins.
 func (r *Rules) decideLevel(q []string, qPath string, isDir bool) *Rule {
-	var exclude *Rule
+	var include, exclude *Rule
 	for _, rule := range r.literal[qPath] {
 		if rule.fits(isDir) {
 			if rule.Kind == Include {
@@ -225,15 +252,20 @@ func (r *Rules) decideLevel(q []string, qPath string, isDir bool) *Rule {
 	if exclude != nil {
 		return exclude
 	}
-	for _, rule := range r.wildcard {
-		if rule.fits(isDir) && rule.match(q) {
+	name := q[len(q)-1]
+	for _, rules := range [...][]*Rule{r.byName[name], r.byExt[extension(name)], r.wildcard} {
+		for _, rule := range rules {
 			if rule.Kind == Include {
-				return rule
-			}
-			if exclude == nil {
+				if (include == nil || rule.pos < include.pos) && rule.fits(isDir) && rule.match(q) {
+					include = rule
+				}
+			} else if include == nil && (exclude == nil || rule.pos < exclude.pos) && rule.fits(isDir) && rule.match(q) {
 				exclude = rule
 			}
 		}
+	}
+	if include != nil {
+		return include
 	}
 	return exclude
 }
