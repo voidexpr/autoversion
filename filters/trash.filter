@@ -1,0 +1,4 @@
+# trash: the macOS trash of a home folder
+version 1
+
+exclude /**/.Trash

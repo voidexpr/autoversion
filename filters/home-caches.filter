@@ -1,0 +1,7 @@
+# home-caches: tool caches in a home folder
+version 1
+
+exclude /**/.m2/repository
+exclude /**/.nuget/packages
+exclude /**/.kube/{cache,http-cache}
+exclude /**/.vagrant.d/boxes

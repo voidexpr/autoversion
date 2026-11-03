@@ -1,0 +1,8 @@
+# extra-tools: dependencies, caches and build outputs of less common tools
+version 1
+
+exclude /**/{.dart_tool,.stack-work,elm-stuff,.cpcache,.shadow-cljs,.godot,_build,Pods}
+exclude /**/{.terraform,.terragrunt-cache}
+exclude /**/Carthage/{Build,Checkouts}
+exclude /**/renv/library
+exclude /**/.yarn/{cache,unplugged}

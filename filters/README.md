@@ -18,7 +18,7 @@ or `x.mp3` is kept.
 ```
 exclude /**/{build,dist,out}/*
 exclude /**/target/{debug,release}
-exclude /**/{.build,DerivedData}
+exclude /**/{.build,DerivedData,zig-out,cdk.out}
 exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}
 exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}
 ```
@@ -29,6 +29,7 @@ exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}
 
 ```
 exclude /**/{.cache,.next,.nuxt,.output,.pytest_cache,.playwright-mcp,playwright-report,test-results}
+exclude /**/{.mypy_cache,.ruff_cache,.tox,.nox,.parcel-cache,.turbo,.svelte-kit,.angular,.zig-cache}
 ```
 
 ## data: database folders and write-ahead logs
@@ -61,8 +62,9 @@ use vcs
 `use deps`, [deps.filter](deps.filter)
 
 ```
-exclude /**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,.gradle}
+exclude /**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,__pypackages__,.gradle,.direnv}
 exclude /**/.local/share/pnpm
+exclude /**/go/pkg/mod
 ```
 
 ## editors: editor swap, backup and project files
@@ -72,6 +74,29 @@ exclude /**/.local/share/pnpm
 ```
 exclude f:/**/{*.swp,*.swpx,*.swo,*~,4913,*.iml}
 exclude /**/.idea
+```
+
+## extra-tools: dependencies, caches and build outputs of less common tools
+
+`use extra-tools`, [extra-tools.filter](extra-tools.filter)
+
+```
+exclude /**/{.dart_tool,.stack-work,elm-stuff,.cpcache,.shadow-cljs,.godot,_build,Pods}
+exclude /**/{.terraform,.terragrunt-cache}
+exclude /**/Carthage/{Build,Checkouts}
+exclude /**/renv/library
+exclude /**/.yarn/{cache,unplugged}
+```
+
+## home-caches: tool caches in a home folder
+
+`use home-caches`, [home-caches.filter](home-caches.filter)
+
+```
+exclude /**/.m2/repository
+exclude /**/.nuget/packages
+exclude /**/.kube/{cache,http-cache}
+exclude /**/.vagrant.d/boxes
 ```
 
 ## logs: logs, command outputs and pid files
@@ -142,6 +167,14 @@ exclude f:/**/{*.JPG,*.JPEG,*.PNG,*.HEIC,*.HEIF,*.GIF,*.TIF,*.TIFF,*.BMP,*.WEBP,
 
 ```
 exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
+```
+
+## trash: the macOS trash of a home folder
+
+`use trash`, [trash.filter](trash.filter)
+
+```
+exclude /**/.Trash
 ```
 
 ## vcs: other version control folders

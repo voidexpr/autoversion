@@ -2,3 +2,4 @@
 version 1
 
 exclude /**/{.cache,.next,.nuxt,.output,.pytest_cache,.playwright-mcp,playwright-report,test-results}
+exclude /**/{.mypy_cache,.ruff_cache,.tox,.nox,.parcel-cache,.turbo,.svelte-kit,.angular,.zig-cache}

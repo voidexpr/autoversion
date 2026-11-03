@@ -110,6 +110,9 @@ func TestDefaultGroups(t *testing.T) {
 		".npm/x", "bower_components/x", ".pnpm-store/x", "venv/x", ".local/share/pnpm/x", "a/.local/share/pnpm/store/x",
 		".idea/x", "x.iml", "Thumbs.db", "desktop.ini", ".Spotlight-V100/x", ".Trashes/x",
 		"x.pyc", "x.wal", "db.pgdb/x",
+		".mypy_cache/x", ".ruff_cache/x", ".tox/x", ".nox/x", ".parcel-cache/x", ".turbo/x", ".svelte-kit/x",
+		".angular/cache/x", ".zig-cache/x", "zig-out/bin/x", "cdk.out/x", "__pypackages__/x", ".direnv/x",
+		"go/pkg/mod/x", "a/go/pkg/mod/github.com/x@v1.0.0/y.go",
 	}
 	kept := []string{
 		"Cargo.lock", "uv.lock", "flake.lock", "x.bea#", "2024", "notes.output.md", "x.errors/a.txt", "x.nfs",
@@ -120,6 +123,8 @@ func TestDefaultGroups(t *testing.T) {
 		"src/main.go", "README.md",
 		"a.jpg", "a.mp4", "@eaDir/x", "a.jpg@SynoResource",
 		".git/config", "a/.git/x", "repo.git/HEAD", // nested-git, not in default
+		"go/pkg/x", "pkg/mod/x", "go/src/mod/x",
+		".m2/repository/x", ".terraform/x", "_build/x", "Pods/x", ".yarn/cache/x", ".Trash/x", // opt-in
 	}
 	checkDecisions(t, r, out, kept)
 
@@ -145,7 +150,7 @@ func checkDecisions(t *testing.T, r *Rules, out, kept []string) {
 }
 
 // The opt-in groups, see plans/feature_reusable_filter_files.md
-func TestMediaAndNASGroups(t *testing.T) {
+func TestOptInGroups(t *testing.T) {
 	media := newRules(t, nil, nil, "media")
 	checkDecisions(t, media,
 		[]string{"a.mp3", "a.MP3", "IMG.HEIC", "clip.mov", "clip.MOV", "CLIP.MTS", "x/raw/a.CR3", "a.flac"},
@@ -154,10 +159,22 @@ func TestMediaAndNASGroups(t *testing.T) {
 	checkDecisions(t, nas,
 		[]string{"@eaDir/x", "a/@eaDir/x", "a.jpg@SynoResource", "a.jpg@SynoEAStream"},
 		[]string{"x@SynoResource/", "x@SynoResource/y", "a.jpg", "@eaDirs/x"})
+	checkDecisions(t, newRules(t, nil, nil, "home-caches"),
+		[]string{".m2/repository/x", ".nuget/packages/x", ".kube/cache/x", "a/.kube/http-cache/x", ".vagrant.d/boxes/x"},
+		[]string{".m2/settings.xml", ".nuget/NuGet/NuGet.Config", ".kube/config", ".vagrant.d/Vagrantfile", "repository/x"})
+	checkDecisions(t, newRules(t, nil, nil, "extra-tools"),
+		[]string{".dart_tool/x", ".stack-work/x", "elm-stuff/x", ".cpcache/x", ".shadow-cljs/x", ".godot/x",
+			"_build/x", "docs/_build/html/x", "Pods/x", ".terraform/x", ".terragrunt-cache/x",
+			"Carthage/Build/x", "Carthage/Checkouts/x", "renv/library/x", ".yarn/cache/x", ".yarn/unplugged/x"},
+		[]string{"Podfile", "Podfile.lock", "Cartfile.resolved", ".terraform.lock.hcl", "renv.lock", "renv/activate.R",
+			".yarn/releases/yarn.cjs", ".yarn/plugins/x", ".yarnrc.yml", "Build/x"})
+	checkDecisions(t, newRules(t, nil, nil, "trash"),
+		[]string{".Trash/x", "a/.Trash/x"},
+		[]string{".Trashes/x", "Trash/x", ".Trash-1000/x"})
 }
 
 func TestGroups(t *testing.T) {
-	want := []string{"build", "caches", "data", "default", "deps", "editors", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "vcs", "videos"}
+	want := []string{"build", "caches", "data", "default", "deps", "editors", "extra-tools", "home-caches", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "trash", "vcs", "videos"}
 	if got := GroupNames(); !slices.Equal(got, want) {
 		t.Errorf("groups %q, want %q", got, want)
 	}

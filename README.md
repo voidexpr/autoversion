@@ -455,9 +455,9 @@ The built-in groups are rules files, `filters/NAME.filter`, compiled into the bi
 - **editors:** `*.swp`, `*~`, Vim's `4913`, `*.iml` files; `.idea`
 - **temp:** `*.tmp`, `*.tmp.*`, `*.temp`, `*.bak`, `*.old` files
 - **logs:** `*.log`, `*.out`, `*.err`, `*.pid`, `*.dump` files
-- **build:** the content of `build/`, `dist/` and `out/`; `target/debug`, `target/release`, `.build`, `DerivedData`; `*.o`, `*.so`, `*.dylib`, `*.class`, `*.jar`, `*.pyc`, … files
-- **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.local/share/pnpm`, `.npm`, `.venv`, `venv`, `__pycache__`, `.gradle`
-- **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.playwright-mcp`, `playwright-report`, `test-results`
+- **build:** the content of `build/`, `dist/` and `out/`; `target/debug`, `target/release`, `.build`, `DerivedData`, `zig-out`, `cdk.out`; `*.o`, `*.so`, `*.dylib`, `*.class`, `*.jar`, `*.pyc`, … files
+- **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.local/share/pnpm`, `.npm`, `.venv`, `venv`, `__pycache__`, `__pypackages__`, `.gradle`, `.direnv`, `go/pkg/mod`
+- **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`, `.parcel-cache`, `.turbo`, `.svelte-kit`, `.angular`, `.zig-cache`, `.playwright-mcp`, `playwright-report`, `test-results`
 - **data:** `pgdata`, `*.pgdb`; `*.wal` files
 - **vcs:** `.hg`, `.svn`, `.cvs`
 
@@ -465,6 +465,9 @@ Opt-in groups, not in `default` (`use default` and `use nested-git`, for example
 - **nested-git:** repositories inside the source: `.git` folders and files (worktrees, submodules) and bare `*.git` repositories, at any level. A git destination applies it always; a mirror only with the line, so a backup of a work area that must keep its repositories leaves it out.
 - **music**, **photos**, **videos**, and **media** for the three: media files by extension (`*.mp3`, `*.heic`, `*.mov`, …), lowercase and uppercase, files only. Only excludes: "only my photos" is an allowlist, `exclude /*` and `f:/**/*.{jpg,png}`.
 - **nas:** Synology metadata, `@eaDir` folders and `*@SynoResource`, `*@SynoEAStream` files
+- **extra-tools:** dependencies, caches and build outputs of less common tools: `.dart_tool`, `.stack-work`, `elm-stuff`, `.cpcache`, `.shadow-cljs`, `.godot`, `_build`, `Pods`, `.terraform`, `.terragrunt-cache`, `Carthage/Build`, `Carthage/Checkouts`, `renv/library`, `.yarn/cache`, `.yarn/unplugged`. Opt-in because some projects commit `Pods` or `.yarn/cache`, and `_build` is a generic name.
+- **home-caches:** tool caches in a home folder: `.m2/repository`, `.nuget/packages`, `.kube/cache`, `.kube/http-cache`, `.vagrant.d/boxes` (`go/pkg/mod` is in **deps**)
+- **trash:** the macOS trash of a home folder, `.Trash` (a volume's `.Trashes` is in **os**)
 
 Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf.d` is kept. Lock files (`Cargo.lock`, `uv.lock`) and `.vscode/` are tracked.
 
