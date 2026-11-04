@@ -51,10 +51,10 @@ type sourceRules struct {
 }
 
 // newSourceRules returns the rules of a source, with the marker lookup the
-// rules' exclude marker:NAME lines need
+// rules' exclude marker:NAME lines need. rules is unchanged.
 func newSourceRules(root string, rules *filterrules.Rules, nestedGit bool) *sourceRules {
-	s := &sourceRules{root: root, rules: rules, nestedGit: nestedGit}
-	rules.UseMarkers(s.holdsMarker)
+	s := &sourceRules{root: root, nestedGit: nestedGit}
+	s.rules = rules.WithMarkers(s.holdsMarker)
 	return s
 }
 

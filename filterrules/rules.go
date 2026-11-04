@@ -11,6 +11,11 @@ import (
 // decide entries. Entry paths are relative to the root, with "/" between
 // names and no leading or trailing "/". The root itself is "" and is always
 // kept.
+//
+// Nothing changes a Rules after New: it is safe for concurrent use, and
+// several walks can share one. Each walk of a tree with marker rules decides
+// with its own copy, see WithMarkers. The *Rule values that List and
+// Decision.Rule return are shared by every copy: read only.
 type Rules struct {
 	types       string
 	maxFileSize string             // as written, "" without the directive
@@ -24,7 +29,7 @@ type Rules struct {
 	markers     []*Rule // exclude marker:NAME rules
 
 	// markerExists reports whether the folder relDir directly holds an
-	// entry named name; nil until UseMarkers, then markers never match
+	// entry named name; nil (markers never match) except in a WithMarkers copy
 	markerExists func(relDir, name string) bool
 }
 
@@ -122,11 +127,18 @@ func (r *Rules) List() []*Rule {
 	return list
 }
 
-// UseMarkers gives the rules the tree lookup their marker rules need: exists
-// reports whether the folder relDir ("" for the root) directly holds an
-// entry named name. Without it, markers never match.
-func (r *Rules) UseMarkers(exists func(relDir, name string) bool) {
-	r.markerExists = exists
+// WithMarkers returns a copy of r that decides with exists as the tree
+// lookup its marker rules need: exists reports whether the folder relDir
+// ("" for the root) directly holds an entry named name. The copy shares the
+// compiled rules, and r is unchanged. Without a lookup markers never match:
+// Markers says whether a filter has any.
+//
+// exists runs on the goroutine that calls Decide or SkipDir: when several
+// goroutines decide with the same copy, it must be safe for concurrent use.
+func (r *Rules) WithMarkers(exists func(relDir, name string) bool) *Rules {
+	c := *r
+	c.markerExists = exists
+	return &c
 }
 
 // Markers returns the entry names of the marker rules (exclude marker:NAME)
@@ -203,7 +215,7 @@ type Decision struct {
 
 // Decide decides an entry. The closest match wins: the entry itself is
 // checked first, then each folder above it. A folder holding a marker entry
-// (see UseMarkers) counts as a wildcard exclude at its own level, except
+// (see WithMarkers) counts as a wildcard exclude at its own level, except
 // for the marker entry itself, decided as if its folder had no marker.
 func (r *Rules) Decide(rel string, isDir bool) Decision {
 	if rel == "" {

@@ -69,7 +69,7 @@ func TestConformance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r.UseMarkers(treeHas(c.Tree))
+			r = r.WithMarkers(treeHas(c.Tree))
 			got, want := selectTree(r, c.Tree, c.Sizes), slices.Clone(c.Kept)
 			slices.Sort(got)
 			slices.Sort(want)

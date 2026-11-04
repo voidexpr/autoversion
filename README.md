@@ -557,6 +557,7 @@ The API, all in `filterrules`:
 - `ParseFile(r)` reads a rules file into a `File` (`Root`, `Types`, `MaxFileSize` as written, `Uses`, `Lines`, `Rules`); `File.Use`, `File.Add` and `File.Format` build one from flags. `ParseRule` expands one rule's sugar.
 - `New(file)` combines the file's rules with its groups and validates them (`whole-root`, `contradiction`).
 - `Rules.Decide(rel, isDir)` decides one entry (`Kept`, the `Rule` and `Level` that decided); `Rules.SkipDir(relDir)` says whether a walker can skip a folder; `Rules.CanMatchBelow(relDir)` whether an include can match under it.
+- `Rules.WithMarkers(exists)` returns a copy that decides `exclude marker:NAME` rules with `exists(relDir, name)`, which says whether a folder of the tree directly holds an entry; without it, markers never match (`Rules.Markers()` lists them). Nothing changes a `Rules` after `New`: it is safe for concurrent use, each tree walked gets its own copy, and `exists` must be safe for concurrent use when goroutines share a copy. The `*Rule` values of `List` and `Decision.Rule` are shared by every copy: read only.
 - `Rules.MaxFileSize()` and `Rules.TooLarge(size)` for the size limit; `ParseSize` for a `10M`-style value.
 - `Rules.Check(list)` finds dead rules and includes that change nothing, given a function that lists a folder; `Rules.Dump()` prints the expanded rules.
 - `Rules.List()` returns the combined rules, the filter's own first, then its groups'; a `Decision.Rule` points into it.

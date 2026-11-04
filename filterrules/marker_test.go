@@ -3,6 +3,7 @@ package filterrules
 import (
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -18,11 +19,12 @@ func TestMarkers(t *testing.T) {
 		t.Errorf("Markers() = %q", got)
 	}
 
-	// Without a lookup, markers never match
-	if !decide(r, "cache/data.bin").Kept {
-		t.Error("without UseMarkers, cache/data.bin is left out")
+	// Without a lookup, markers never match; WithMarkers leaves r as it is
+	bare := r
+	r = r.WithMarkers(treeHas(tree))
+	if !decide(bare, "cache/data.bin").Kept {
+		t.Error("without WithMarkers, cache/data.bin is left out")
 	}
-	r.UseMarkers(treeHas(tree))
 
 	d := decide(r, "cache/data.bin")
 	if d.Kept || d.Rule == nil || d.Rule.String() != "exclude marker:CACHEDIR.TAG" || d.Level != 1 {
@@ -77,4 +79,37 @@ func TestMarkerRules(t *testing.T) {
 	if len(r.Markers()) != 1 {
 		t.Errorf("markers %q, want one", r.Markers())
 	}
+}
+
+// One Rules shared by walks of two trees, each deciding with its own
+// WithMarkers copy, two goroutines per copy (go test -race)
+func TestWithMarkersConcurrent(t *testing.T) {
+	r := newFileRules(t, "version 1\nexclude marker:CACHEDIR.TAG\n")
+	copies := []struct {
+		name string
+		r    *Rules
+		kept bool
+	}{
+		{"marked tree", r.WithMarkers(treeHas([]string{"cache/", "cache/CACHEDIR.TAG", "cache/x"})), false},
+		{"unmarked tree", r.WithMarkers(treeHas([]string{"cache/", "cache/x"})), true},
+		{"no lookup", r, true},
+	}
+	var wg sync.WaitGroup
+	for _, c := range copies {
+		for range 2 {
+			wg.Go(func() {
+				for range 1000 {
+					if got := c.r.Decide("cache/x", false).Kept; got != c.kept {
+						t.Errorf("%s: cache/x kept %v, want %v", c.name, got, c.kept)
+						return
+					}
+					if c.r.SkipDir("cache") {
+						t.Errorf("%s: SkipDir(cache)", c.name)
+						return
+					}
+				}
+			})
+		}
+	}
+	wg.Wait()
 }
