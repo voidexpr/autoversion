@@ -169,14 +169,6 @@ exclude f:/**/{*.JPG,*.JPEG,*.PNG,*.HEIC,*.HEIF,*.GIF,*.TIF,*.TIFF,*.BMP,*.WEBP,
 exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
 ```
 
-## trash: the macOS trash of a home folder
-
-`use trash`, [trash.filter](trash.filter)
-
-```
-exclude /**/.Trash
-```
-
 ## vcs: other version control folders
 
 `use vcs`, [vcs.filter](vcs.filter)

@@ -168,13 +168,10 @@ func TestOptInGroups(t *testing.T) {
 			"Carthage/Build/x", "Carthage/Checkouts/x", "renv/library/x", ".yarn/cache/x", ".yarn/unplugged/x"},
 		[]string{"Podfile", "Podfile.lock", "Cartfile.resolved", ".terraform.lock.hcl", "renv.lock", "renv/activate.R",
 			".yarn/releases/yarn.cjs", ".yarn/plugins/x", ".yarnrc.yml", "Build/x"})
-	checkDecisions(t, newRules(t, nil, nil, "trash"),
-		[]string{".Trash/x", "a/.Trash/x"},
-		[]string{".Trashes/x", "Trash/x", ".Trash-1000/x"})
 }
 
 func TestGroups(t *testing.T) {
-	want := []string{"build", "caches", "data", "default", "deps", "editors", "extra-tools", "home-caches", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "trash", "vcs", "videos"}
+	want := []string{"build", "caches", "data", "default", "deps", "editors", "extra-tools", "home-caches", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "vcs", "videos"}
 	if got := GroupNames(); !slices.Equal(got, want) {
 		t.Errorf("groups %q, want %q", got, want)
 	}

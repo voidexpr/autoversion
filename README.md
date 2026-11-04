@@ -467,7 +467,6 @@ Opt-in groups, not in `default` (`use default` and `use nested-git`, for example
 - **nas:** Synology metadata, `@eaDir` folders and `*@SynoResource`, `*@SynoEAStream` files
 - **extra-tools:** dependencies, caches and build outputs of less common tools: `.dart_tool`, `.stack-work`, `elm-stuff`, `.cpcache`, `.shadow-cljs`, `.godot`, `_build`, `Pods`, `.terraform`, `.terragrunt-cache`, `Carthage/Build`, `Carthage/Checkouts`, `renv/library`, `.yarn/cache`, `.yarn/unplugged`. Opt-in because some projects commit `Pods` or `.yarn/cache`, and `_build` is a generic name.
 - **home-caches:** tool caches in a home folder: `.m2/repository`, `.nuget/packages`, `.kube/cache`, `.kube/http-cache`, `.vagrant.d/boxes` (`go/pkg/mod` is in **deps**)
-- **trash:** the macOS trash of a home folder, `.Trash` (a volume's `.Trashes` is in **os**)
 
 Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf.d` is kept. Lock files (`Cargo.lock`, `uv.lock`) and `.vscode/` are tracked.
 
