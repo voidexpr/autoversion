@@ -18,7 +18,7 @@ or `x.mp3` is kept.
 ```
 exclude /**/{build,dist,out}/*
 exclude /**/target/{debug,release}
-exclude /**/{.build,DerivedData,zig-out,cdk.out}
+exclude /**/{.build,DerivedData,zig-out,cdk.out,_mdfmt}
 exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}
 exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}
 ```
@@ -66,6 +66,7 @@ use vcs
 exclude /**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,__pypackages__,.gradle,.direnv}
 exclude /**/.local/share/pnpm
 exclude /**/go/pkg/mod
+exclude /**/.modcache
 exclude /**/toolchain/zig*
 ```
 
