@@ -1,6 +1,7 @@
 package filterrules
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"slices"
@@ -23,17 +24,16 @@ const groupExt = ".filter"
 
 // groupSet is the built-in groups, loaded from filters.FS
 type groupSet struct {
-	list  []GroupInfo
+	list  []GroupInfo       // the groups that load
 	rules map[string][]Rule // a group's rules and its used groups', deduped
+	errs  map[string]error  // a group that doesn't load: its file's error, or a used group's
 }
 
 // loadGroups loads the groups on first use. A package variable would be an
-// initialization cycle: ParseFile checks use names against the groups.
+// initialization cycle: ParseFile checks use names against the groups. A
+// group file that doesn't load fails only the filters using it, see Group.
 var loadGroups = sync.OnceValue(func() *groupSet {
-	s, err := loadGroupFiles(filters.FS)
-	if err != nil {
-		panic(err)
-	}
+	s, _ := loadGroupFiles(filters.FS)
 	return s
 })
 
@@ -62,26 +62,36 @@ func groupExists(name string) bool {
 
 // loadGroupFiles parses every NAME.filter in fsys. A rule's Group is the
 // file it is written in; a group that uses others gets their rules after
-// its own (built-in Rules use nothing, shared spec).
+// its own (built-in Rules use nothing, shared spec). A group that doesn't
+// load, or uses one that doesn't, is left out of the set with its error;
+// the others load. The error returned joins those errors, nil when every
+// group loads.
 func loadGroupFiles(fsys fs.FS) (*groupSet, error) {
-	s := &groupSet{rules: map[string][]Rule{}}
+	s := &groupSet{rules: map[string][]Rule{}, errs: map[string]error{}}
+	var infos []GroupInfo
 	own := map[string][]Rule{}
 	uses := map[string][]string{}
-	for _, name := range groupFileNames(fsys) {
+	names := groupFileNames(fsys)
+	for _, name := range names {
 		data, err := fs.ReadFile(fsys, name+groupExt)
 		if err != nil {
-			return nil, err
+			s.errs[name] = err
+			continue
 		}
 		info, rules, err := parseGroup(name, string(data))
 		if err != nil {
-			return nil, fmt.Errorf("filters/%s%s: %v", name, groupExt, err)
+			s.errs[name] = fmt.Errorf("filters/%s%s: %w", name, groupExt, err)
+			continue
 		}
-		s.list = append(s.list, *info)
+		infos = append(infos, *info)
 		own[name], uses[name] = rules, info.Use
 	}
 
 	var resolve func(name string, stack []string) ([]Rule, error)
 	resolve = func(name string, stack []string) ([]Rule, error) {
+		if err := s.errs[name]; err != nil {
+			return nil, err
+		}
 		if rules, ok := s.rules[name]; ok {
 			return rules, nil
 		}
@@ -93,19 +103,38 @@ func loadGroupFiles(fsys fs.FS) (*groupSet, error) {
 		for _, used := range uses[name] {
 			rules, err := resolve(used, stack)
 			if err != nil {
-				return nil, err
+				s.errs[name] = fmt.Errorf("filters/%s%s: use %s: %w", name, groupExt, used, err)
+				return nil, s.errs[name]
 			}
 			all = append(all, rules...)
 		}
 		s.rules[name] = dedupe(all)
 		return s.rules[name], nil
 	}
-	for _, g := range s.list {
-		if _, err := resolve(g.Name, nil); err != nil {
-			return nil, err
+	for _, g := range infos {
+		if _, err := resolve(g.Name, nil); err == nil {
+			s.list = append(s.list, g)
 		}
 	}
-	return s, nil
+	var errs []error
+	for _, name := range names {
+		if err := s.errs[name]; err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return s, errors.Join(errs...)
+}
+
+// group returns the rules of a group of the set
+func (s *groupSet) group(name string) ([]Rule, error) {
+	if err := s.errs[name]; err != nil {
+		return nil, err
+	}
+	rules, ok := s.rules[name]
+	if !ok {
+		return nil, unknownGroup(name)
+	}
+	return slices.Clone(rules), nil
 }
 
 // parseGroup parses a group file: "# NAME: about" first, then a rules file
@@ -141,7 +170,8 @@ func parseGroup(name, text string) (*GroupInfo, []Rule, error) {
 	return info, rules, nil
 }
 
-// Groups returns the built-in groups, alphabetically
+// Groups returns the built-in groups that load, alphabetically. Group gives
+// the error of one that doesn't.
 func Groups() []GroupInfo {
 	return slices.Clone(loadGroups().list)
 }
@@ -152,13 +182,11 @@ func GroupNames() []string {
 	return groupFileNames(filters.FS)
 }
 
-// Group returns the rules of a built-in group
+// Group returns the rules of a built-in group. A group whose file doesn't
+// load, or that uses one that doesn't, returns that file's error: New fails
+// for the filters using it, and only for them.
 func Group(name string) ([]Rule, error) {
-	rules, ok := loadGroups().rules[name]
-	if !ok {
-		return nil, unknownGroup(name)
-	}
-	return slices.Clone(rules), nil
+	return loadGroups().group(name)
 }
 
 func unknownGroup(name string) error {

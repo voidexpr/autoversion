@@ -448,7 +448,14 @@ var filterGroupsCmd = &cobra.Command{
 				fmt.Println("exclude " + rule)
 			}
 		}
-		return nil
+		// A group file that doesn't load is left out above: report it
+		var errs []error
+		for _, name := range filterrules.GroupNames() {
+			if _, err := filterrules.Group(name); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
 	},
 }
 

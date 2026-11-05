@@ -466,6 +466,7 @@ Opt-in groups, not in `default` (`use default` and `use nested-git`, for example
 - **music**, **photos**, **videos**, and **media** for the three: media files by extension (`*.mp3`, `*.heic`, `*.mov`, …), lowercase and uppercase, files only. Only excludes: "only my photos" is an allowlist, `exclude /*` and `f:/**/*.{jpg,png}`.
 - **nas:** Synology metadata, `@eaDir` folders and `*@SynoResource`, `*@SynoEAStream` files
 - **extra-tools:** dependencies, caches and build outputs of less common tools: `.dart_tool`, `.stack-work`, `elm-stuff`, `.cpcache`, `.shadow-cljs`, `.godot`, `_build`, `Pods`, `.terraform`, `.terragrunt-cache`, `Carthage/Build`, `Carthage/Checkouts`, `renv/library`, `.yarn/cache`, `.yarn/unplugged`. Opt-in because some projects commit `Pods` or `.yarn/cache`, and `_build` is a generic name.
+- **installers:** app install files: `*.dmg` files, `*.pkg` and `*.mpkg` files and folders (older installers are bundles)
 - **home-caches:** tool caches in a home folder: `.m2/repository`, `.nuget/packages`, `.kube/cache`, `.kube/http-cache`, `.vagrant.d/boxes` (`go/pkg/mod` is in **deps**)
 
 Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf.d` is kept. Lock files (`Cargo.lock`, `uv.lock`) and `.vscode/` are tracked.
@@ -561,7 +562,7 @@ The API, all in `filterrules`:
 - `Rules.MaxFileSize()` and `Rules.TooLarge(size)` for the size limit; `ParseSize` for a `10M`-style value.
 - `Rules.Check(list)` finds dead rules and includes that change nothing, given a function that lists a folder; `Rules.Dump()` prints the expanded rules.
 - `Rules.List()` returns the combined rules, the filter's own first, then its groups'; a `Decision.Rule` points into it.
-- `Groups()`, `GroupNames()`, `Group(name)` for the built-in groups.
+- `Groups()`, `GroupNames()`, `Group(name)` for the built-in groups. A group file that doesn't load never panics: `Group` and `New` return its error, for that group and the groups using it only; `Groups()` leaves it out, and `filter groups` reports it.
 
 Entry paths are relative to the root with `/` separators, no leading or trailing `/`; the root itself is `""`. What is autoversion's policy and not in the library: symlinks are never tracked, `/.autoversion` and `/.autoversion.filter` at the root are never copied, and a git destination always applies `nested-git`. The spec is ownit's `plans/spec_filter_syntax.md`; `filterrules/testdata/filter_conformance.json` is its test suite, copied unchanged.
 

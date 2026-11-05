@@ -9,9 +9,15 @@ import (
 	"github.com/nicad/autoversion/filters"
 )
 
-// TestGroupFiles checks the group files as they load: a "# NAME: about"
-// first line, version 1, only excludes, no root or types
+// TestGroupFiles checks the group files: each loads (a "# NAME: about"
+// first line, version 1, only excludes, no root or types), with rules or
+// use lines
 func TestGroupFiles(t *testing.T) {
+	for _, name := range GroupNames() {
+		if _, err := Group(name); err != nil {
+			t.Error(err)
+		}
+	}
 	for _, g := range Groups() {
 		if g.About == "" {
 			t.Errorf("%s: no about", g.Name)
@@ -60,6 +66,37 @@ func TestLoadGroupFiles_Errors(t *testing.T) {
 				t.Errorf("error %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// A group that doesn't load fails itself and the groups using it, not the
+// others
+func TestLoadGroupFiles_BadGroupIsolated(t *testing.T) {
+	s, err := loadGroupFiles(fstest.MapFS{
+		"os.filter":      &fstest.MapFile{Data: []byte("# media: x\nversion 1\nexclude /a\n")},
+		"vcs.filter":     &fstest.MapFile{Data: []byte("# vcs: x\nversion 1\nexclude /b\n")},
+		"default.filter": &fstest.MapFile{Data: []byte("# default: x\nversion 1\nuse vcs\nuse os\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "filters/os.filter: first line") {
+		t.Errorf("error %v, want filters/os.filter's", err)
+	}
+	var names []string
+	for _, g := range s.list {
+		names = append(names, g.Name)
+	}
+	if !slices.Equal(names, []string{"vcs"}) {
+		t.Errorf("groups %q, want only vcs", names)
+	}
+	if rules, err := s.group("vcs"); err != nil || len(rules) != 1 {
+		t.Errorf("vcs: %v, %v", rules, err)
+	}
+	for _, name := range []string{"os", "default"} {
+		if _, err := s.group(name); err == nil || !strings.Contains(err.Error(), "filters/os.filter: first line") {
+			t.Errorf("%s: error %v, want filters/os.filter's", name, err)
+		}
+	}
+	if _, err := s.group("nope"); errorCodes(err)[0] != "unknown-rules" {
+		t.Errorf("nope: %v, want unknown-rules", err)
 	}
 }
 

@@ -99,6 +99,15 @@ exclude /**/.kube/{cache,http-cache}
 exclude /**/.vagrant.d/boxes
 ```
 
+## installers: app install files
+
+`use installers`, [installers.filter](installers.filter)
+
+```
+exclude f:/**/*.dmg
+exclude /**/{*.pkg,*.mpkg}
+```
+
 ## logs: logs, command outputs and pid files
 
 `use logs`, [logs.filter](logs.filter)

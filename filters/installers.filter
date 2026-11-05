@@ -1,5 +1,5 @@
-# media: music, photos and videos
+# installers: app install files
 version 1
 
 exclude f:/**/*.dmg
-exclude f:/**/*.pkg
+exclude /**/{*.pkg,*.mpkg}
