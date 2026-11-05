@@ -29,7 +29,8 @@ exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}
 
 ```
 exclude /**/{.cache,.next,.nuxt,.output,.pytest_cache,.playwright-mcp,playwright-report,test-results}
-exclude /**/{.mypy_cache,.ruff_cache,.tox,.nox,.parcel-cache,.turbo,.svelte-kit,.angular,.zig-cache}
+exclude /**/{.mypy_cache,.ruff_cache,.tox,.nox,.parcel-cache,.turbo,.svelte-kit,.angular,.zig-cache,.gocache}
+exclude /**/.evidence/{template,meta}
 ```
 
 ## data: database folders and write-ahead logs
@@ -65,6 +66,7 @@ use vcs
 exclude /**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,__pypackages__,.gradle,.direnv}
 exclude /**/.local/share/pnpm
 exclude /**/go/pkg/mod
+exclude /**/toolchain/zig*
 ```
 
 ## editors: editor swap, backup and project files

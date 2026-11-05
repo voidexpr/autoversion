@@ -4,3 +4,4 @@ version 1
 exclude /**/{node_modules,bower_components,.pnpm-store,.npm,.venv,venv,__pycache__,__pypackages__,.gradle,.direnv}
 exclude /**/.local/share/pnpm
 exclude /**/go/pkg/mod
+exclude /**/toolchain/zig*
