@@ -356,7 +356,7 @@ exclude /*              # an allowlist: only what is listed below
 /projects/*/memory
 ```
 
-- Directives come first: `max-file-size SIZE` (`10M`, `500k`, `1G`, `none`; binary units, either case; a file of exactly SIZE is kept), `use GROUP`, and for other tools `root` and `types`.
+- Directives come first: `max-file-size SIZE` (`10M`, `500k`, `1GB`, `2T`, `none`; binary units `k`, `m`, `g`, `t`, with or without `b`, either case; a file of exactly SIZE is kept), `use GROUP`, and for other tools `root` and `types`.
 - Every rule starts at the source root (`/`). `*` matches within a name, a `/**/` segment any number of folders. `f:` makes a rule match files only (`f:/**/*.old` keeps a folder named `x.old`).
 - A bare line is an include. `{a,b}` gives one rule per name. `P/!Q` is an exception: in an include, `P` minus `P/Q`; in an exclude, `P`'s content except `P/Q`.
 - `exclude marker:NAME` leaves out every folder that directly holds an entry named NAME (`marker:{CACHEDIR.TAG,pyvenv.cfg}` for cache folders and virtualenvs), with everything in it except that entry: the folder is stored bare with the marker. It counts as a wildcard exclude at the folder's own level, so a literal include on the folder still wins. Presence is what counts, never the file's content.
@@ -485,7 +485,7 @@ Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf
 | `--include`, `--exclude` | (none) | Include or exclude rule, repeatable (`init`, `filter scan`, `dump`, `set`) |
 | `--use` | (none) | Built-in group, repeatable (`init`, `filter scan`, `dump`, `set`; see `filter groups`) |
 | `--explain`, `--summary`, `--no-summary` | (none) | `filter scan`: what decides one entry; the summary only, on stdout; the files only (by default the summary follows the files, on stderr) |
-| `--max-file-size` | (none) | Size limit, `10M`, `500k`, `1G` or `none`: the `max-file-size` line of the rules, with the other rule flags (`init`, `filter scan`, `dump`, `set`, `watch --report-only`) |
+| `--max-file-size` | (none) | Size limit, `10M`, `500k`, `1GB`, `2T` or `none`: the `max-file-size` line of the rules, with the other rule flags (`init`, `filter scan`, `dump`, `set`, `watch --report-only`) |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--report-only` | false | Only print file events, copy nothing (watch only, no `--destination` needed) |
@@ -564,7 +564,7 @@ The API, all in `filterrules`:
 - `Rules.List()` returns the combined rules, the filter's own first, then its groups'; a `Decision.Rule` points into it.
 - `Groups()`, `GroupNames()`, `Group(name)` for the built-in groups. A group file that doesn't load never panics: `Group` and `New` return its error, for that group and the groups using it only; `Groups()` leaves it out, and `filter groups` reports it.
 
-Entry paths are relative to the root with `/` separators, no leading or trailing `/`; the root itself is `""`. What is autoversion's policy and not in the library: symlinks are never tracked, `/.autoversion` and `/.autoversion.filter` at the root are never copied, and a git destination always applies `nested-git`. The spec is ownit's `plans/spec_filter_syntax.md`; `filterrules/testdata/filter_conformance.json` is its test suite, copied unchanged.
+Entry paths are relative to the root with `/` separators, no leading or trailing `/`; the root itself is `""`. What is autoversion's policy and not in the library: symlinks are never tracked, `/.autoversion` and `/.autoversion.filter` at the root are never copied, and a git destination always applies `nested-git`. The spec is ownit's `plans/spec_filter_syntax.md`; `filterrules/testdata/filter_conformance.json` is its test suite, copied unchanged. The group files of `filters/` are shared the other way: ownit copies them with `make groups-sync`, and its tools tests fail until it does, so a group change is to be announced to ownit along with any conformance change. Tools ownit forwards the size to (restic, rsync) take the unit letter only: ownit strips the `b` (`4KB` → `4K`).
 
 ### Project Structure
 

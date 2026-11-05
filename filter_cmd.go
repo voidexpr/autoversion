@@ -33,7 +33,7 @@ func addRuleFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&includeFlags, "include", nil, "include rule, e.g. /notes or 'f:/**/*.md' (repeatable)")
 	cmd.Flags().StringArrayVar(&excludeFlags, "exclude", nil, "exclude rule, e.g. /Backup or 'f:/**/*.old' (repeatable)")
 	cmd.Flags().StringArrayVar(&useFlags, "use", nil, "built-in group, e.g. default (repeatable, see filter groups)")
-	cmd.Flags().StringVar(&maxFileSizeFlag, "max-file-size", "", "size limit, e.g. 10M (units k, m, g; none): the max-file-size line of the rules")
+	cmd.Flags().StringVar(&maxFileSizeFlag, "max-file-size", "", "size limit, e.g. 10M (units k, m, g, t or kb, mb, gb, tb; none): the max-file-size line of the rules")
 }
 
 func ruleFlagsGiven() bool {
@@ -245,9 +245,9 @@ Rules on the command line (init, filter scan, dump and set, watch
   --filter FILE                                 a rules file, - for stdin
   --include RULE, --exclude RULE, --use GROUP   repeatable
   --max-file-size SIZE                          the max-file-size line: files
-                                                over SIZE (10M, 500k, 1G,
-                                                none) are left out; without
-                                                it, no limit
+                                                over SIZE (10M, 500k, 1GB,
+                                                2T, none) are left out;
+                                                without it, no limit
 A rules file starts with version 1. Without a use line or --use, the
 built-in groups don't apply. Example:
   autoversion filter scan --source ~/.claude --use default --filter - <<'EOF'

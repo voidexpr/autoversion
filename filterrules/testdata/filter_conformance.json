@@ -106,9 +106,9 @@
       "kept": ["docs/", "docs/ok.md", "edge.bin", "small.txt"]
     },
     {
-      "name": "max-file-size: an include never overrides it",
+      "name": "max-file-size: an include never overrides it, a KB unit is the same as k",
       "tools": ["native", "restic", "rsync", "autoversion"],
-      "max_file_size": "4k",
+      "max_file_size": "4KB",
       "tree": ["keep/", "keep/big.bin", "keep/small.txt", "other/", "other/x"],
       "sizes": {"keep/big.bin": 8192},
       "exclude": ["/*"],
@@ -200,7 +200,8 @@
     {"text": "version 1\n# comment\n\nexclude /a/\n", "code": "trailing-slash", "line": 4},
     {"text": "version 1\nmax-file-size 10\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 1.5m\n", "code": "bad-directive", "line": 2},
-    {"text": "version 1\nmax-file-size 10mb\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nmax-file-size 10b\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nmax-file-size 10p\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 4k\nmax-file-size 4k\n", "code": "bad-directive", "line": 3},
     {"text": "version 1\nexclude /x\nmax-file-size 4k\n", "code": "bad-directive", "line": 3}
   ],

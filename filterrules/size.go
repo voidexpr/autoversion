@@ -7,19 +7,21 @@ import (
 	"strings"
 )
 
-// ParseSize parses a max-file-size value: an integer with a unit k, m or g
-// (binary, either case), or none. It returns 0 for none.
+// ParseSize parses a max-file-size value: an integer with a unit k, m, g or
+// t, with or without a b suffix (binary, either case), or none. It returns
+// 0 for none (ownit's parser doesn't take none: its directive handles it).
 func ParseSize(text string) (int64, error) {
 	if text == "none" {
 		return 0, nil
 	}
-	if text == "" {
+	lower := strings.TrimSuffix(strings.ToLower(text), "b")
+	if lower == "" {
 		return 0, errors.New("a size like 10M, or none")
 	}
-	digits, unit := text[:len(text)-1], strings.ToLower(text[len(text)-1:])
-	shift := map[string]uint{"k": 10, "m": 20, "g": 30}[unit]
+	digits, unit := lower[:len(lower)-1], lower[len(lower)-1:]
+	shift := map[string]uint{"k": 10, "m": 20, "g": 30, "t": 40}[unit]
 	if shift == 0 {
-		return 0, errors.New("the unit is k, m or g (binary), or the size is none")
+		return 0, errors.New("the unit is k, m, g or t, or kb, mb, gb, tb (binary), or the size is none")
 	}
 	n, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil || n <= 0 || digits[0] == '+' {
