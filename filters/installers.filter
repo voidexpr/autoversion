@@ -1,0 +1,5 @@
+# media: music, photos and videos
+version 1
+
+exclude f:/**/*.dmg
+exclude f:/**/*.pkg
