@@ -96,9 +96,9 @@
       "kept": ["b.old/", "b.old/x", "build", "c/", "c/e.old/", "c/e.old/y", "keep.txt", "w/"]
     },
     {
-      "name": "max-file-size drops kept files larger than the limit, not folders, not equal",
+      "name": "max-file-size drops kept files larger than the limit, not folders, not equal; a bare number is bytes",
       "tools": ["native", "restic", "rsync", "autoversion"],
-      "max_file_size": "4k",
+      "max_file_size": "4096",
       "tree": ["big.bin", "docs/", "docs/big.pdf", "docs/ok.md", "edge.bin", "small.txt"],
       "sizes": {"big.bin": 8192, "docs/big.pdf": 8192, "edge.bin": 4096, "small.txt": 100},
       "exclude": [],
@@ -198,9 +198,8 @@
     {"text": "version 1\nuse nothing-known\n", "code": "unknown-rules", "line": 2},
     {"text": "version 1\nnode_modules\n", "code": "no-root", "line": 2},
     {"text": "version 1\n# comment\n\nexclude /a/\n", "code": "trailing-slash", "line": 4},
-    {"text": "version 1\nmax-file-size 10\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nmax-file-size b\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 1.5m\n", "code": "bad-directive", "line": 2},
-    {"text": "version 1\nmax-file-size 10b\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 10p\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 4k\nmax-file-size 4k\n", "code": "bad-directive", "line": 3},
     {"text": "version 1\nexclude /x\nmax-file-size 4k\n", "code": "bad-directive", "line": 3}

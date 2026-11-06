@@ -208,10 +208,9 @@ func TestRulesText(t *testing.T) {
 		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "already has max-file-size 1M") {
 			t.Errorf("error %v, want twice", err)
 		}
-		maxFileSizeFlag = "5"
 		setRuleFlags(t, "", nil, nil, nil)
-		maxFileSizeFlag = "5"
-		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "--max-file-size 5:") {
+		maxFileSizeFlag = "5P"
+		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "--max-file-size 5P:") {
 			t.Errorf("error %v, want a bad size", err)
 		}
 	})
