@@ -102,6 +102,12 @@ func (r Rule) Literal() bool {
 	return r.Marker == "" && !strings.Contains(r.Text, "*")
 }
 
+// Named reports whether a wildcard rule's last name is plain (/**/.cache,
+// /*/node_modules): it names the entries it matches, unlike /.* or /**/*.log.
+func (r Rule) Named() bool {
+	return r.Marker == "" && !r.Literal() && r.segments[len(r.segments)-1].parts == nil
+}
+
 func (r *Rule) fits(isDir bool) bool {
 	return r.Type == TypeAny || (r.Type == TypeDir) == isDir
 }

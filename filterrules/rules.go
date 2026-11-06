@@ -215,8 +215,9 @@ type Decision struct {
 
 // Decide decides an entry. The closest match wins: the entry itself is
 // checked first, then each folder above it. A folder holding a marker entry
-// (see WithMarkers) counts as a wildcard exclude at its own level, except
-// for the marker entry itself, decided as if its folder had no marker.
+// (see WithMarkers) counts as a wildcard exclude at its own level, between
+// the named wildcards and the others (see decideLevel), except for the
+// marker entry itself, decided as if its folder had no marker.
 func (r *Rules) Decide(rel string, isDir bool) Decision {
 	if rel == "" {
 		return Decision{Kept: true}
@@ -232,27 +233,28 @@ func (r *Rules) Decide(rel string, isDir bool) Decision {
 			end -= len(names[d]) + 1
 		}
 		levelIsDir := isDir || d < len(names)
-		if rule := r.decideLevel(names[:d], rel[:end], levelIsDir); rule != nil {
-			return Decision{Kept: rule.Kind == Include, Level: d, Rule: rule}
-		}
+		var marked func() *Rule
 		if levelIsDir && len(r.markers) > 0 {
-			levelExcept := ""
+			path, levelExcept := rel[:end], ""
 			if d == len(names)-1 {
 				levelExcept = except
 			}
-			if m := r.markedBy(rel[:end], levelExcept); m != nil {
-				return Decision{Level: d, Rule: m}
-			}
+			marked = func() *Rule { return r.markedBy(path, levelExcept) }
+		}
+		if rule := r.decideLevel(names[:d], rel[:end], levelIsDir, marked); rule != nil {
+			return Decision{Kept: rule.Kind == Include, Level: d, Rule: rule}
 		}
 	}
 	return Decision{Kept: true}
 }
 
 // decideLevel returns the rule that decides the level q (path qPath), or nil
-// when no rule matches it. A literal rule beats a wildcard rule, then an
-// include beats an exclude, then the first rule in order wins.
-func (r *Rules) decideLevel(q []string, qPath string, isDir bool) *Rule {
-	var include, exclude *Rule
+// when no rule matches it. A literal rule beats a wildcard rule, and a named
+// wildcard (/**/.cache) beats the other wildcards (/.*, /**/*.log), with the
+// folder's marker (marked, nil without markers) between the two. In a tier
+// an include beats an exclude, then the first rule in order wins.
+func (r *Rules) decideLevel(q []string, qPath string, isDir bool, marked func() *Rule) *Rule {
+	var exclude *Rule
 	for _, rule := range r.literal[qPath] {
 		if rule.fits(isDir) {
 			if rule.Kind == Include {
@@ -265,7 +267,22 @@ func (r *Rules) decideLevel(q []string, qPath string, isDir bool) *Rule {
 		return exclude
 	}
 	name := q[len(q)-1]
-	for _, rules := range [...][]*Rule{r.byName[name], r.byExt[extension(name)], r.wildcard} {
+	if rule := r.pick(q, isDir, r.byName[name]); rule != nil {
+		return rule
+	}
+	if marked != nil {
+		if m := marked(); m != nil {
+			return m
+		}
+	}
+	return r.pick(q, isDir, r.byExt[extension(name)], r.wildcard)
+}
+
+// pick returns the rule of a tier that decides the level q: its first
+// include that matches, else its first exclude, nil when none matches
+func (r *Rules) pick(q []string, isDir bool, tier ...[]*Rule) *Rule {
+	var include, exclude *Rule
+	for _, rules := range tier {
 		for _, rule := range rules {
 			if rule.Kind == Include {
 				if (include == nil || rule.pos < include.pos) && rule.fits(isDir) && rule.match(q) {

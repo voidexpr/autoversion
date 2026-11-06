@@ -233,7 +233,8 @@ shared with ownit. Without the file, they are "use default". Example, for
   named NAME (marker:{CACHEDIR.TAG,pyvenv.cfg}), except that entry: the
   folder is stored bare with the marker.
 - The closest match wins: the entry itself, then each folder above it. On
-  one level, a literal rule beats a wildcard, then an include beats an
+  one level, a literal rule beats a wildcard, a named wildcard (/**/.cache)
+  beats one ending in a wildcard (/.*, /**/*.log), then an include beats an
   exclude. Line order means nothing.
 - Always applied: ` + alwaysAppliedText + `. A git destination also applies
   use nested-git (exclude /**/.git) whatever its rules say: git would record

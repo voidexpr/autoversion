@@ -88,6 +88,22 @@
       "kept": ["projects/", "projects/abc/", "projects/abc/memory/", "projects/abc/memory/x.md"]
     },
     {
+      "name": "tie: a named wildcard exclude beats an include ending in a wildcard; two unnamed: the include wins",
+      "tools": ["native", "autoversion"],
+      "tree": [".cache/", ".cache/x", ".vimrc", "notes", "logs/", "logs/app.log", "logs/old.log"],
+      "exclude": ["/*", "/**/.cache", "/**/*.log"],
+      "include": ["/.*", "/logs/*"],
+      "kept": [".vimrc", "logs/", "logs/app.log", "logs/old.log"]
+    },
+    {
+      "name": "markers: a marked folder beats an include ending in a wildcard, a named include on it wins",
+      "tools": ["native", "autoversion"],
+      "tree": ["venvs/", "venvs/a/", "venvs/a/pyvenv.cfg", "venvs/a/bin/", "venvs/a/bin/python", "venvs/b/", "venvs/b/x", "tools/", "tools/env/", "tools/env/pyvenv.cfg", "tools/env/bin/", "tools/env/bin/run"],
+      "exclude": ["/*", "marker:pyvenv.cfg"],
+      "include": ["/venvs/*", "/**/env"],
+      "kept": ["venvs/", "venvs/a/", "venvs/a/pyvenv.cfg", "venvs/b/", "venvs/b/x", "tools/", "tools/env/", "tools/env/pyvenv.cfg", "tools/env/bin/", "tools/env/bin/run"]
+    },
+    {
       "name": "typed rules: files only and folders only",
       "tools": ["native", "rsync", "gitignore", "autoversion"],
       "tree": ["a.old", "b.old/", "b.old/x", "build", "c/", "c/d.old", "c/e.old/", "c/e.old/y", "keep.txt", "w/", "w/build/", "w/build/o"],

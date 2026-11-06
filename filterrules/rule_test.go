@@ -161,7 +161,10 @@ func TestDecideSpecIncludes(t *testing.T) {
 	memory := [][]string{{"/projects/old/memory"}, {"/projects/*/memory"}}
 	logs := [][]string{{"/**/*.log"}, {"/Logs"}}
 	allowlist := [][]string{{"/*"}, {"/notes"}}
-	tie := [][]string{{"/**/x"}, {"/a/*"}}
+	tie := [][]string{{"/**/x"}, {"/a/*"}}          // a named wildcard beats one ending in a wildcard
+	dotfiles := [][]string{{"/*", "/**/.cache"}, {"/.*"}}
+	named := [][]string{{"/**/*.log"}, {"/**/app.log"}} // and an include too
+	plain := [][]string{{"/**/*.log"}, {"/logs/*"}}     // two unnamed wildcards: the include wins
 	tests := []struct {
 		rules [][]string // excludes, includes
 		entry string
@@ -184,7 +187,11 @@ func TestDecideSpecIncludes(t *testing.T) {
 		{logs, "Logs/app.log", false, 2, "exclude /**/*.log"},
 		{allowlist, "notes/a.md", true, 1, "include /notes"},
 		{allowlist, "Media/x.mp4", false, 1, "exclude /*"},
-		{tie, "a/x", true, 2, "include /a/*"},
+		{tie, "a/x", false, 2, "exclude /**/x"},
+		{dotfiles, ".cache/uv/x", false, 1, "exclude /**/.cache"},
+		{dotfiles, ".vimrc", true, 1, "include /.*"},
+		{named, "logs/app.log", true, 2, "include /**/app.log"},
+		{plain, "logs/app.log", true, 2, "include /logs/*"},
 	}
 	for _, tt := range tests {
 		r := newRules(t, tt.rules[0], tt.rules[1])
