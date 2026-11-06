@@ -1,0 +1,7 @@
+# vms: container and virtual machine disks and state
+version 1
+
+exclude /**/{.colima,.lima,.container-platform}
+exclude /**/.docker/sandboxes
+# a project's Vagrant machine state
+exclude /**/.vagrant

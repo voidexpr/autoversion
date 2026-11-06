@@ -174,7 +174,7 @@ func TestOptInGroups(t *testing.T) {
 }
 
 func TestGroups(t *testing.T) {
-	want := []string{"build", "caches", "data", "default", "deps", "editors", "extra-tools", "home-caches", "installers", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "vcs", "videos"}
+	want := []string{"agents", "build", "cache-markers", "caches", "data", "default", "deps", "editors", "extra-tools", "home-caches", "installers", "junk", "local-state", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "toolchains", "vcs", "videos", "vms"}
 	if got := GroupNames(); !slices.Equal(got, want) {
 		t.Errorf("groups %q, want %q", got, want)
 	}
@@ -182,16 +182,21 @@ func TestGroups(t *testing.T) {
 	for _, g := range Groups() {
 		byName[g.Name] = g
 	}
-	for _, combined := range []string{"default", "media"} {
+	for _, combined := range []string{"default", "media", "junk"} {
 		all, _ := Group(combined)
 		count := 0
+		for _, r := range all {
+			if r.Group == combined {
+				count++
+			}
+		}
 		for _, name := range byName[combined].Use {
 			rules, err := Group(name)
 			if err != nil {
 				t.Fatal(err)
 			}
 			for _, r := range rules {
-				if r.Kind != Exclude || r.Group != name {
+				if r.Kind != Exclude || len(byName[name].Use) == 0 && r.Group != name {
 					t.Errorf("%s: %v from group %q", name, r, r.Group)
 				}
 			}

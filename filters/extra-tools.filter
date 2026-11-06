@@ -6,3 +6,5 @@ exclude /**/{.terraform,.terragrunt-cache}
 exclude /**/Carthage/{Build,Checkouts}
 exclude /**/renv/library
 exclude /**/.yarn/{cache,unplugged}
+exclude /**/.moon/cache
+exclude f:/**/.packages

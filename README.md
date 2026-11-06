@@ -356,7 +356,7 @@ exclude /*              # an allowlist: only what is listed below
 /projects/*/memory
 ```
 
-- Directives come first: `max-file-size SIZE` (`10M`, `500k`, `1GB`, `2T`, `none`; binary units `k`, `m`, `g`, `t`, with or without `b`, either case; a file of exactly SIZE is kept), `use GROUP`, and for other tools `root` and `types`.
+- Directives come first: `max-file-size SIZE` (`10M`, `500k`, `1GB`, `2T`, `4096`, `none`; binary units `k`, `m`, `g`, `t`, with or without `b`, either case, bytes without a unit; a file of exactly SIZE is kept), `use GROUP`, and for other tools `root` and `types`.
 - Every rule starts at the source root (`/`). `*` matches within a name, a `/**/` segment any number of folders. `f:` makes a rule match files only (`f:/**/*.old` keeps a folder named `x.old`).
 - A bare line is an include. `{a,b}` gives one rule per name. `P/!Q` is an exception: in an include, `P` minus `P/Q`; in an exclude, `P`'s content except `P/Q`.
 - `exclude marker:NAME` leaves out every folder that directly holds an entry named NAME (`marker:{CACHEDIR.TAG,pyvenv.cfg}` for cache folders and virtualenvs), with everything in it except that entry: the folder is stored bare with the marker. It counts as a wildcard exclude at the folder's own level, so a literal include on the folder still wins. Presence is what counts, never the file's content.
@@ -455,9 +455,9 @@ The built-in groups are rules files, `filters/NAME.filter`, compiled into the bi
 - **editors:** `*.swp`, `*~`, Vim's `4913`, `*.iml` files; `.idea`
 - **temp:** `*.tmp`, `*.tmp.*`, `*.temp`, `*.bak`, `*.old` files
 - **logs:** `*.log`, `*.out`, `*.err`, `*.pid`, `*.dump` files
-- **build:** the content of `build/`, `dist/` and `out/`; `target/debug`, `target/release`, `.build`, `DerivedData`, `zig-out`, `cdk.out`; `*.o`, `*.so`, `*.dylib`, `*.class`, `*.jar`, `*.pyc`, … files
-- **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.local/share/pnpm`, `.npm`, `.venv`, `venv`, `__pycache__`, `__pypackages__`, `.gradle`, `.direnv`, `go/pkg/mod`
-- **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`, `.parcel-cache`, `.turbo`, `.svelte-kit`, `.angular`, `.zig-cache`, `.playwright-mcp`, `playwright-report`, `test-results`
+- **build:** the content of `build/`, `dist/` and `out/`; `target/debug`, `target/release` and Maven's and sbt's `target/classes`, `target/streams`, …; `.build`, `DerivedData`, `zig-out`, `cdk.out`, `_mdfmt`; `*.o`, `*.so`, `*.dylib`, `*.class`, `*.jar`, `*.pyc`, … files
+- **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.local/share/pnpm`, `.npm`, `.venv`, `venv`, `__pycache__`, `__pypackages__`, `.gradle`, `.direnv`, `go/pkg/mod`, `.modcache`, `toolchain/zig*`
+- **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`, `.parcel-cache`, `.turbo`, `.svelte-kit`, `.angular`, `.zig-cache`, `.gocache`, `.evidence/template`, `.evidence/meta`, `.playwright-mcp`, `playwright-report`, `test-results`; Chromium and Electron profile caches `Code Cache`, `GPUCache`, `DawnCache`, `ShaderCache`, …
 - **data:** `pgdata`, `*.pgdb`; `*.wal` files
 - **vcs:** `.hg`, `.svn`, `.cvs`
 
@@ -465,9 +465,17 @@ Opt-in groups, not in `default` (`use default` and `use nested-git`, for example
 - **nested-git:** repositories inside the source: `.git` folders and files (worktrees, submodules) and bare `*.git` repositories, at any level. A git destination applies it always; a mirror only with the line, so a backup of a work area that must keep its repositories leaves it out.
 - **music**, **photos**, **videos**, and **media** for the three: media files by extension (`*.mp3`, `*.heic`, `*.mov`, …), lowercase and uppercase, files only. Only excludes: "only my photos" is an allowlist, `exclude /*` and `f:/**/*.{jpg,png}`.
 - **nas:** Synology metadata, `@eaDir` folders and `*@SynoResource`, `*@SynoEAStream` files
-- **extra-tools:** dependencies, caches and build outputs of less common tools: `.dart_tool`, `.stack-work`, `elm-stuff`, `.cpcache`, `.shadow-cljs`, `.godot`, `_build`, `Pods`, `.terraform`, `.terragrunt-cache`, `Carthage/Build`, `Carthage/Checkouts`, `renv/library`, `.yarn/cache`, `.yarn/unplugged`. Opt-in because some projects commit `Pods` or `.yarn/cache`, and `_build` is a generic name.
+- **extra-tools:** dependencies, caches and build outputs of less common tools: `.dart_tool`, `.stack-work`, `elm-stuff`, `.cpcache`, `.shadow-cljs`, `.godot`, `_build`, `Pods`, `.terraform`, `.terragrunt-cache`, `Carthage/Build`, `Carthage/Checkouts`, `renv/library`, `.yarn/cache`, `.yarn/unplugged`, `.moon/cache`, `.packages` files. Opt-in because some projects commit `Pods` or `.yarn/cache`, and `_build` is a generic name.
 - **installers:** app install files: `*.dmg` files, `*.pkg` and `*.mpkg` files and folders (older installers are bundles)
 - **home-caches:** tool caches in a home folder: `.m2/repository`, `.nuget/packages`, `.kube/cache`, `.kube/http-cache`, `.vagrant.d/boxes` (`go/pkg/mod` is in **deps**)
+- **toolchains:** what a tool reinstalls itself: `.rustup/toolchains`, `.pyenv/versions`, `.nvm/versions`, `.cargo/registry`, `.local/pipx`, `.local/share/uv`, `.local/share/virtualenvs`, `.bun/install/cache`, `.vscode/extensions`, `.duckdb/extensions`, `.local/share/claude`, `.terraform.d/plugin-cache`, …
+- **local-state:** `.local/state`, the XDG state folder (logs, history, recently-used lists)
+- **vms:** container and virtual machine disks: `.docker/sandboxes`, `.colima`, `.lima`, `.container-platform`, a project's `.vagrant`
+- **agents:** regenerable state of coding agents: `.claude/debug`, `.claude/file-history`, `.claude/shell-snapshots`, `.claude/telemetry`, …, `.codex/cache`, `.codex/plugins`, …. Transcripts and memories stay in.
+- **cache-markers:** `exclude marker:{CACHEDIR.TAG,pyvenv.cfg,CMakeCache.txt}`: any folder tagged as a cache, a virtualenv or a CMake build tree by a file it holds, wherever it is. Not in **default**: restic and borg honor markers, rsync doesn't, so a filter previewed here would keep more there.
+- **junk:** one line for everything a backup can do without: `default`, `extra-tools`, `home-caches`, `toolchains`, `local-state`, `vms`, `agents`, `cache-markers`, plus `vendor` and `deps` folders (asimov excludes them next to `go.mod`, `composer.json`, `Gemfile`, `mix.exs`; often committed, so not in `default`) and `.Trash`.
+
+A group rule is a wildcard (`/**/name`), and on one level two wildcard rules resolve to the include. So in an allowlist of the dot entries of a home folder, `exclude /*` and `include /.*`, the include wins over every group rule that matches at the root: `.cache` and `.Trash` stay in, with everything below them, while `.local/state` or `.docker/sandboxes` are out because the group rule matches closer. Name the root-level ones literally: `exclude /{.cache,.Trash}`.
 
 Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf.d` is kept. Lock files (`Cargo.lock`, `uv.lock`) and `.vscode/` are tracked.
 
@@ -485,7 +493,7 @@ Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf
 | `--include`, `--exclude` | (none) | Include or exclude rule, repeatable (`init`, `filter scan`, `dump`, `set`) |
 | `--use` | (none) | Built-in group, repeatable (`init`, `filter scan`, `dump`, `set`; see `filter groups`) |
 | `--explain`, `--summary`, `--no-summary` | (none) | `filter scan`: what decides one entry; the summary only, on stdout; the files only (by default the summary follows the files, on stderr) |
-| `--max-file-size` | (none) | Size limit, `10M`, `500k`, `1GB`, `2T` or `none`: the `max-file-size` line of the rules, with the other rule flags (`init`, `filter scan`, `dump`, `set`, `watch --report-only`) |
+| `--max-file-size` | (none) | Size limit, `10M`, `500k`, `1GB`, `2T`, `4096` (bytes) or `none`: the `max-file-size` line of the rules, with the other rule flags (`init`, `filter scan`, `dump`, `set`, `watch --report-only`) |
 | `--buffer-time` | 3 seconds | Event buffer duration (watch/install) |
 | `--dry-run` | false | Show what would be done without executing |
 | `--report-only` | false | Only print file events, copy nothing (watch only, no `--destination` needed) |

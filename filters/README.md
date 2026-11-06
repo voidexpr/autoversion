@@ -11,6 +11,16 @@ or `--use NAME` on the command line. A group that combines others has only
 the group flat. File-name rules are typed (`f:`), so a folder named `x.old`
 or `x.mp3` is kept.
 
+## agents: regenerable state of coding agents; transcripts and memories stay in
+
+`use agents`, [agents.filter](agents.filter)
+
+```
+exclude /**/.claude/{debug,file-history,shell-snapshots,telemetry,logs,jobs}
+exclude /**/.codex/{cache,.tmp,plugins,computer-use,generated_images}
+exclude f:/**/.codex/{logs_*.sqlite,thread_history_*.sqlite}
+```
+
 ## build: build outputs and compiled files
 
 `use build`, [build.filter](build.filter)
@@ -18,9 +28,18 @@ or `x.mp3` is kept.
 ```
 exclude /**/{build,dist,out}/*
 exclude /**/target/{debug,release}
+exclude /**/target/{classes,test-classes,generated-sources,generated-test-sources,maven-status,surefire-reports,streams}
 exclude /**/{.build,DerivedData,zig-out,cdk.out,_mdfmt}
 exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}
 exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}
+```
+
+## cache-markers: folders tagged as caches, virtualenvs and CMake build trees by a file they hold
+
+`use cache-markers`, [cache-markers.filter](cache-markers.filter)
+
+```
+exclude marker:{CACHEDIR.TAG,pyvenv.cfg,CMakeCache.txt}
 ```
 
 ## caches: caches and test reports
@@ -31,6 +50,7 @@ exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}
 exclude /**/{.cache,.next,.nuxt,.output,.pytest_cache,.playwright-mcp,playwright-report,test-results}
 exclude /**/{.mypy_cache,.ruff_cache,.tox,.nox,.parcel-cache,.turbo,.svelte-kit,.angular,.zig-cache,.gocache}
 exclude /**/.evidence/{template,meta}
+exclude /**/{Code Cache,GPUCache,DawnCache,DawnGraphiteCache,DawnWebGPUCache,ShaderCache,GrShaderCache}
 ```
 
 ## data: database folders and write-ahead logs
@@ -89,6 +109,8 @@ exclude /**/{.terraform,.terragrunt-cache}
 exclude /**/Carthage/{Build,Checkouts}
 exclude /**/renv/library
 exclude /**/.yarn/{cache,unplugged}
+exclude /**/.moon/cache
+exclude f:/**/.packages
 ```
 
 ## home-caches: tool caches in a home folder
@@ -109,6 +131,31 @@ exclude /**/.vagrant.d/boxes
 ```
 exclude f:/**/*.dmg
 exclude /**/{*.pkg,*.mpkg}
+```
+
+## junk: everything a backup of a home folder or a project tree can do without
+
+`use junk`, [junk.filter](junk.filter)
+
+```
+use default
+use extra-tools
+use home-caches
+use toolchains
+use local-state
+use vms
+use agents
+use cache-markers
+exclude /**/{vendor,deps}
+exclude /**/.Trash
+```
+
+## local-state: the XDG state folder, logs, history and recently-used lists of tools
+
+`use local-state`, [local-state.filter](local-state.filter)
+
+```
+exclude /**/.local/state
 ```
 
 ## logs: logs, command outputs and pid files
@@ -181,6 +228,17 @@ exclude f:/**/{*.JPG,*.JPEG,*.PNG,*.HEIC,*.HEIF,*.GIF,*.TIF,*.TIFF,*.BMP,*.WEBP,
 exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
 ```
 
+## toolchains: toolchains, tool installs and package registries a tool reinstalls itself
+
+`use toolchains`, [toolchains.filter](toolchains.filter)
+
+```
+exclude /**/{.rustup/toolchains,.pyenv/versions,.nvm/versions,.nvm/.cache}
+exclude /**/{.cargo/registry,.cargo/advisory-db*,.terraform.d/plugin-cache,.bun/install/cache}
+exclude /**/{.local/pipx,.local/share/uv,.local/share/virtualenvs}
+exclude /**/{.vscode/extensions,.duckdb/extensions,.local/share/claude}
+```
+
 ## vcs: other version control folders
 
 `use vcs`, [vcs.filter](vcs.filter)
@@ -196,4 +254,14 @@ exclude /**/{.hg,.svn,.cvs}
 ```
 exclude f:/**/{*.mp4,*.m4v,*.mov,*.avi,*.mkv,*.webm,*.wmv,*.flv,*.mpg,*.mpeg,*.3gp,*.m2ts,*.vob,*.ogv}
 exclude f:/**/{*.MP4,*.M4V,*.MOV,*.AVI,*.MKV,*.WEBM,*.WMV,*.FLV,*.MPG,*.MPEG,*.3GP,*.M2TS,*.MTS,*.VOB,*.OGV}
+```
+
+## vms: container and virtual machine disks and state
+
+`use vms`, [vms.filter](vms.filter)
+
+```
+exclude /**/{.colima,.lima,.container-platform}
+exclude /**/.docker/sandboxes
+exclude /**/.vagrant
 ```

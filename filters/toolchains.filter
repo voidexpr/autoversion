@@ -1,0 +1,11 @@
+# toolchains: toolchains, tool installs and package registries a tool reinstalls itself
+version 1
+
+# language toolchains and versions
+exclude /**/{.rustup/toolchains,.pyenv/versions,.nvm/versions,.nvm/.cache}
+# package registries and clones
+exclude /**/{.cargo/registry,.cargo/advisory-db*,.terraform.d/plugin-cache,.bun/install/cache}
+# tools installed in their own virtualenvs
+exclude /**/{.local/pipx,.local/share/uv,.local/share/virtualenvs}
+# extensions and installer-managed binaries
+exclude /**/{.vscode/extensions,.duckdb/extensions,.local/share/claude}

@@ -1,0 +1,5 @@
+# cache-markers: folders tagged as caches, virtualenvs and CMake build trees by a file they hold
+version 1
+
+# Not in default: restic and borg honor markers (--exclude-caches, --exclude-if-present), rsync doesn't
+exclude marker:{CACHEDIR.TAG,pyvenv.cfg,CMakeCache.txt}

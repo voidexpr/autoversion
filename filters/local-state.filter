@@ -1,0 +1,4 @@
+# local-state: the XDG state folder, logs, history and recently-used lists of tools
+version 1
+
+exclude /**/.local/state

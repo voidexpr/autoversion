@@ -10,8 +10,8 @@ import (
 )
 
 // TestGroupFiles checks the group files: each loads (a "# NAME: about"
-// first line, version 1, only excludes, no root or types), with rules or
-// use lines
+// first line, version 1, only excludes, no root or types), with rules, use
+// lines or both
 func TestGroupFiles(t *testing.T) {
 	for _, name := range GroupNames() {
 		if _, err := Group(name); err != nil {
@@ -24,9 +24,6 @@ func TestGroupFiles(t *testing.T) {
 		}
 		if len(g.Exclude) == 0 && len(g.Use) == 0 {
 			t.Errorf("%s: no rules", g.Name)
-		}
-		if len(g.Exclude) > 0 && len(g.Use) > 0 {
-			t.Errorf("%s: both rules and use lines", g.Name)
 		}
 	}
 }

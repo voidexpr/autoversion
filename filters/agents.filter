@@ -1,0 +1,8 @@
+# agents: regenerable state of coding agents; transcripts and memories stay in
+version 1
+
+# Claude Code: debug logs, file snapshots, shell snapshots, telemetry; projects/ holds the memories
+exclude /**/.claude/{debug,file-history,shell-snapshots,telemetry,logs,jobs}
+# Codex
+exclude /**/.codex/{cache,.tmp,plugins,computer-use,generated_images}
+exclude f:/**/.codex/{logs_*.sqlite,thread_history_*.sqlite}

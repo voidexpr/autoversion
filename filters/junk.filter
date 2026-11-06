@@ -1,0 +1,15 @@
+# junk: everything a backup of a home folder or a project tree can do without
+version 1
+
+use default
+use extra-tools
+use home-caches
+use toolchains
+use local-state
+use vms
+use agents
+use cache-markers
+
+# asimov excludes these next to go.mod, composer.json, Gemfile or mix.exs; they are often committed, so not in default
+exclude /**/{vendor,deps}
+exclude /**/.Trash
