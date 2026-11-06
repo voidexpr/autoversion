@@ -2,7 +2,7 @@
 version 1
 
 # language toolchains and versions
-exclude /**/{.rustup/toolchains,.pyenv/versions,.nvm/versions,.nvm/.cache}
+exclude /**/{.rustup/toolchains,.pyenv/versions,.pyenv/shims,.nvm/versions,.nvm/.cache}
 # package registries and clones
 exclude /**/{.cargo/registry,.cargo/advisory-db*,.terraform.d/plugin-cache,.bun/install/cache}
 # tools installed in their own virtualenvs

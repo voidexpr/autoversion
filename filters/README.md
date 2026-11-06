@@ -17,7 +17,7 @@ or `x.mp3` is kept.
 
 ```
 exclude /**/.claude/{debug,file-history,shell-snapshots,telemetry,logs,jobs}
-exclude /**/.codex/{cache,.tmp,plugins,computer-use,generated_images}
+exclude /**/.codex/{cache,.tmp,plugins,computer-use,generated_images,vendor_imports}
 exclude f:/**/.codex/{logs_*.sqlite,thread_history_*.sqlite}
 ```
 
@@ -150,12 +150,13 @@ exclude /**/{vendor,deps}
 exclude /**/.Trash
 ```
 
-## local-state: the XDG state folder, logs, history and recently-used lists of tools
+## local-state: the XDG state folder and state tools keep elsewhere: logs, history, session snapshots
 
 `use local-state`, [local-state.filter](local-state.filter)
 
 ```
 exclude /**/.local/state
+exclude /**/.config/herdr/session-snapshots
 ```
 
 ## logs: logs, command outputs and pid files
@@ -233,7 +234,7 @@ exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
 `use toolchains`, [toolchains.filter](toolchains.filter)
 
 ```
-exclude /**/{.rustup/toolchains,.pyenv/versions,.nvm/versions,.nvm/.cache}
+exclude /**/{.rustup/toolchains,.pyenv/versions,.pyenv/shims,.nvm/versions,.nvm/.cache}
 exclude /**/{.cargo/registry,.cargo/advisory-db*,.terraform.d/plugin-cache,.bun/install/cache}
 exclude /**/{.local/pipx,.local/share/uv,.local/share/virtualenvs}
 exclude /**/{.vscode/extensions,.duckdb/extensions,.local/share/claude}
@@ -262,6 +263,6 @@ exclude f:/**/{*.MP4,*.M4V,*.MOV,*.AVI,*.MKV,*.WEBM,*.WMV,*.FLV,*.MPG,*.MPEG,*.3
 
 ```
 exclude /**/{.colima,.lima,.container-platform}
-exclude /**/.docker/sandboxes
+exclude /**/.docker/{sandboxes,buildx}
 exclude /**/.vagrant
 ```

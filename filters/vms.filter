@@ -2,6 +2,7 @@
 version 1
 
 exclude /**/{.colima,.lima,.container-platform}
-exclude /**/.docker/sandboxes
+# sandbox disks, and buildx's build records (its builder definitions live in instances/, empty here)
+exclude /**/.docker/{sandboxes,buildx}
 # a project's Vagrant machine state
 exclude /**/.vagrant

@@ -1,4 +1,6 @@
-# local-state: the XDG state folder, logs, history and recently-used lists of tools
+# local-state: the XDG state folder and state tools keep elsewhere: logs, history, session snapshots
 version 1
 
 exclude /**/.local/state
+# herdr
+exclude /**/.config/herdr/session-snapshots
