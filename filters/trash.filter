@@ -1,0 +1,4 @@
+# trash: the macOS trash; not in default, a backup of a home may want it
+version 1
+
+exclude /**/.Trash

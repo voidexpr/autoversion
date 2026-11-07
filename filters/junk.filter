@@ -9,7 +9,7 @@ use local-state
 use vms
 use agents
 use cache-markers
+use trash
 
 # asimov excludes these next to go.mod, composer.json, Gemfile or mix.exs; they are often committed, so not in default
 exclude /**/{vendor,deps}
-exclude /**/.Trash

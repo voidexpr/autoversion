@@ -231,7 +231,8 @@ shared with ownit. Without the file, they are "use default". Example, for
 - A bare line is an include. {a,b} gives one rule per name.
 - exclude marker:NAME leaves out every folder that directly holds an entry
   named NAME (marker:{CACHEDIR.TAG,pyvenv.cfg}), except that entry: the
-  folder is stored bare with the marker.
+  folder is stored bare with the marker. It counts as a named wildcard
+  exclude on the folder.
 - The closest match wins: the entry itself, then each folder above it. On
   one level, a literal rule beats a wildcard, a named wildcard (/**/.cache)
   beats one ending in a wildcard (/.*, /**/*.log), then an include beats an

@@ -215,9 +215,9 @@ type Decision struct {
 
 // Decide decides an entry. The closest match wins: the entry itself is
 // checked first, then each folder above it. A folder holding a marker entry
-// (see WithMarkers) counts as a wildcard exclude at its own level, between
-// the named wildcards and the others (see decideLevel), except for the
-// marker entry itself, decided as if its folder had no marker.
+// (see WithMarkers) counts as a named wildcard exclude at its own level
+// (see decideLevel), except for the marker entry itself, decided as if its
+// folder had no marker.
 func (r *Rules) Decide(rel string, isDir bool) Decision {
 	if rel == "" {
 		return Decision{Kept: true}
@@ -250,9 +250,10 @@ func (r *Rules) Decide(rel string, isDir bool) Decision {
 
 // decideLevel returns the rule that decides the level q (path qPath), or nil
 // when no rule matches it. A literal rule beats a wildcard rule, and a named
-// wildcard (/**/.cache) beats the other wildcards (/.*, /**/*.log), with the
-// folder's marker (marked, nil without markers) between the two. In a tier
-// an include beats an exclude, then the first rule in order wins.
+// wildcard (/**/.cache) beats the other wildcards (/.*, /**/*.log). The
+// folder's marker (marked, nil without markers) is a named wildcard exclude:
+// a named include ties with it and wins. In a tier an include beats an
+// exclude, then the first rule in order wins.
 func (r *Rules) decideLevel(q []string, qPath string, isDir bool, marked func() *Rule) *Rule {
 	var exclude *Rule
 	for _, rule := range r.literal[qPath] {

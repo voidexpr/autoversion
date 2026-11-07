@@ -146,8 +146,8 @@ use local-state
 use vms
 use agents
 use cache-markers
+use trash
 exclude /**/{vendor,deps}
-exclude /**/.Trash
 ```
 
 ## local-state: the XDG state folder and state tools keep elsewhere: logs, history, session snapshots
@@ -238,6 +238,14 @@ exclude /**/{.rustup/toolchains,.pyenv/versions,.pyenv/shims,.nvm/versions,.nvm/
 exclude /**/{.cargo/registry,.cargo/advisory-db*,.terraform.d/plugin-cache,.bun/install/cache}
 exclude /**/{.local/pipx,.local/share/uv,.local/share/virtualenvs}
 exclude /**/{.vscode/extensions,.duckdb/extensions,.local/share/claude}
+```
+
+## trash: the macOS trash; not in default, a backup of a home may want it
+
+`use trash`, [trash.filter](trash.filter)
+
+```
+exclude /**/.Trash
 ```
 
 ## vcs: other version control folders

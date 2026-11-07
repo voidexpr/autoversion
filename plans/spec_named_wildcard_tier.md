@@ -1,9 +1,9 @@
 # Spec proposal: a named wildcard beats one ending in a wildcard
 
-Status: prototyped in autoversion on 2026-11-06, to propose to ownit
-(`plans/spec_filter_syntax.md`, "Deciding an entry"). Until ownit accepts
-it, autoversion's native matcher and conformance copy differ from the spec
-on the two cases added below.
+Status: accepted by ownit on 2026-11-06, in the spec
+(`plans/spec_filter_syntax.md`, "Deciding an entry", "All the cases",
+"Known limits") and in its Python matcher at 21c3c68; autoversion's matcher
+at 86d7f9a. Both pass the two conformance cases below.
 
 ## The problem
 
@@ -43,10 +43,16 @@ Nothing finer: `/a/*/x` doesn't beat `/**/x`, and `/a/*` doesn't beat
 `/**/*.log`.
 ```
 
-A folder holding a marker entry counts as an exclude between the two
-wildcard tiers: a named include on the folder (`/**/env`) still wins, an
-include ending in a wildcard (`/venvs/*`) no longer does. Marker rules name
-a folder by its content, as precisely as `/**/name` does by its name.
+A folder holding a marker entry counts as a named wildcard exclude: a
+literal or a named include on the folder (`/**/env`) ties with it and wins,
+an include ending in a wildcard (`/venvs/*`) loses. Marker rules name a
+folder by its content, as precisely as `/**/name` does by its name.
+
+Known limit (in the spec): the tier goes by shape, not intent. Suffix junk
+(`f:/**/*.log`, `*.swp`) ties with `/.*` and the include wins, so such
+junk at the root survives the dotfiles allowlist. An author of a wildcard
+include has to know which junk rules are named. Not fixed: ranking by
+characters would be the specificity ranking the spec refuses.
 
 The spec's current example, "`/a/*` doesn't beat `/**/b`", flips: `/**/b`
 wins. The guarantees hold: no order, one answer, local, predictable growth
@@ -58,9 +64,9 @@ wins. The guarantees hold: no order, one answer, local, predictable growth
   `.Trash` and the other root-level junk.
 - `exclude /**/.git` against `include /projects/*` on the same level now
   excludes, the direction people expect from a group.
-- Converters: the literal-versus-wildcard tiering they already order by
-  gets a third tier. rsync and borg (first match wins) emit the named
-  wildcards before the others; restic (excludes only) is unaffected.
+- Converters: nothing to change. They only take literal includes, which
+  beat every wildcard already, so the two wildcard tiers never meet in an
+  ordered list (spec, "Why this gives the closest-match result").
 - autoversion's implementation already indexed wildcard rules by their
   last name; the change is to rank that index first (`decideLevel`).
 
