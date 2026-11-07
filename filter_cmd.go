@@ -175,7 +175,7 @@ func flagRules(sourcePath string) (string, *filterrules.File, error) {
 	if err := addFlagRules(f); err != nil {
 		return "", nil, err
 	}
-	if len(f.Lines) == 0 && len(f.Uses) == 0 && f.MaxFileSize == "" {
+	if len(f.Lines) == 0 && len(f.Uses) == 0 && f.MaxFileSize == "" && len(f.SizeLimits) == 0 {
 		return "", nil, fmt.Errorf("no rules in --filter %s", filterFileFlag)
 	}
 	if len(f.Uses) == 0 {

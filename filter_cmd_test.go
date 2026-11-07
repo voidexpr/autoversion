@@ -249,6 +249,13 @@ func TestRulesText(t *testing.T) {
 		if _, err := rulesText(source); err == nil || !strings.Contains(err.Error(), "version 1 comes first") {
 			t.Errorf("no version line: error %v", err)
 		}
+		// A size limit alone is a rules file, scoped or not
+		for _, text := range []string{"version 1\nmax-file-size 10M\n", "version 1\nmax-file-size 1M /small\n"} {
+			writeFile(t, file, text)
+			if got, err := rulesText(source); err != nil || got != text {
+				t.Errorf("%q: rules %q, error %v", text, got, err)
+			}
+		}
 	})
 	t.Run("invalid rule", func(t *testing.T) {
 		setRuleFlags(t, "", nil, nil, []string{"node_modules"})
