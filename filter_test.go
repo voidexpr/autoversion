@@ -25,84 +25,83 @@ func TestShouldTrack(t *testing.T) {
 		name     string
 		filename string
 		content  string
-		maxSize  int64
 		want     bool
 	}{
 		// Should track
-		{"normal go file", "main.go", "package main", 0, true},
-		{"normal txt file", "README.txt", "hello", 0, true},
-		{"normal py file", "script.py", "print('hi')", 0, true},
-		{"gitignore", ".gitignore", "*.log", 0, true},
-		{"gitmodules", ".gitmodules", "[submodule]", 0, true},
-		{"lock file (source)", "Cargo.lock", "lock", 0, true},
-		{"vscode settings", ".vscode/settings.json", "json", 0, true},
-		{"numeric name", "subdir/12345", "data", 0, true},
-		{"file named build", "build", "#!/bin/sh", 0, true},
+		{"normal go file", "main.go", "package main", true},
+		{"normal txt file", "README.txt", "hello", true},
+		{"normal py file", "script.py", "print('hi')", true},
+		{"gitignore", ".gitignore", "*.log", true},
+		{"gitmodules", ".gitmodules", "[submodule]", true},
+		{"lock file (source)", "Cargo.lock", "lock", true},
+		{"vscode settings", ".vscode/settings.json", "json", true},
+		{"numeric name", "subdir/12345", "data", true},
+		{"file named build", "build", "#!/bin/sh", true},
 
 		// Should exclude - file extensions
-		{"log file", "app.log", "log data", 0, false},
-		{"dump file", "core.dump", "data", 0, false},
-		{"swp file", ".file.swp", "vim swap", 0, false},
-		{"swpx file", ".file.swpx", "vim swap", 0, false},
-		{"swo file", ".file.swo", "vim swap", 0, false},
-		{"pid file", "app.pid", "1234", 0, false},
-		{"pyc file", "module.pyc", "bytecode", 0, false},
-		{"wal file", "db.wal", "wal data", 0, false},
-		{"old file", "backup.old", "old", 0, false},
-		{"temp file", "scratch.temp", "temp", 0, false},
-		{"atomic write temp", "PLAN.md.tmp.18812.1760578375713", "temp", 0, false},
-		{"DS_Store", ".DS_Store", "mac", 0, false},
-		{"object file", "code.o", "obj", 0, false},
-		{"shared lib", "lib.so", "lib", 0, false},
-		{"archive", "lib.a", "ar", 0, false},
-		{"vim write test", "subdir/4913", "", 0, false},
+		{"log file", "app.log", "log data", false},
+		{"dump file", "core.dump", "data", false},
+		{"swp file", ".file.swp", "vim swap", false},
+		{"swpx file", ".file.swpx", "vim swap", false},
+		{"swo file", ".file.swo", "vim swap", false},
+		{"pid file", "app.pid", "1234", false},
+		{"pyc file", "module.pyc", "bytecode", false},
+		{"wal file", "db.wal", "wal data", false},
+		{"old file", "backup.old", "old", false},
+		{"temp file", "scratch.temp", "temp", false},
+		{"atomic write temp", "PLAN.md.tmp.18812.1760578375713", "temp", false},
+		{"DS_Store", ".DS_Store", "mac", false},
+		{"object file", "code.o", "obj", false},
+		{"shared lib", "lib.so", "lib", false},
+		{"archive", "lib.a", "ar", false},
+		{"vim write test", "subdir/4913", "", false},
 
 		// Should exclude - tilde suffix
-		{"tilde backup", "file~", "backup", 0, false},
+		{"tilde backup", "file~", "backup", false},
 
 		// Should exclude - paths
 		// .git is a rule (use nested-git), or a git destination's constraint: see TestShouldTrack_NestedGit
-		{"git dir file", ".git/config", "git", 0, true},
-		{"git worktree file", "subdir/.git", "gitdir: ../.git/worktrees/x", 0, true},
-		{"node_modules", "node_modules/pkg/index.js", "code", 0, false},
-		{"pycache", "__pycache__/module.pyc", "bytecode", 0, false},
-		{"venv", ".venv/lib/python", "py", 0, false},
+		{"git dir file", ".git/config", "git", true},
+		{"git worktree file", "subdir/.git", "gitdir: ../.git/worktrees/x", true},
+		{"node_modules", "node_modules/pkg/index.js", "code", false},
+		{"pycache", "__pycache__/module.pyc", "bytecode", false},
+		{"venv", ".venv/lib/python", "py", false},
 
 		// C/C++ / Windows build artifacts
-		{"Windows object file", "code.obj", "obj", 0, false},
-		{"Windows lib", "math.lib", "lib", 0, false},
-		{"Windows DLL", "runtime.dll", "dll", 0, false},
-		{"Windows exe", "app.exe", "exe", 0, false},
-		{"PDB debug", "app.pdb", "pdb", 0, false},
-		{"precompiled header", "stdafx.gch", "gch", 0, false},
-		{"dependency file", "main.d", "dep", 0, false},
+		{"Windows object file", "code.obj", "obj", false},
+		{"Windows lib", "math.lib", "lib", false},
+		{"Windows DLL", "runtime.dll", "dll", false},
+		{"Windows exe", "app.exe", "exe", false},
+		{"PDB debug", "app.pdb", "pdb", false},
+		{"precompiled header", "stdafx.gch", "gch", false},
+		{"dependency file", "main.d", "dep", false},
 
 		// Java
-		{"class file", "Main.class", "bytecode", 0, false},
-		{"jar file", "lib.jar", "jar", 0, false},
+		{"class file", "Main.class", "bytecode", false},
+		{"jar file", "lib.jar", "jar", false},
 
 		// Directories
-		{"gradle cache", ".gradle/caches/file.bin", "data", 0, false},
-		{"build dir", "build-dir/build/output.js", "js", 0, false},
-		{"dist dir", "dist/bundle.js", "js", 0, false},
-		{"next dir", ".next/cache/file", "data", 0, false},
-		{"idea dir", ".idea/workspace.xml", "xml", 0, false},
-		{"DerivedData", "DerivedData/Build/obj", "data", 0, false},
+		{"gradle cache", ".gradle/caches/file.bin", "data", false},
+		{"build dir", "build-dir/build/output.js", "js", false},
+		{"dist dir", "dist/bundle.js", "js", false},
+		{"next dir", ".next/cache/file", "data", false},
+		{"idea dir", ".idea/workspace.xml", "xml", false},
+		{"DerivedData", "DerivedData/Build/obj", "data", false},
 
 		// OS files
-		{"Thumbs.db", "Thumbs.db", "thumb", 0, false},
-		{"desktop.ini", "desktop.ini", "ini", 0, false},
+		{"Thumbs.db", "Thumbs.db", "thumb", false},
+		{"desktop.ini", "desktop.ini", "ini", false},
 
 		// IntelliJ
-		{"iml file", "project.iml", "iml", 0, false},
+		{"iml file", "project.iml", "iml", false},
 
 		// Destination files at the source root
-		{"marker", markerFileName, "{}", 0, false},
-		{"rules file", filterFileName, "version 1", 0, false},
-		{"rules file below the root", "sub/" + filterFileName, "version 1", 0, true},
+		{"marker", markerFileName, "{}", false},
+		{"rules file", filterFileName, "version 1", false},
+		{"rules file below the root", "sub/" + filterFileName, "version 1", true},
 
 		// File size limits
-		{"small file under limit", "small.txt", "x", 1 << 20, true},
+		{"small file under limit", "small.txt", "x", true},
 	}
 
 	for _, tt := range tests {
@@ -110,7 +109,7 @@ func TestShouldTrack(t *testing.T) {
 			testPath := filepath.Join(tmpDir, tt.filename)
 			writeFile(t, testPath, tt.content)
 
-			got, err := ShouldTrack(testPath, tt.maxSize, false)
+			got, err := ShouldTrack(testPath, false)
 			if err != nil {
 				t.Fatalf("ShouldTrack() error = %v", err)
 			}
@@ -123,29 +122,57 @@ func TestShouldTrack(t *testing.T) {
 
 func TestShouldTrack_FileSize(t *testing.T) {
 	tmpDir := resolvedTempDir(t)
-	setRules(t, tmpDir)
 	largePath := filepath.Join(tmpDir, "large.bin")
 	writeFile(t, largePath, strings.Repeat("x", 2*1024*1024))
 
+	setRules(t, tmpDir, "max-file-size 1M")
 	captureStdout(t, func() {
-		if got, err := ShouldTrack(largePath, 1<<20, false); got || err != nil {
+		if got, err := ShouldTrack(largePath, false); got || err != nil {
 			t.Errorf("ShouldTrack(2MB file, 1MB limit) = %v, %v, want false", got, err)
 		}
 	})
-	if got, err := ShouldTrack(largePath, 3<<20, false); !got || err != nil {
+	setRules(t, tmpDir, "max-file-size 3M")
+	if got, err := ShouldTrack(largePath, false); !got || err != nil {
 		t.Errorf("ShouldTrack(2MB file, 3MB limit) = %v, %v, want true", got, err)
+	}
+
+	// A scoped line: the closest match sets the limit, none lifts it
+	bigGit := filepath.Join(tmpDir, "repo", ".git", "objects", "pack", "p.pack")
+	writeFile(t, bigGit, strings.Repeat("x", 2*1024*1024))
+	setRules(t, tmpDir, "max-file-size 1M", "max-file-size none /**/.git")
+	if got, err := ShouldTrack(bigGit, false); !got || err != nil {
+		t.Errorf("ShouldTrack(2MB pack, none under .git) = %v, %v, want true", got, err)
+	}
+	reportedLargeFiles = map[string]bool{}
+	out := captureStdout(t, func() {
+		if got, err := ShouldTrack(largePath, false); got || err != nil {
+			t.Errorf("ShouldTrack(2MB file, default 1M) = %v, %v, want false", got, err)
+		}
+	})
+	if !strings.Contains(out, "(2.00 MB > 1.00 MB)") {
+		t.Errorf("default limit message: %q", out)
+	}
+	setRules(t, tmpDir, "max-file-size 3M", "max-file-size 1M f:/**/*.bin")
+	reportedLargeFiles = map[string]bool{}
+	out = captureStdout(t, func() {
+		if got, err := ShouldTrack(largePath, false); got || err != nil {
+			t.Errorf("ShouldTrack(2MB file, 1M for *.bin) = %v, %v, want false", got, err)
+		}
+	})
+	if !strings.Contains(out, "(2.00 MB > 1.00 MB, max-file-size 1M f:/**/*.bin)") {
+		t.Errorf("scoped limit message: %q", out)
 	}
 }
 
 func TestShouldTrack_LargeFileReportedOnce(t *testing.T) {
 	tmpDir := resolvedTempDir(t)
-	setRules(t, tmpDir)
+	setRules(t, tmpDir, "max-file-size 1M")
 	largePath := filepath.Join(tmpDir, "large.bin")
 	writeFile(t, largePath, strings.Repeat("x", 2*1024*1024))
 
 	out := captureStdout(t, func() {
 		for range 3 {
-			if _, err := ShouldTrack(largePath, 1<<20, false); err != nil {
+			if _, err := ShouldTrack(largePath, false); err != nil {
 				t.Fatalf("ShouldTrack() error = %v", err)
 			}
 		}
@@ -167,7 +194,7 @@ func TestShouldTrack_VanishedFile(t *testing.T) {
 		debug = d
 		out := captureStdout(t, func() {
 			for _, path := range []string{vanished, excluded} {
-				got, err := ShouldTrack(path, 10<<20, false)
+				got, err := ShouldTrack(path, false)
 				if err != nil || got {
 					t.Errorf("ShouldTrack(%q) = %v, %v, want false, nil", path, got, err)
 				}
@@ -198,12 +225,12 @@ func TestShouldTrack_NotRegularFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"link", "sub"} {
-		if got, err := ShouldTrack(filepath.Join(dir, name), 0, false); got || err != nil {
+		if got, err := ShouldTrack(filepath.Join(dir, name), false); got || err != nil {
 			t.Errorf("ShouldTrack(%s) = %v, %v, want false", name, got, err)
 		}
 	}
 	// A deleted entry is decided by the rules only
-	if got, _ := ShouldTrack(filepath.Join(dir, "link"), 0, true); !got {
+	if got, _ := ShouldTrack(filepath.Join(dir, "link"), true); !got {
 		t.Error("ShouldTrack(deleted link) = false, want true")
 	}
 }
@@ -225,7 +252,7 @@ func TestShouldTrack_Rules(t *testing.T) {
 		"projects/p/x.jsonl":          false,
 		"projects/p/memory/x.log":     false, // the logs group is closer than the include
 	} {
-		if got, err := ShouldTrack(filepath.Join(root, name), 10<<20, false); got != want || err != nil {
+		if got, err := ShouldTrack(filepath.Join(root, name), false); got != want || err != nil {
 			t.Errorf("ShouldTrack(%s) = %v, %v, want %v", name, got, err, want)
 		}
 	}
@@ -246,12 +273,12 @@ func TestShouldTrack_NestedGit(t *testing.T) {
 	check := func(t *testing.T, want bool) {
 		t.Helper()
 		for _, name := range gitEntries {
-			if got, _ := ShouldTrack(filepath.Join(root, name), 0, false); got != want {
+			if got, _ := ShouldTrack(filepath.Join(root, name), false); got != want {
 				t.Errorf("ShouldTrack(%s) = %v, want %v", name, got, want)
 			}
 		}
 		for _, name := range others {
-			if got, _ := ShouldTrack(filepath.Join(root, name), 0, false); !got {
+			if got, _ := ShouldTrack(filepath.Join(root, name), false); !got {
 				t.Errorf("ShouldTrack(%s) = false, want true", name)
 			}
 		}

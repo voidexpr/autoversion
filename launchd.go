@@ -517,7 +517,7 @@ var installCmd = &cobra.Command{
 
 		if !dryRun {
 			fmt.Println("Initial sync...")
-			if err := scanPaths(sourcePath, destPath, maxFileSize, dryRun); err != nil {
+			if err := scanPaths(sourcePath, destPath, dryRun); err != nil {
 				return fmt.Errorf("initial sync failed: %v", err)
 			}
 		}

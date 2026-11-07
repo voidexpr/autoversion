@@ -11,12 +11,55 @@ import (
 // File is a rules file: its directives and rule lines. Without a root line
 // it applies to a root given by the caller.
 type File struct {
-	Root        string // as written ("~", "~/x" or "/x"), "" without a root line
-	Types       string // "strict" or "decay" as written, "" without a types line (strict)
-	MaxFileSize string // as written ("10M", "none"), "" without a max-file-size line (no limit), see ParseSize
+	Root        string      // as written ("~", "~/x" or "/x"), "" without a root line
+	Types       string      // "strict" or "decay" as written, "" without a types line (strict)
+	MaxFileSize string      // as written ("10M", "none"), "" without a max-file-size line (no limit), see ParseSize
+	SizeLimits  []SizeLimit // the scoped max-file-size lines, as written
 	Uses        []string
 	Lines       []Line // rule lines as written
 	Rules       []Rule // Lines expanded
+}
+
+// SizeLimit is a scoped max-file-size line, "max-file-size SIZE RULE": the
+// limit for what RULE covers, see Rules.Limit.
+type SizeLimit struct {
+	Size string // as written ("1G", "none")
+	Rule string // a path rule as written, sugar included
+}
+
+func (l SizeLimit) String() string {
+	return "max-file-size " + l.Size + " " + l.Rule
+}
+
+// AddSizeLimit adds a scoped max-file-size line. RULE is a path rule: no
+// marker, no "!" exception.
+func (f *File) AddSizeLimit(size, rule string) error {
+	if _, err := ParseSize(size); err != nil {
+		return &Error{Code: "bad-directive", Rule: "max-file-size " + size + " " + rule, Reason: "max-file-size: " + err.Error()}
+	}
+	if _, err := parseSizeRule(rule); err != nil {
+		return err
+	}
+	f.SizeLimits = append(f.SizeLimits, SizeLimit{size, rule})
+	return nil
+}
+
+// parseSizeRule parses the RULE of a scoped max-file-size line
+func parseSizeRule(text string) ([]Rule, error) {
+	fail := func(reason string) error {
+		return &Error{Code: "bad-directive", Rule: "max-file-size", Reason: "max-file-size: " + reason}
+	}
+	switch {
+	case strings.HasPrefix(text, "marker:"):
+		return nil, fail("a path rule, not a marker")
+	case strings.Contains(text, "!"):
+		return nil, fail("no ! in a scoped limit: name the exception on its own line")
+	}
+	rules, err := ParseRule(Exclude, text)
+	if err != nil {
+		return nil, fail(err.Error())
+	}
+	return rules, nil
 }
 
 // Line is a rule as written, sugar included.
@@ -64,6 +107,9 @@ func (f *File) Format() string {
 	}
 	if f.MaxFileSize != "" {
 		b.WriteString("max-file-size " + f.MaxFileSize + "\n")
+	}
+	for _, l := range f.SizeLimits {
+		b.WriteString(l.String() + "\n")
 	}
 	for _, name := range f.Uses {
 		b.WriteString("use " + name + "\n")
@@ -133,6 +179,11 @@ func ParseFile(r io.Reader) (*File, error) {
 			}
 			f.Types = rest
 		case "max-file-size":
+			size, rule, scoped := strings.Cut(rest, " ")
+			if scoped {
+				err = f.AddSizeLimit(size, strings.TrimSpace(rule))
+				break
+			}
 			if f.MaxFileSize != "" {
 				return nil, fail("bad-directive", "max-file-size twice")
 			}

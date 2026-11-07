@@ -156,6 +156,9 @@ func parseGroup(name, text string) (*GroupInfo, []Rule, error) {
 			return nil, nil, &Error{Code: "bad-directive", Rule: directive + " " + value, Reason: "a filter's choice, not a group's"}
 		}
 	}
+	for _, l := range f.SizeLimits {
+		return nil, nil, &Error{Code: "bad-directive", Rule: l.String(), Reason: "a filter's choice, not a group's"}
+	}
 	info := &GroupInfo{Name: name, About: strings.TrimSpace(about), Use: f.Uses}
 	for _, l := range f.Lines {
 		if l.Kind != Exclude {

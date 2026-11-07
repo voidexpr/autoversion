@@ -29,7 +29,6 @@ var (
 	errLogFlag string
 
 	// Command-specific flags
-	maxFileSize        int64 // the size limit in force, in bytes (0: none), see sizeLimit
 	bufferTime         int
 	dryRun             bool
 	reportOnly         bool
@@ -270,9 +269,9 @@ var movedFlags = []string{"no-git", "restic", "max-file-size", "exclude-dir", "o
 var errDestinationSettings = errors.New("settings and rules belong to the destination, set them with init or filter set (watch takes rules, --max-file-size included, with --report-only only)")
 
 // useDestination sets what sync, watch and install take from the
-// destination: its settings, its rules and the size limit in force
+// destination: its settings and its rules, the size limits included
 func useDestination(result *PathValidationResult) {
-	noGit, useRestic, maxFileSize = !result.Settings.Git, result.Settings.Restic, result.MaxFileSize
+	noGit, useRestic = !result.Settings.Git, result.Settings.Restic
 	SetFilter(result.SourceResolved, result.Rules, result.Settings.Git)
 }
 
@@ -305,7 +304,7 @@ filter.`,
 		useDestination(result)
 		printRuleWarnings(result.SourceResolved, result.Rules)
 
-		return scanPaths(result.SourceResolved, result.DestinationResolved, maxFileSize, dryRun)
+		return scanPaths(result.SourceResolved, result.DestinationResolved, dryRun)
 	},
 }
 
@@ -367,7 +366,6 @@ default), the size limit with --max-file-size.`,
 			if err != nil {
 				return err
 			}
-			_, maxFileSize = rules.MaxFileSize()
 			SetFilter(absSourcePath, rules, false)
 			printRuleWarnings(absSourcePath, rules)
 		} else {
@@ -386,13 +384,13 @@ default), the size limit with --max-file-size.`,
 		// First, run scan to capture any missed changes
 		if !reportOnly {
 			fmt.Println("Initial scan...")
-			if err := scanPaths(absSourcePath, destPath, maxFileSize, dryRun); err != nil {
+			if err := scanPaths(absSourcePath, destPath, dryRun); err != nil {
 				return fmt.Errorf("initial scan failed: %w", err)
 			}
 		}
 
 		// Create watcher
-		watcher, err := NewWatcher(absSourcePath, maxFileSize, debug)
+		watcher, err := NewWatcher(absSourcePath, debug)
 		if err != nil {
 			return err
 		}
@@ -447,7 +445,7 @@ default), the size limit with --max-file-size.`,
 						continue
 					}
 					fmt.Printf("[%s] File system resync required - performing full scan\n", time.Now().Format("2006-01-02 15:04:05"))
-					if err := scanPaths(absSourcePath, destPath, maxFileSize, dryRun); err != nil {
+					if err := scanPaths(absSourcePath, destPath, dryRun); err != nil {
 						logError("Error during resync: %v", err)
 						return err
 					}
@@ -459,7 +457,7 @@ default), the size limit with --max-file-size.`,
 					doPassFilter = !skipDir(event.Path)
 				} else {
 					var err error
-					doPassFilter, err = ShouldTrack(event.Path, maxFileSize, event.Type == EventDeleted)
+					doPassFilter, err = ShouldTrack(event.Path, event.Type == EventDeleted)
 					if err != nil {
 						logError("failed to check tracking for %s: %v", event.Path, err)
 						continue
@@ -626,7 +624,7 @@ func formatSize(bytes int64) string {
 }
 
 // scanPaths scans directories, prints actions, and optionally executes them
-func scanPaths(source, dest string, maxFileSize int64, dryRun bool) error {
+func scanPaths(source, dest string, dryRun bool) error {
 	var filesToCopy []string
 	var filesToUpdate []string
 	filesToCopyMap := make(map[string]bool)
@@ -636,7 +634,7 @@ func scanPaths(source, dest string, maxFileSize int64, dryRun bool) error {
 
 	// Walk the files of the source the rules keep
 	_, err := rulesSet().walk(source, func(path string, info fs.FileInfo) error {
-		if tooLargeToTrack(path, info.Size(), maxFileSize) {
+		if tooLargeToTrack(path, info.Size()) {
 			return nil
 		}
 
@@ -771,7 +769,7 @@ func expandDirChanges(events []PendingFileChanges, absSourcePath, absDestPath st
 	for _, dir := range dirs {
 		// Missing (moved away or removed): nothing to walk
 		rulesSet().walk(dir, func(path string, info fs.FileInfo) error {
-			if !tooLargeToTrack(path, info.Size(), maxFileSize) {
+			if !tooLargeToTrack(path, info.Size()) {
 				add(path, EventCreated)
 			}
 			return nil
@@ -783,7 +781,7 @@ func expandDirChanges(events []PendingFileChanges, absSourcePath, absDestPath st
 		}
 		walkDestination(absDestPath, relDir, func(relPath string) {
 			sourcePath := filepath.Join(absSourcePath, relPath)
-			if track, _ := ShouldTrack(sourcePath, maxFileSize, false); !track {
+			if track, _ := ShouldTrack(sourcePath, false); !track {
 				add(sourcePath, EventDeleted)
 			}
 		})

@@ -27,9 +27,9 @@ func resolvedTempDir(t *testing.T) string {
 // limit and the active rules after
 func setGlobals(t *testing.T, git bool) {
 	t.Helper()
-	oldNoGit, oldUseRestic, oldMaxFileSize, oldRules := noGit, useRestic, maxFileSize, activeRules
+	oldNoGit, oldUseRestic, oldRules := noGit, useRestic, activeRules
 	noGit, useRestic = !git, false
-	t.Cleanup(func() { noGit, useRestic, maxFileSize, activeRules = oldNoGit, oldUseRestic, oldMaxFileSize, oldRules })
+	t.Cleanup(func() { noGit, useRestic, activeRules = oldNoGit, oldUseRestic, oldRules })
 	if git {
 		t.Setenv("GIT_AUTHOR_NAME", "Test")
 		t.Setenv("GIT_AUTHOR_EMAIL", "test@example.com")
@@ -817,7 +817,7 @@ func TestScanPaths_KeepsDestinationMarker(t *testing.T) {
 	writeFile(t, filepath.Join(source, filterFileName), "version 1\n")
 
 	setRules(t, source)
-	if err := scanPaths(source, dest, 0, false); err != nil {
+	if err := scanPaths(source, dest, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dest, "a.txt")); err != nil {
@@ -886,6 +886,6 @@ func TestDestinationDisappeared(t *testing.T) {
 		source := newSource(t)
 		dest := filepath.Join(resolvedTempDir(t), "gone")
 		setRules(t, source)
-		expectDestMissing(t, scanPaths(source, dest, 0, false), dest)
+		expectDestMissing(t, scanPaths(source, dest, false), dest)
 	})
 }

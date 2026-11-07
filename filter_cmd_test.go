@@ -118,7 +118,7 @@ func TestSourceRulesWalk(t *testing.T) {
 
 func TestExplain(t *testing.T) {
 	source := newRulesSource(t)
-	s := newSourceRules(source, defaultRulesWith(t, "exclude /skipped"), true)
+	s := newSourceRules(source, defaultRulesWith(t, "max-file-size 1M", "max-file-size 2M /notes", "exclude /skipped"), true)
 	tests := map[string]string{
 		"keep.txt":             "keep.txt (file): kept: no rule matches it or a folder above it",
 		"node_modules/x.js":    "node_modules/x.js (file): left out by exclude /**/node_modules (group deps), matching node_modules",
@@ -126,13 +126,13 @@ func TestExplain(t *testing.T) {
 		"sub/.git/config":      "sub/.git/config (file): left out: use nested-git, applied by the git destination",
 		filterFileName:         filterFileName + " (file): left out: always applied",
 		"link":                 "link (file): left out: not a regular file",
-		"big.bin":              "big.bin (file): left out: 1.00 MB, larger than the size limit 1.00 MB (kept: no rule",
+		"big.bin":              "big.bin (file): left out: 1.00 MB, larger than max-file-size 1.00 MB (kept: no rule",
 		"gone.log":             "gone.log (missing, decided as a file): left out by exclude f:/**/*.log (group logs)",
-		source + "/notes/a.md": "notes/a.md (file): kept",
+		source + "/notes/a.md": "notes/a.md (file): kept: no rule matches it or a folder above it, within max-file-size 2M /notes",
 	}
 	for path, want := range tests {
 		out := captureStdout(t, func() {
-			if err := explain(s, path, 1<<20); err != nil {
+			if err := explain(s, path); err != nil {
 				t.Error(err)
 			}
 		})
@@ -140,7 +140,7 @@ func TestExplain(t *testing.T) {
 			t.Errorf("explain %s:\n got %q\nwant %q...", path, out, want)
 		}
 	}
-	if err := explain(s, "../outside", 1<<20); err == nil {
+	if err := explain(s, "../outside"); err == nil {
 		t.Error("a path outside the source is explained")
 	}
 }
@@ -272,7 +272,7 @@ func newSyncedDestination(t *testing.T, git bool) (*PathValidationResult, string
 		t.Fatal(err)
 	}
 	setRules(t, source)
-	if err := scanPaths(source, dest, 0, false); err != nil {
+	if err := scanPaths(source, dest, false); err != nil {
 		t.Fatal(err)
 	}
 	result, err := ValidateSourceAndDestination(source, dest)
@@ -496,7 +496,7 @@ func TestFilterScan_MaxFileSize(t *testing.T) {
 		t.Errorf("scan without a limit: %v\n%s", err, out)
 	}
 	out, err = runCLI(t, "filter", "scan", "--source", source, "--max-file-size", "4k", "--explain", "big.bin")
-	if err != nil || !strings.Contains(out, "left out: 8.0 KB, larger than the size limit 4.0 KB") {
+	if err != nil || !strings.Contains(out, "left out: 8.0 KB, larger than max-file-size 4.0 KB") {
 		t.Errorf("explain: %v\n%s", err, out)
 	}
 	out, err = runCLI(t, "filter", "dump", "--use", "default", "--max-file-size", "4k")
@@ -557,7 +557,7 @@ func TestFilterScan_Markers(t *testing.T) {
 	t.Cleanup(func() { activeRules = old })
 	SetFilter(source, defaultRulesWith(t, "exclude marker:CACHEDIR.TAG"), false)
 	captureStdout(t, func() {
-		if err := scanPaths(source, dest, 0, false); err != nil {
+		if err := scanPaths(source, dest, false); err != nil {
 			t.Error(err)
 		}
 	})

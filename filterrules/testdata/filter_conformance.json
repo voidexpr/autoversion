@@ -132,6 +132,46 @@
       "kept": ["keep/", "keep/small.txt"]
     },
     {
+      "name": "scoped max-file-size: none under .git lifts the default",
+      "tools": ["native", "autoversion"],
+      "max_file_size": ["10M", "none /**/.git"],
+      "tree": ["a/", "a/big.db", "a/.git/", "a/.git/objects/", "a/.git/objects/p.pack"],
+      "sizes": {"a/big.db": 20971520, "a/.git/objects/p.pack": 20971520},
+      "exclude": [],
+      "include": [],
+      "kept": ["a/", "a/.git/", "a/.git/objects/", "a/.git/objects/p.pack"]
+    },
+    {
+      "name": "scoped max-file-size: the closer line wins",
+      "tools": ["native", "autoversion"],
+      "max_file_size": ["10M", "1G /data", "100M /data/raw"],
+      "tree": ["data/", "data/x", "data/raw/", "data/raw/y", "data/raw/z"],
+      "sizes": {"data/x": 524288000, "data/raw/y": 524288000, "data/raw/z": 52428800},
+      "exclude": [],
+      "include": [],
+      "kept": ["data/", "data/x", "data/raw/", "data/raw/z"]
+    },
+    {
+      "name": "scoped max-file-size: a scoped line alone, no default",
+      "tools": ["native", "autoversion"],
+      "max_file_size": ["1M /small"],
+      "tree": ["big.iso", "small/", "small/f"],
+      "sizes": {"big.iso": 2147483648, "small/f": 2097152},
+      "exclude": [],
+      "include": [],
+      "kept": ["big.iso", "small/"]
+    },
+    {
+      "name": "scoped max-file-size: the entry's own match is the closest, the folder's none doesn't lift it",
+      "tools": ["native", "autoversion"],
+      "max_file_size": ["10M", "1G f:/**/*.pack", "none /**/.git"],
+      "tree": ["a/", "a/.git/", "a/.git/x.pack", "a/.git/y.bin", "b/", "b/z.pack", "b/w.pack"],
+      "sizes": {"a/.git/x.pack": 2147483648, "a/.git/y.bin": 2147483648, "b/z.pack": 2147483648, "b/w.pack": 524288000},
+      "exclude": [],
+      "include": [],
+      "kept": ["a/", "a/.git/", "a/.git/y.bin", "b/", "b/w.pack"]
+    },
+    {
       "name": "markers: a folder holding the entry is left out, stored bare with the entry",
       "tools": ["native", "restic", "borg", "autoversion"],
       "tree": [
@@ -218,6 +258,9 @@
     {"text": "version 1\nmax-file-size 1.5m\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 10p\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 4k\nmax-file-size 4k\n", "code": "bad-directive", "line": 3},
+    {"text": "version 1\nmax-file-size 10M marker:CACHEDIR.TAG\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nmax-file-size 10M /a/!b\n", "code": "bad-directive", "line": 2},
+    {"text": "version 1\nmax-file-size 10M /a\nexclude /x\nmax-file-size 1M /b\n", "code": "bad-directive", "line": 4},
     {"text": "version 1\nexclude /x\nmax-file-size 4k\n", "code": "bad-directive", "line": 3}
   ],
   "invalid_filters": [

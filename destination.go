@@ -44,12 +44,16 @@ func (s destinationSettings) String() string {
 	return fmt.Sprintf("git %s, restic %s", onOff[s.Git], onOff[s.Restic])
 }
 
-// sizeLimitText says the size limit of rules, for filter dump
+// sizeLimitText says the size limits of rules, for filter dump
 func sizeLimitText(rules *filterrules.Rules) string {
-	if text, _ := rules.MaxFileSize(); text != "" {
-		return "max-file-size " + text
+	text := "none (no max-file-size line)"
+	if t, _ := rules.MaxFileSize(); t != "" {
+		text = "max-file-size " + t
 	}
-	return "none (no max-file-size line)"
+	for _, rule := range rules.SizeLimits() {
+		text += ", " + rule.String()
+	}
+	return text
 }
 
 type destinationMarker struct {
@@ -245,10 +249,9 @@ type PathValidationResult struct {
 	Errors              []string
 
 	// When the marker names the source
-	Settings    destinationSettings
-	Rules       *filterrules.Rules
-	MaxFileSize int64 // the rules' size limit, in bytes (0: none)
-	RulesErr    error // the rules file can't be read or is invalid
+	Settings destinationSettings
+	Rules    *filterrules.Rules
+	RulesErr error // the rules file can't be read or is invalid
 }
 
 // ValidateSourceAndDestination validates that source and destination paths are
@@ -318,9 +321,6 @@ func ValidateSourceAndDestination(sourcePath, destPath string) (*PathValidationR
 			result.Marker = MarkerMatches
 			result.Settings = marker.destinationSettings
 			result.Rules, result.RulesErr = readRules(resolvedDest)
-			if result.Rules != nil {
-				_, result.MaxFileSize = result.Rules.MaxFileSize()
-			}
 		default:
 			result.Marker = MarkerOtherSource
 			result.MarkerSource = marker.Source

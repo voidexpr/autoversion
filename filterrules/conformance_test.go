@@ -26,7 +26,7 @@ func TestConformance(t *testing.T) {
 			Exclude     []string         `json:"exclude"`
 			Include     []string         `json:"include"`
 			Kept        []string         `json:"kept"`
-			MaxFileSize string           `json:"max_file_size"` // the directive's value, "" without
+			MaxFileSize json.RawMessage  `json:"max_file_size"` // the directive's value, or a list of lines ("10M", "none /**/.git"); absent without
 			Sizes       map[string]int64 `json:"sizes"`         // file entry to bytes, 0 when absent
 		} `json:"cases"`
 		Invalid []struct {
@@ -64,7 +64,14 @@ func TestConformance(t *testing.T) {
 		native++
 		t.Run(c.Name, func(t *testing.T) {
 			f := newFile(t, c.Exclude, c.Include)
-			f.MaxFileSize = c.MaxFileSize
+			for _, line := range sizeLines(t, c.MaxFileSize) {
+				size, rule, scoped := strings.Cut(line, " ")
+				if !scoped {
+					f.MaxFileSize = line
+				} else if err := f.AddSizeLimit(size, rule); err != nil {
+					t.Fatal(err)
+				}
+			}
 			r, err := New(f)
 			if err != nil {
 				t.Fatal(err)
@@ -129,6 +136,24 @@ func TestConformance(t *testing.T) {
 	}
 }
 
+// sizeLines returns a case's max-file-size lines: a string is the default
+// alone, a list holds the lines as written, absent is none
+func sizeLines(t *testing.T, raw json.RawMessage) []string {
+	t.Helper()
+	if len(raw) == 0 {
+		return nil
+	}
+	var one string
+	if err := json.Unmarshal(raw, &one); err == nil {
+		return []string{one}
+	}
+	var lines []string
+	if err := json.Unmarshal(raw, &lines); err != nil {
+		t.Fatalf("max_file_size %s: %v", raw, err)
+	}
+	return lines
+}
+
 // newFile builds a File from rules as written and groups
 func newFile(t *testing.T, exclude, include []string, uses ...string) *File {
 	t.Helper()
@@ -172,7 +197,7 @@ func decide(r *Rules, entry string) Decision {
 func selectTree(r *Rules, tree []string, sizes map[string]int64) []string {
 	kept := map[string]bool{}
 	for _, entry := range tree {
-		if decide(r, entry).Kept && (strings.HasSuffix(entry, "/") || !r.TooLarge(sizes[entry])) {
+		if decide(r, entry).Kept && (strings.HasSuffix(entry, "/") || !r.TooLarge(entry, sizes[entry])) {
 			kept[entry] = true
 			names := strings.Split(strings.TrimSuffix(entry, "/"), "/")
 			for i := 1; i < len(names); i++ {

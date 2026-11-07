@@ -18,19 +18,30 @@ import (
 // Decision.Rule return are shared by every copy: read only.
 type Rules struct {
 	types       string
-	maxFileSize string             // as written, "" without the directive
-	maxBytes    int64              // 0: no limit
-	all         []Rule             // own rules first, then the groups'
-	literal     map[string][]*Rule // literal rules by path
-	byName      map[string][]*Rule // wildcard rules by the name a level must have: /**/node_modules
-	byExt       map[string][]*Rule // wildcard rules by the extension a level must have: f:/**/*.log
-	wildcard    []*Rule            // the other wildcard rules, tried at each level
+	maxFileSize string    // as written, "" without the directive
+	maxBytes    int64     // 0: no limit
+	all         []Rule    // own rules first, then the groups'
+	paths       ruleIndex // the path rules of all, markers aside
 	includes    []*Rule
 	markers     []*Rule // exclude marker:NAME rules
+	sizeLimits  []Rule  // the scoped max-file-size lines, expanded
+	sizes       ruleIndex
 
 	// markerExists reports whether the folder relDir directly holds an
 	// entry named name; nil (markers never match) except in a WithMarkers copy
 	markerExists func(relDir, name string) bool
+}
+
+// ruleIndex files rules by what decideLevel tries at a level
+type ruleIndex struct {
+	literal  map[string][]*Rule // literal rules by path
+	byName   map[string][]*Rule // wildcard rules by the name a level must have: /**/node_modules
+	byExt    map[string][]*Rule // wildcard rules by the extension a level must have: f:/**/*.log
+	wildcard []*Rule            // the other wildcard rules, tried at each level
+}
+
+func newRuleIndex() ruleIndex {
+	return ruleIndex{literal: map[string][]*Rule{}, byName: map[string][]*Rule{}, byExt: map[string][]*Rule{}}
 }
 
 // New combines a file's rules with the groups it uses, and validates them
@@ -53,39 +64,115 @@ func New(f *File) (*Rules, error) {
 		}
 		r.maxFileSize, r.maxBytes = f.MaxFileSize, bytes
 	}
+	for _, l := range f.SizeLimits {
+		bytes, err := ParseSize(l.Size)
+		if err != nil {
+			return nil, &Error{Code: "bad-directive", Rule: l.String(), Reason: err.Error()}
+		}
+		rules, err := parseSizeRule(l.Rule)
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range rules {
+			rule.size, rule.sizeBytes = l.Size, bytes
+			r.sizeLimits = append(r.sizeLimits, rule)
+		}
+	}
+	r.sizes = newRuleIndex()
+	for i := range r.sizeLimits {
+		r.sizeLimits[i].pos = i
+		r.sizes.add(&r.sizeLimits[i])
+	}
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
-// MaxFileSize returns the size limit: the max-file-size directive as
-// written ("" without one) and in bytes (0: no limit). It applies after the
-// rules, to kept non-folders only, see TooLarge.
+// MaxFileSize returns the default size limit: the bare max-file-size
+// directive as written ("" without one) and in bytes (0: no limit). It
+// applies after the rules, to kept non-folders only, where no scoped line
+// does, see Limit and TooLarge.
 func (r *Rules) MaxFileSize() (text string, bytes int64) {
 	return r.maxFileSize, r.maxBytes
 }
 
-// TooLarge reports whether a kept file is left out by the size limit: it is
-// larger than max-file-size (a file of exactly that size is kept)
-func (r *Rules) TooLarge(size int64) bool {
-	return r.maxBytes > 0 && size > r.maxBytes
+// SizeLimits returns the scoped max-file-size lines, expanded
+func (r *Rules) SizeLimits() []*Rule {
+	limits := make([]*Rule, len(r.sizeLimits))
+	for i := range r.sizeLimits {
+		limits[i] = &r.sizeLimits[i]
+	}
+	return limits
+}
+
+// Limit returns the size limit of a kept non-folder entry: the scoped
+// max-file-size line that decides it, nil for the default. The closest
+// match wins, the depth being the level its rule matched at; on one level
+// the tiers of decideLevel apply, and lines still tied give the strictest
+// limit, none being the loosest.
+func (r *Rules) Limit(rel string) *Rule {
+	if len(r.sizeLimits) == 0 || rel == "" {
+		return nil
+	}
+	names := strings.Split(rel, "/")
+	end := len(rel)
+	for d := len(names); d >= 1; d-- {
+		if d < len(names) {
+			end -= len(names[d]) + 1
+		}
+		if rule := r.sizes.limitLevel(names[:d], rel[:end], d < len(names)); rule != nil {
+			return rule
+		}
+	}
+	return nil
+}
+
+// TooLarge reports whether a kept non-folder entry is left out by its size
+// limit (see Limit): it is larger than it (an entry of exactly that size is
+// kept)
+func (r *Rules) TooLarge(rel string, size int64) bool {
+	limit := r.maxBytes
+	if rule := r.Limit(rel); rule != nil {
+		limit = rule.sizeBytes
+	}
+	return limit > 0 && size > limit
+}
+
+// limitLevel returns the scoped line that decides the level q (path qPath):
+// of the first tier with a match, the strictest
+func (x *ruleIndex) limitLevel(q []string, qPath string, isDir bool) *Rule {
+	strictest := func(rules ...[]*Rule) *Rule {
+		var best *Rule
+		for _, rules := range rules {
+			for _, rule := range rules {
+				if rule.fits(isDir) && rule.match(q) && (best == nil || best.sizeBytes == 0 || rule.sizeBytes > 0 && rule.sizeBytes < best.sizeBytes) {
+					best = rule
+				}
+			}
+		}
+		return best
+	}
+	name := q[len(q)-1]
+	if rule := strictest(x.literal[qPath]); rule != nil {
+		return rule
+	}
+	if rule := strictest(x.byName[name]); rule != nil {
+		return rule
+	}
+	return strictest(x.byExt[extension(name)], x.wildcard)
 }
 
 func compile(all []Rule) *Rules {
-	r := &Rules{all: all, literal: map[string][]*Rule{}, byName: map[string][]*Rule{}, byExt: map[string][]*Rule{}}
+	r := &Rules{all: all, paths: newRuleIndex()}
 	for i := range r.all {
 		rule := &r.all[i]
 		rule.pos = i
-		switch {
-		case rule.Marker != "":
+		if rule.Marker != "" {
 			r.markers = append(r.markers, rule)
 			continue
-		case rule.Literal():
-			r.literal[rule.Text[1:]] = append(r.literal[rule.Text[1:]], rule)
-		default:
-			r.indexWildcard(rule)
 		}
+		r.paths.add(rule)
 		if rule.Kind == Include {
 			r.includes = append(r.includes, rule)
 		}
@@ -93,19 +180,24 @@ func compile(all []Rule) *Rules {
 	return r
 }
 
-// indexWildcard files a wildcard rule by what its last name requires of an
-// entry's name: being NAME, or ending with .EXT (*.EXT, no "." in EXT, which
-// is then the name's last "." on). decideLevel only tries the rules filed
-// under the name and the extension of a level, and the others.
-func (r *Rules) indexWildcard(rule *Rule) {
+// add files a path rule: a literal one by its path, a wildcard one by what
+// its last name requires of an entry's name: being NAME, or ending with
+// .EXT (*.EXT, no "." in EXT, which is then the name's last "." on).
+// decideLevel only tries the rules filed under the path, the name and the
+// extension of a level, and the others.
+func (x *ruleIndex) add(rule *Rule) {
+	if rule.Literal() {
+		x.literal[rule.Text[1:]] = append(x.literal[rule.Text[1:]], rule)
+		return
+	}
 	last := rule.segments[len(rule.segments)-1]
 	switch {
 	case last.parts == nil:
-		r.byName[last.text] = append(r.byName[last.text], rule)
+		x.byName[last.text] = append(x.byName[last.text], rule)
 	case len(last.parts) == 2 && last.parts[0] == "" && strings.LastIndexByte(last.parts[1], '.') == 0:
-		r.byExt[last.parts[1]] = append(r.byExt[last.parts[1]], rule)
+		x.byExt[last.parts[1]] = append(x.byExt[last.parts[1]], rule)
 	default:
-		r.wildcard = append(r.wildcard, rule)
+		x.wildcard = append(x.wildcard, rule)
 	}
 }
 
@@ -195,11 +287,22 @@ func (r *Rules) validate() error {
 		if !inc.Literal() {
 			continue
 		}
-		for _, other := range r.literal[inc.Text[1:]] {
+		for _, other := range r.paths.literal[inc.Text[1:]] {
 			if other.Kind == Exclude {
 				errs = append(errs, &Error{Code: "contradiction", Rule: inc.Text,
 					Reason: "both excluded and included: delete one"})
 				break
+			}
+		}
+	}
+	// Two literal scoped limits on the same path with different sizes
+	for _, rules := range r.sizes.literal {
+		for i, a := range rules {
+			for _, b := range rules[:i] {
+				if a.Type == b.Type && a.sizeBytes != b.sizeBytes {
+					errs = append(errs, &Error{Code: "contradiction", Rule: a.String(),
+						Reason: "two limits on the same path (" + b.String() + "): delete one"})
+				}
 			}
 		}
 	}
@@ -256,7 +359,7 @@ func (r *Rules) Decide(rel string, isDir bool) Decision {
 // exclude, then the first rule in order wins.
 func (r *Rules) decideLevel(q []string, qPath string, isDir bool, marked func() *Rule) *Rule {
 	var exclude *Rule
-	for _, rule := range r.literal[qPath] {
+	for _, rule := range r.paths.literal[qPath] {
 		if rule.fits(isDir) {
 			if rule.Kind == Include {
 				return rule
@@ -268,7 +371,7 @@ func (r *Rules) decideLevel(q []string, qPath string, isDir bool, marked func() 
 		return exclude
 	}
 	name := q[len(q)-1]
-	if rule := r.pick(q, isDir, r.byName[name]); rule != nil {
+	if rule := r.pick(q, isDir, r.paths.byName[name]); rule != nil {
 		return rule
 	}
 	if marked != nil {
@@ -276,7 +379,7 @@ func (r *Rules) decideLevel(q []string, qPath string, isDir bool, marked func() 
 			return m
 		}
 	}
-	return r.pick(q, isDir, r.byExt[extension(name)], r.wildcard)
+	return r.pick(q, isDir, r.paths.byExt[extension(name)], r.paths.wildcard)
 }
 
 // pick returns the rule of a tier that decides the level q: its first
@@ -425,6 +528,13 @@ func (r *Rules) Check(list ListFunc) []Problem {
 		}
 	}
 
+	for i := range r.sizeLimits {
+		rule := &r.sizeLimits[i]
+		if rule.Literal() && !exists(rule.Text[1:]) {
+			problems = append(problems, Problem{Code: "dead-rule",
+				Message: rule.String() + ": no such entry under the root"})
+		}
+	}
 	allowlist, literalInclude, aliveInclude, wildcardInclude := false, false, false, false
 	for i := range r.all {
 		rule := &r.all[i]
@@ -515,6 +625,9 @@ func (r *Rules) Dump() string {
 	}
 	if r.maxFileSize != "" {
 		fmt.Fprintf(&b, "max-file-size %s\n", r.maxFileSize)
+	}
+	for _, rule := range r.sizeLimits {
+		b.WriteString(rule.String() + "\n")
 	}
 	for i, rule := range r.all {
 		if i == 0 || rule.Group != r.all[i-1].Group {

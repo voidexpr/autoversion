@@ -233,6 +233,10 @@ shared with ownit. Without the file, they are "use default". Example, for
   named NAME (marker:{CACHEDIR.TAG,pyvenv.cfg}), except that entry: the
   folder is stored bare with the marker. It counts as a named wildcard
   exclude on the folder.
+- max-file-size SIZE RULE scopes a limit to what a path rule covers
+  (max-file-size none /**/.git), any number of lines: the closest match
+  sets a kept file's limit, ranked like rules, ties give the strictest;
+  no match, the bare max-file-size line.
 - The closest match wins: the entry itself, then each folder above it. On
   one level, a literal rule beats a wildcard, a named wildcard (/**/.cache)
   beats one ending in a wildcard (/.*, /**/*.log), then an include beats an
@@ -283,7 +287,6 @@ are the destination's (--destination), or the ones given (none: use default).
 
 		var rules *filterrules.Rules
 		var nestedGit bool
-		var maxSize int64
 		if destFlag != "" {
 			if ruleFlagsGiven() {
 				return errDestinationRules
@@ -295,21 +298,20 @@ are the destination's (--destination), or the ones given (none: use default).
 			if problems := result.problems(); len(problems) > 0 {
 				return errors.New(problems[0])
 			}
-			rules, nestedGit, maxSize = result.Rules, result.Settings.Git, result.MaxFileSize
+			rules, nestedGit = result.Rules, result.Settings.Git
 		} else {
 			if rules, err = rulesFromFlags(sourcePath); err != nil {
 				return err
 			}
-			_, maxSize = rules.MaxFileSize()
 		}
 		s := newSourceRules(sourcePath, rules, nestedGit)
 
 		if explainFlag != "" {
-			return explain(s, explainFlag, maxSize)
+			return explain(s, explainFlag)
 		}
 		files, size := 0, int64(0)
 		dirs, _ := s.walk(sourcePath, func(path string, info fs.FileInfo) error {
-			if tooLarge(info.Size(), maxSize) {
+			if maxSize, _ := s.limit(path); tooLarge(info.Size(), maxSize) {
 				return nil
 			}
 			files++
@@ -331,9 +333,9 @@ are the destination's (--destination), or the ones given (none: use default).
 	},
 }
 
-// explain prints what decides an entry of the source; maxSize is the size
-// limit in bytes (0: none)
-func explain(s *sourceRules, path string, maxSize int64) error {
+// explain prints what decides an entry of the source, its size limit
+// included
+func explain(s *sourceRules, path string) error {
 	abs := path
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(s.root, path)
@@ -378,8 +380,18 @@ func explain(s *sourceRules, path string, maxSize int64) error {
 			level := strings.Join(strings.Split(rel, "/")[:d.Level], "/")
 			result = fmt.Sprintf("%s by %s, matching %s", result, by, level)
 		}
-		if d.Kept && err == nil && !isDir && tooLarge(info.Size(), maxSize) {
-			result = fmt.Sprintf("left out: %s, larger than the size limit %s (%s)", formatSize(info.Size()), formatSize(maxSize), result)
+		if d.Kept && err == nil && !isDir {
+			maxSize, rule := s.limit(abs)
+			limit := "max-file-size " + formatSize(maxSize)
+			if rule != nil {
+				limit = rule.String()
+			}
+			switch {
+			case tooLarge(info.Size(), maxSize):
+				result = fmt.Sprintf("left out: %s, larger than %s (%s)", formatSize(info.Size()), limit, result)
+			case rule != nil:
+				result = fmt.Sprintf("%s, within %s", result, limit)
+			}
 		}
 	}
 	fmt.Printf("%s (%s): %s\n", rel, what, result)
@@ -560,9 +572,9 @@ func applyRules(result *PathValidationResult, text string, replace bool) error {
 	}
 
 	kept := map[string]bool{}
-	_, maxSize := rules.MaxFileSize()
-	newSourceRules(sourcePath, rules, settings.Git).walk(sourcePath, func(path string, info fs.FileInfo) error {
-		if !tooLarge(info.Size(), maxSize) {
+	s := newSourceRules(sourcePath, rules, settings.Git)
+	s.walk(sourcePath, func(path string, info fs.FileInfo) error {
+		if maxSize, _ := s.limit(path); !tooLarge(info.Size(), maxSize) {
 			rel, _ := filepath.Rel(sourcePath, path)
 			kept[rel] = true
 		}

@@ -115,6 +115,20 @@ func (s *sourceRules) tracked(path string, isDir bool) bool {
 	return ok && !s.leftOut(rel) && s.rules.Decide(rel, isDir).Kept
 }
 
+// limit returns the size limit of a file of the source, in bytes (0: none),
+// and the scoped max-file-size line that sets it (nil: the default)
+func (s *sourceRules) limit(path string) (int64, *filterrules.Rule) {
+	rel, ok := s.rel(path)
+	if ok {
+		if rule := s.rules.Limit(rel); rule != nil {
+			_, bytes := rule.Size()
+			return bytes, rule
+		}
+	}
+	_, bytes := s.rules.MaxFileSize()
+	return bytes, nil
+}
+
 // skipDir reports whether a walker can skip a folder of the source: it is
 // left out, and nothing below it can be kept
 func (s *sourceRules) skipDir(path string) bool {

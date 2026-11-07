@@ -52,7 +52,7 @@ func TestWatcher_AllowlistWatchesOnlyFoldersLeadingToIncludes(t *testing.T) {
 		}
 	}
 
-	w, err := NewWatcher(root, 0, false)
+	w, err := NewWatcher(root, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestWatcher_AllowlistWatchesOnlyFoldersLeadingToIncludes(t *testing.T) {
 func TestWatcher_Directories(t *testing.T) {
 	root := t.TempDir()
 	setRules(t, root)
-	w, err := NewWatcher(root, 0, false)
+	w, err := NewWatcher(root, false)
 	if err != nil {
 		t.Fatal(err)
 	}

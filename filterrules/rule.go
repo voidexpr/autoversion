@@ -54,6 +54,17 @@ type Rule struct {
 	segments []pattern
 	star     int // position of the "**" segment, -1 without one
 	pos      int // index in the combined rules, for their order
+
+	// For a scoped max-file-size line (see Rules.Limit): the size as written
+	// and in bytes (0: none). "" for a path rule.
+	size      string
+	sizeBytes int64
+}
+
+// Size returns a scoped max-file-size rule's limit: as written and in bytes
+// (0: none). "" for a path rule.
+func (r Rule) Size() (text string, bytes int64) {
+	return r.size, r.sizeBytes
 }
 
 // pattern is one name of a rule: a literal, or a glob cut at its "*"
@@ -93,6 +104,9 @@ func (p pattern) match(name string) bool {
 }
 
 func (r Rule) String() string {
+	if r.size != "" {
+		return "max-file-size " + r.size + " " + r.Type.prefix() + r.Text
+	}
 	return r.Kind.String() + " " + r.Type.prefix() + r.Text
 }
 

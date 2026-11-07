@@ -40,29 +40,36 @@ func skipDir(path string) bool {
 	return rulesSet().skipDir(path)
 }
 
-// tooLarge reports whether a file is over the size limit, in bytes (0: no
+// tooLarge reports whether a file is over a size limit, in bytes (0: no
 // limit). A file of exactly the limit is kept.
 func tooLarge(size, maxSize int64) bool {
 	return maxSize > 0 && size > maxSize
 }
 
-// tooLargeToTrack is tooLarge, logging each large file once
-func tooLargeToTrack(path string, size, maxSize int64) bool {
+// tooLargeToTrack reports whether a file of the source is over its size
+// limit (the rules' default, or the scoped max-file-size line covering it),
+// logging each large file once
+func tooLargeToTrack(path string, size int64) bool {
+	maxSize, rule := rulesSet().limit(path)
 	if !tooLarge(size, maxSize) {
 		return false
 	}
 	if !reportedLargeFiles[path] {
 		reportedLargeFiles[path] = true
-		logSkip("[%s] skipping large file: %s (%s > %s)\n",
-			nowTS(), path, formatSize(size), formatSize(maxSize))
+		by := ""
+		if rule != nil {
+			by = ", " + rule.String()
+		}
+		logSkip("[%s] skipping large file: %s (%s > %s%s)\n",
+			nowTS(), path, formatSize(size), formatSize(maxSize), by)
 	}
 	return true
 }
 
 // ShouldTrack returns true if a file of the source is tracked: the rules keep
-// it, it is a regular file, and it is within maxSize bytes (0: no limit).
-// isDelete should be true for a deleted file: only the rules apply.
-func ShouldTrack(path string, maxSize int64, isDelete bool) (bool, error) {
+// it, it is a regular file, and it is within its size limit. isDelete should
+// be true for a deleted file: only the rules apply.
+func ShouldTrack(path string, isDelete bool) (bool, error) {
 	// The rules first: they need no file access, and the files they leave out
 	// are often temporary ones already gone (e.g. build outputs)
 	if !trackedPath(path, false) {
@@ -90,5 +97,5 @@ func ShouldTrack(path string, maxSize int64, isDelete bool) (bool, error) {
 		return false, nil
 	}
 
-	return !tooLargeToTrack(path, info.Size(), maxSize), nil
+	return !tooLargeToTrack(path, info.Size()), nil
 }

@@ -92,7 +92,7 @@ func TestScanPaths_Allowlist(t *testing.T) {
 	writeFile(t, filepath.Join(dest, "other.json"), "{}")
 
 	captureStdout(t, func() {
-		if err := scanPaths(source, dest, 0, false); err != nil {
+		if err := scanPaths(source, dest, false); err != nil {
 			t.Error(err)
 		}
 	})
@@ -166,7 +166,7 @@ func TestScanPaths_NestedGit(t *testing.T) {
 	t.Cleanup(func() { activeRules = old })
 	SetFilter(source, defaultRulesWith(t), false)
 	captureStdout(t, func() {
-		if err := scanPaths(source, dest, 0, false); err != nil {
+		if err := scanPaths(source, dest, false); err != nil {
 			t.Error(err)
 		}
 	})
@@ -176,7 +176,7 @@ func TestScanPaths_NestedGit(t *testing.T) {
 
 	SetFilter(source, defaultRulesWith(t, "/**/.git"), true)
 	captureStdout(t, func() {
-		if err := scanPaths(source, dest, 0, false); err != nil {
+		if err := scanPaths(source, dest, false); err != nil {
 			t.Error(err)
 		}
 	})

@@ -58,7 +58,6 @@ type Watcher struct {
 	events     chan FileEvent
 	errors     chan error
 	done       chan struct{}
-	maxSize    int64
 	sourcePath string
 	debug      bool
 }

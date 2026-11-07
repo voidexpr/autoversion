@@ -19,12 +19,11 @@ type watcherPlatform struct {
 }
 
 // NewWatcher creates a new file system watcher (non-macOS: uses fsnotify)
-func NewWatcher(sourcePath string, maxSize int64, debug bool) (*Watcher, error) {
+func NewWatcher(sourcePath string, debug bool) (*Watcher, error) {
 	w := &Watcher{
 		events:     make(chan FileEvent, 100),
 		errors:     make(chan error, 10),
 		done:       make(chan struct{}),
-		maxSize:    maxSize,
 		sourcePath: sourcePath,
 		debug:      debug,
 	}

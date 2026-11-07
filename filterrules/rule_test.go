@@ -161,7 +161,7 @@ func TestDecideSpecIncludes(t *testing.T) {
 	memory := [][]string{{"/projects/old/memory"}, {"/projects/*/memory"}}
 	logs := [][]string{{"/**/*.log"}, {"/Logs"}}
 	allowlist := [][]string{{"/*"}, {"/notes"}}
-	tie := [][]string{{"/**/x"}, {"/a/*"}}          // a named wildcard beats one ending in a wildcard
+	tie := [][]string{{"/**/x"}, {"/a/*"}} // a named wildcard beats one ending in a wildcard
 	dotfiles := [][]string{{"/*", "/**/.cache"}, {"/.*"}}
 	named := [][]string{{"/**/*.log"}, {"/**/app.log"}} // and an include too
 	plain := [][]string{{"/**/*.log"}, {"/logs/*"}}     // two unnamed wildcards: the include wins
