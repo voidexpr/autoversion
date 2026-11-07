@@ -1,0 +1,11 @@
+# browser-profiles: what a Chromium or Chrome user data folder re-downloads or regenerates; cookies, storage and preferences stay
+version 1
+
+# component updater downloads (versioned subfolders), on-device models, crash and metrics state
+exclude /**/{component_crx_cache,PKIMetadata,CertificateRevocation,segmentation_platform,OptGuideOnDeviceModel,Crashpad,BrowserMetrics}
+exclude /**/{ZxcvbnData,MEIPreload,SafetyTips,OnDeviceHeadSuggestModel,TrustTokenKeyCommitments,FirstPartySetsPreloaded}
+# site data some profiles want: service workers, blobs, push store, prediction models
+exclude /**/{Service Worker,blob_storage,GCM Store,shared_proto_db,optimization_guide_prediction_model_store}
+# the profiles' own caches (Code Cache, GPUCache and the like are in caches)
+exclude /**/{Default,Profile *,Guest Profile}/Cache
+exclude f:/**/Network Persistent State

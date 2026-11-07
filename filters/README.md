@@ -19,6 +19,19 @@ or `x.mp3` is kept.
 exclude /**/.claude/{debug,file-history,shell-snapshots,telemetry,logs,jobs}
 exclude /**/.codex/{cache,.tmp,plugins,computer-use,generated_images,vendor_imports}
 exclude f:/**/.codex/{logs_*.sqlite,thread_history_*.sqlite}
+exclude /**/.ateam/{cache,logs}
+```
+
+## browser-profiles: what a Chromium or Chrome user data folder re-downloads or regenerates; cookies, storage and preferences stay
+
+`use browser-profiles`, [browser-profiles.filter](browser-profiles.filter)
+
+```
+exclude /**/{component_crx_cache,PKIMetadata,CertificateRevocation,segmentation_platform,OptGuideOnDeviceModel,Crashpad,BrowserMetrics}
+exclude /**/{ZxcvbnData,MEIPreload,SafetyTips,OnDeviceHeadSuggestModel,TrustTokenKeyCommitments,FirstPartySetsPreloaded}
+exclude /**/{Service Worker,blob_storage,GCM Store,shared_proto_db,optimization_guide_prediction_model_store}
+exclude /**/{Default,Profile *,Guest Profile}/Cache
+exclude f:/**/Network Persistent State
 ```
 
 ## build: build outputs and compiled files
@@ -30,6 +43,7 @@ exclude /**/{build,dist,out}/*
 exclude /**/target/{debug,release}
 exclude /**/target/{classes,test-classes,generated-sources,generated-test-sources,maven-status,surefire-reports,streams}
 exclude /**/{.build,DerivedData,zig-out,cdk.out,_mdfmt}
+exclude /**/bin/{linux,darwin,windows,freebsd}-*
 exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}
 exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}
 ```
@@ -147,6 +161,7 @@ use vms
 use agents
 use cache-markers
 use trash
+use browser-profiles
 exclude /**/{vendor,deps}
 ```
 
@@ -227,6 +242,13 @@ exclude f:/**/{*.JPG,*.JPEG,*.PNG,*.HEIC,*.HEIF,*.GIF,*.TIF,*.TIFF,*.BMP,*.WEBP,
 
 ```
 exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
+exclude f:/**/.git/*.lock
+exclude f:/**/.git/refs/heads/*.lock
+exclude f:/**/.git/refs/remotes/*/*.lock
+exclude f:/**/.git/objects/maintenance.lock
+exclude f:/**/.git/objects/*/tmp_obj_*
+exclude f:/**/.git/objects/pack/{tmp_pack_*,.tmp-*}
+exclude f:/**/{.org.chromium.Chromium.*,.com.google.Chrome.*}
 ```
 
 ## toolchains: toolchains, tool installs and package registries a tool reinstalls itself

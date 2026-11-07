@@ -2,3 +2,12 @@
 version 1
 
 exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
+# git's locks and in-flight objects (a mirror copying .git sees them; a git destination never does)
+exclude f:/**/.git/*.lock
+exclude f:/**/.git/refs/heads/*.lock
+exclude f:/**/.git/refs/remotes/*/*.lock
+exclude f:/**/.git/objects/maintenance.lock
+exclude f:/**/.git/objects/*/tmp_obj_*
+exclude f:/**/.git/objects/pack/{tmp_pack_*,.tmp-*}
+# Chromium's and Chrome's temporary files
+exclude f:/**/{.org.chromium.Chromium.*,.com.google.Chrome.*}

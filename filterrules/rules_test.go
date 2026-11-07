@@ -174,7 +174,7 @@ func TestOptInGroups(t *testing.T) {
 }
 
 func TestGroups(t *testing.T) {
-	want := []string{"agents", "build", "cache-markers", "caches", "data", "default", "deps", "editors", "extra-tools", "home-caches", "installers", "junk", "local-state", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "toolchains", "trash", "vcs", "videos", "vms"}
+	want := []string{"agents", "browser-profiles", "build", "cache-markers", "caches", "data", "default", "deps", "editors", "extra-tools", "home-caches", "installers", "junk", "local-state", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "toolchains", "trash", "vcs", "videos", "vms"}
 	if got := GroupNames(); !slices.Equal(got, want) {
 		t.Errorf("groups %q, want %q", got, want)
 	}
@@ -302,7 +302,7 @@ func TestCheck_UnreadableFolderIsNotDead(t *testing.T) {
 }
 
 func TestDump(t *testing.T) {
-	r := newFileRules(t, "version 1\ntypes decay\nuse temp\nexclude /*\n/skills/!synced\n")
+	r := newFileRules(t, "version 1\ntypes decay\nuse vcs\nexclude /*\n/skills/!synced\n")
 	want := `version 1
 types decay
 
@@ -311,12 +311,10 @@ exclude /*
 include /skills
 exclude /skills/synced
 
-# group temp
-exclude f:/**/*.tmp
-exclude f:/**/*.tmp.*
-exclude f:/**/*.temp
-exclude f:/**/*.bak
-exclude f:/**/*.old
+# group vcs
+exclude /**/.hg
+exclude /**/.svn
+exclude /**/.cvs
 `
 	if got := r.Dump(); got != want {
 		t.Errorf("dump\n%s\nwant\n%s", got, want)
