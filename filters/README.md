@@ -31,7 +31,7 @@ exclude /**/{component_crx_cache,PKIMetadata,CertificateRevocation,segmentation_
 exclude /**/{ZxcvbnData,MEIPreload,SafetyTips,OnDeviceHeadSuggestModel,TrustTokenKeyCommitments,FirstPartySetsPreloaded}
 exclude /**/{Service Worker,blob_storage,GCM Store,shared_proto_db,optimization_guide_prediction_model_store}
 exclude /**/{Default,Profile *,Guest Profile}/Cache
-exclude f:/**/Network Persistent State
+exclude f:/**/{Network Persistent State,Local State}
 ```
 
 ## build: build outputs and compiled files

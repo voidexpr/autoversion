@@ -8,4 +8,5 @@ exclude /**/{ZxcvbnData,MEIPreload,SafetyTips,OnDeviceHeadSuggestModel,TrustToke
 exclude /**/{Service Worker,blob_storage,GCM Store,shared_proto_db,optimization_guide_prediction_model_store}
 # the profiles' own caches (Code Cache, GPUCache and the like are in caches)
 exclude /**/{Default,Profile *,Guest Profile}/Cache
-exclude f:/**/Network Persistent State
+# rewritten on every start and on a timer; the profile list, variations and metrics it holds are rebuilt
+exclude f:/**/{Network Persistent State,Local State}
