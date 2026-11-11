@@ -1,6 +1,6 @@
 # Spec draft: scoped max-file-size
 
-Status: draft revised by autoversion on 2026-11-06 from ownit's proposal,
+Status: draft revised by autoversion on 2026-11-06 from targy's proposal,
 implemented here to find issues before the spec changes.
 
 ## Syntax

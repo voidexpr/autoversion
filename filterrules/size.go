@@ -9,7 +9,7 @@ import (
 
 // ParseSize parses a max-file-size value: an integer in bytes, or with a
 // unit k, m, g or t, with or without a b suffix (binary, either case), or
-// none. It returns 0 for none (ownit's parser doesn't take none: its
+// none. It returns 0 for none (targy's parser doesn't take none: its
 // directive handles it).
 func ParseSize(text string) (int64, error) {
 	if text == "none" {

@@ -214,7 +214,7 @@ var filterCmd = &cobra.Command{
 	Short: "Show, test and change the rules saying what is tracked",
 	Long: `A destination's rules say which files of its source are tracked. They are
 stored in the destination's ` + filterFileName + `, in the filter syntax
-shared with ownit. Without the file, they are "use default". Example, for
+shared with targy. Without the file, they are "use default". Example, for
 ~/.claude:
 
   version 1

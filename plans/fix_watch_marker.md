@@ -74,8 +74,8 @@ touch /tmp/av/src/cache/CACHEDIR.TAG     # tag copied, dst/cache/data.bin stays
   marker rule per ancestor folder.
 - A folder holding two different marker entries: each leaves the other out,
   so the folder isn't stored bare. Matches restic; the spec wording is unclear
-  (ownit).
+  (targy).
 - A marker entry that is a symlink counts as a marker, but symlinks are never
   copied: the folder vanishes from the destination.
 - The Go conformance test runs only `native` cases. `autoversion` cases are
-  checked only by ownit's pytest against a built binary.
+  checked only by targy's pytest against a built binary.

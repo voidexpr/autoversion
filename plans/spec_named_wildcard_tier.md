@@ -1,6 +1,6 @@
 # Spec proposal: a named wildcard beats one ending in a wildcard
 
-Status: accepted by ownit on 2026-11-06, in the spec
+Status: accepted by targy on 2026-11-06, in the spec
 (`plans/spec_filter_syntax.md`, "Deciding an entry", "All the cases",
 "Known limits") and in its Python matcher at 21c3c68; autoversion's matcher
 at 86d7f9a. Both pass the two conformance cases below.

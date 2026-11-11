@@ -341,7 +341,7 @@ On a destination already initialized for the source:
 
 ### filter
 
-A destination's rules say which files of its source are tracked. They are stored in `DEST_PATH/.autoversion.filter`, in the filter syntax shared with ownit (`~/projects/ownit/plans/spec_filter_syntax.md`). Without that file the rules are `use default`. Example, versioning a few things of `~/.claude`:
+A destination's rules say which files of its source are tracked. They are stored in `DEST_PATH/.autoversion.filter`, in the filter syntax shared with targy (`~/projects/targy/plans/spec_filter_syntax.md`). Without that file the rules are `use default`. Example, versioning a few things of `~/.claude`:
 
 ```
 version 1
@@ -475,7 +475,7 @@ Opt-in groups, not in `default` (`use default` and `use nested-git`, for example
 - **cache-markers:** `exclude marker:{CACHEDIR.TAG,pyvenv.cfg,CMakeCache.txt}`: any folder tagged as a cache, a virtualenv or a CMake build tree by a file it holds, wherever it is. Not in **default**: restic and borg honor markers, rsync doesn't, so a filter previewed here would keep more there.
 - **junk:** one line for everything a backup can do without: `default`, `extra-tools`, `home-caches`, `toolchains`, `local-state`, `vms`, `agents`, `cache-markers`, `trash`, `browser-profiles`, plus `vendor` and `deps` folders (asimov excludes them next to `go.mod`, `composer.json`, `Gemfile`, `mix.exs`; often committed, so not in `default`).
 - **browser-profiles:** what a Chromium or Chrome user data folder re-downloads or regenerates: component updater folders (`component_crx_cache`, `PKIMetadata`, `CertificateRevocation`, …), `Crashpad`, `BrowserMetrics`, `Service Worker`, `blob_storage`, a profile's `Cache`, `Network Persistent State`, `Local State` (rewritten on every start). Cookies, local storage and preferences stay, so a scraping profile keeps its logins. Opt-in because `Service Worker` and `blob_storage` hold site data some want.
-- **trash:** `.Trash`, a group of its own so other filters (ownit's `common`) can take it; not in `default`, a backup of a home may want it.
+- **trash:** `.Trash`, a group of its own so other filters (targy's `common`) can take it; not in `default`, a backup of a home may want it.
 
 A group rule names what it matches (`/**/.cache`), so it beats an include ending in a wildcard on the same level: an allowlist of the dot entries of a home folder, `exclude /*`, `include /.*` and `use junk`, leaves out `.cache`, `.Trash` and the rest at the root (in the spec since 2026-11-06, see `plans/spec_named_wildcard_tier.md`). Suffix rules like `*.log` don't name their entries, so such files at the root stay in.
 
@@ -574,7 +574,7 @@ The API, all in `filterrules`:
 - `Rules.List()` returns the combined rules, the filter's own first, then its groups'; a `Decision.Rule` points into it.
 - `Groups()`, `GroupNames()`, `Group(name)` for the built-in groups. A group file that doesn't load never panics: `Group` and `New` return its error, for that group and the groups using it only; `Groups()` leaves it out, and `filter groups` reports it.
 
-Entry paths are relative to the root with `/` separators, no leading or trailing `/`; the root itself is `""`. What is autoversion's policy and not in the library: symlinks are never tracked, `/.autoversion` and `/.autoversion.filter` at the root are never copied, and a git destination always applies `nested-git`. The spec is ownit's `plans/spec_filter_syntax.md`; `filterrules/testdata/filter_conformance.json` is its test suite, copied unchanged. The group files of `filters/` are shared the other way: ownit copies them with `make groups-sync`, and its tools tests fail until it does, so a group change is to be announced to ownit along with any conformance change. Tools ownit forwards the size to (restic, rsync) take the unit letter only: ownit strips the `b` (`4KB` → `4K`).
+Entry paths are relative to the root with `/` separators, no leading or trailing `/`; the root itself is `""`. What is autoversion's policy and not in the library: symlinks are never tracked, `/.autoversion` and `/.autoversion.filter` at the root are never copied, and a git destination always applies `nested-git`. The spec is targy's `plans/spec_filter_syntax.md`; `filterrules/testdata/filter_conformance.json` is its test suite, copied unchanged. The group files of `filters/` are shared the other way: targy copies them with `make groups-sync`, and its tools tests fail until it does, so a group change is to be announced to targy along with any conformance change. Tools targy forwards the size to (restic, rsync) take the unit letter only: targy strips the `b` (`4KB` → `4K`).
 
 ### Project Structure
 

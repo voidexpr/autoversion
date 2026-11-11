@@ -195,7 +195,7 @@ markers, with the same text as `autoversion filter groups`:
 - `filters/*.filter` can be read as they are by anything that reads the
   shared syntax.
 - `filter dump --use NAME` prints any group flat, without `use` lines.
-- **For the ownit spec:**
+- **For the targy spec:**
   - It says the groups live in `filterrules/groups.json`: that becomes
     `filters/`.
   - It says `use` can't name a file and code-defined Rules use nothing. A
@@ -312,7 +312,7 @@ Each milestone ends with `make test` and `make docker-go-test` passing,
   in processes that use a group, where it ran in every process before,
   and nothing changed per event.
 
-### For the ownit spec
+### For the targy spec
 
 Done in the spec on 2026-10-31. It resolves `use NAME` to `NAME.filter`
 beside the file (not `filter dump`), names the cycle error `use-cycle`,

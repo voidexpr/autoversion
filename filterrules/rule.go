@@ -1,5 +1,5 @@
 // Package filterrules reads include and exclude rules in the shared filter
-// syntax (ownit's plans/spec_filter_syntax.md, v3) and decides which entries
+// syntax (targy's plans/spec_filter_syntax.md, v3) and decides which entries
 // of a tree they keep. It uses the standard library only.
 package filterrules
 

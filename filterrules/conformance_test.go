@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// testdata/filter_conformance.json is ownit's tests/filter_conformance.json,
-// copied unchanged from ownit commit 1c40088.
+// testdata/filter_conformance.json is targy's tests/filter_conformance.json,
+// copied unchanged from targy commit 1c40088.
 func TestConformance(t *testing.T) {
 	data, err := os.ReadFile("testdata/filter_conformance.json")
 	if err != nil {

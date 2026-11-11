@@ -1,6 +1,6 @@
 # Feature: use a filter the other way, exclude or include
 
-**Status: proposal, not started (2026-11-03).** Needs ownit's agreement
+**Status: proposal, not started (2026-11-03).** Needs targy's agreement
 for the group file part (A).
 
 ## Problem
@@ -39,11 +39,11 @@ its rules:
   a literal exclude (`exclude f:/node_modules/pkg/logo.png`) takes it out;
   `f:/**/node_modules/**/*.png` is refused (`**` once per rule). So "only
   media" keeps icons in `node_modules` and thumbnails in `.cache`.
-- **Shared spec:** ownit's `plans/spec_filter_syntax.md` says group files
-  hold exclude rules only, and ownit copies `os`, `nas`, `caches` and
+- **Shared spec:** targy's `plans/spec_filter_syntax.md` says group files
+  hold exclude rules only, and targy copies `os`, `nas`, `caches` and
   `deps` verbatim (`make groups-sync`). Allowing includes in a group file
-  is ownit's decision.
-- **ownit's restic and borg converters refuse wildcard includes**
+  is targy's decision.
+- **targy's restic and borg converters refuse wildcard includes**
   (`include-wildcard`). An include group works with the native matcher
   (autoversion, dvgo), not with those converters.
 
@@ -52,12 +52,12 @@ its rules:
 | | How | Spec change | Lists written twice |
 |---|---|---|---|
 | A. Generated `only-*` files | `make filter` writes `only-NAME.filter` from `NAME.filter`: `exclude /*` and the same rules as includes | Group files may hold includes | No: generated, a test fails while one is stale |
-| B. `only NAME` directive | `only media` in a rules file expands to the same rules, `filter dump` shows them | A new directive, in ownit's Python too | No |
+| B. `only NAME` directive | `only media` in a rules file expands to the same rules, `filter dump` shows them | A new directive, in targy's Python too | No |
 | C. Hand-written `only-media.filter`, replacing `media.filter` | Copy the lists as includes | Group files may hold includes | Yes, and the exclude version is gone |
 | D. `filter scan --left-out` | List what the rules leave out | None, autoversion only | Not applicable |
 
 C loses "back up everything but media", the reason `media` was added. No
-job or ownit filter uses `media` today.
+job or targy filter uses `media` today.
 
 ## Proposal
 
@@ -70,16 +70,16 @@ job or ownit filter uses `media` today.
   - `-0` for NUL-separated output, to pipe to `xargs -0 rm -rf`.
     autoversion itself deletes nothing.
   - It walks every folder: nothing can be skipped.
-- **Keep only media: A**, once ownit agrees, for the media groups only:
+- **Keep only media: A**, once targy agrees, for the media groups only:
   `only-music`, `only-photos`, `only-videos`, and `only-media` using the
   three. An allowlist of `build` or `logs` has little use. Extra rules
   combine: `use only-media` and `include f:/**/{*.pdf,*.md}`.
 
-## For ownit
+## For targy
 
 - May group files hold includes, for generated `only-*` allowlists
   (`exclude /*` plus includes)?
-- 2e4aba1 changed `caches` and `deps`, which ownit's `common` uses:
+- 2e4aba1 changed `caches` and `deps`, which targy's `common` uses:
   `groups-sync` fails until the copies are refreshed. New in them:
   `.mypy_cache`, `.ruff_cache` (already in `common`), `.tox`, `.nox`,
   `.parcel-cache`, `.turbo`, `.svelte-kit`, `.angular`, `.zig-cache`,
@@ -88,6 +88,6 @@ job or ownit filter uses `media` today.
 ## Order
 
 1. D: `--left-out` on `filter scan`, README, tests.
-2. The prompt for ownit.
-3. After ownit's reply: A, with `filters/README.md` regenerated and the
+2. The prompt for targy.
+3. After targy's reply: A, with `filters/README.md` regenerated and the
    group tests extended.

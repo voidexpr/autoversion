@@ -7,7 +7,7 @@
 * run tests before making a change, fix any issues and then after making a change so code and tests are always in sync.
 * any time a new command is introduced it should be documented in README.md or another internal document so it can be reproduced
 * use ./claude_kill instead of kill command to kill processes
-* the filter spec and `filterrules/testdata/filter_conformance.json` are ownit's (`~/projects/ownit`); the group files of `filters/` are copied by ownit. A change to the conformance file or to a group file must be reported to ownit (its `make groups-sync` copies the groups)
+* the filter spec and `filterrules/testdata/filter_conformance.json` are targy's (`~/projects/targy`); the group files of `filters/` are copied by targy. A change to the conformance file or to a group file must be reported to targy (its `make groups-sync` copies the groups)
 
 ## Frontend code
 * prefer TypeScript to JavaScript

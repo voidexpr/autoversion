@@ -1,7 +1,7 @@
 # Plan: explicit defaults
 
 **Status: approved 2026-11-01, in progress.** Decisions taken in
-conversation on 2026-10-31 and 2026-11-01; the ownit spec owner has
+conversation on 2026-10-31 and 2026-11-01; the targy spec owner has
 accepted the `max-file-size` directive (its reply is summarized under
 "Spec").
 
@@ -22,7 +22,7 @@ that are the destination's own bookkeeping.
 - Still implicit, on purpose: symlinks are never tracked; `/.autoversion`
   and `/.autoversion.filter` at the source root are never copied.
 
-## Spec (ownit, accepted 2026-11-01)
+## Spec (targy, accepted 2026-11-01)
 
 - `max-file-size SIZE`, at most once, before the rules. SIZE is an integer
   with a unit `k`, `m` or `g`, binary, either case, examples write `10M`.
@@ -37,7 +37,7 @@ that are the destination's own bookkeeping.
 - Conformance: a case carries `"max_file_size": "4k"` and a `"sizes"`
   map, file entry to bytes; its `tools` list names the implementations
   that apply the limit. Not landed yet (b19fbdd unchanged); when it
-  lands, ownit's `test_autoversion` runs the cases through our binary.
+  lands, targy's `test_autoversion` runs the cases through our binary.
 
 ## Today, and what changes
 
@@ -89,7 +89,7 @@ no `make build`, no `make install`, no launchctl.
   `Rules.MaxFileSize()`; `Rules.TooLarge(size int64) bool`.
 - `filterrules.ParseSize("10M")` and `FormatSize` for messages.
 - Conformance test harness reads `sizes` and `max_file_size` when
-  present (the file itself stays at b19fbdd until ownit lands the cases).
+  present (the file itself stays at b19fbdd until targy lands the cases).
 - The `--max-file-size SIZE` rule flag: added to the rules text like
   `use` lines (after the version line); with a `--filter` file that has
   the directive: error, "max-file-size twice". Removed from `watch` and
@@ -148,14 +148,14 @@ no `make build`, no `make install`, no launchctl.
 - After the jobs run on the new marker: `max_file_size_mb` no longer
   written; the `readRulesText` default and its warning removed; a marker
   with the field still reads.
-- Plan note: what differed. Conformance file: copy ownit's when the size
+- Plan note: what differed. Conformance file: copy targy's when the size
   cases land, note the commit.
 
 ### Done when
 
 - `make test`, `make docker-go-test` pass; `make filter` is a no-op.
 - `filter scan --filter -` on a rules file with `max-file-size 4k` leaves
-  out an 8k file and keeps a 4k one (what ownit's `test_autoversion` will
+  out an 8k file and keeps a 4k one (what targy's `test_autoversion` will
   do).
 - A git destination with `include /**/.git` in its rules still copies no
   `.git`; `filter dump` says why.
@@ -180,7 +180,7 @@ no `make build`, no `make install`, no launchctl.
   bare repositories); `default` does not use it. So `use default` alone
   now keeps `.git` and bare repositories: every job's rules say
   `use nested-git` at migration (M4), dropbox-projects included, before
-  the new binary runs its job. For the ownit spec: `vcs` and `nested-git`
+  the new binary runs its job. For the targy spec: `vcs` and `nested-git`
   as above.
 
 ## M4: migration (2026-11-02)
@@ -223,7 +223,7 @@ still reads).
   time; other rules still go through `filter set`.
 - M4 cleanup (legacy marker field, `use default` fallback) is deferred
   until the jobs run on the new markers.
-- Conformance file unchanged at b19fbdd: ownit's size cases are not
+- Conformance file unchanged at b19fbdd: targy's size cases are not
   landed yet. The harness reads `sizes` and `max_file_size` already.
 
 ## Cleanup (2026-11-02, after the migration)
@@ -233,5 +233,5 @@ destination without a rules file is refused (`readRulesText` errors, no
 `use default` fallback), `initDestination` requires rules unless it keeps
 a destination's own with `--force-new-source`, and the marker's
 `max_file_size_mb` is no longer read as a setting: it stays in the file
-as an unknown field and is ignored. The conformance file is ownit's at
+as an unknown field and is ignored. The conformance file is targy's at
 ad5bcab (max-file-size cases).

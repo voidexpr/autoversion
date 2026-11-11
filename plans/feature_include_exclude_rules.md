@@ -10,13 +10,13 @@ checks (see Decisions).
 **Inputs:**
 - This plan: the authority for how autoversion uses the rules (storage,
   commands, built-ins, code changes, migration).
-- `~/projects/ownit/plans/spec_filter_syntax.md`, final version (given
+- `~/projects/targy/plans/spec_filter_syntax.md`, final version (given
   separately): the authority for the syntax, matching, sugar, decision
   rule, validation and error codes. Where it disagrees with this plan's
   summary of the syntax, the shared spec wins. Tell the user about any
   disagreement.
-- ownit's `tests/filter_conformance.json`: copy it unchanged into
-  `filterrules/testdata/`, and record the ownit commit it came from in a
+- targy's `tests/filter_conformance.json`: copy it unchanged into
+  `filterrules/testdata/`, and record the targy commit it came from in a
   comment in the test.
 
 **Project rules** (from `CLAUDE.md` and the user's preferences):
@@ -177,7 +177,7 @@ Where it's written:
 
 ### The `types` line
 
-`types strict` (the default) or `types decay` tells ownit's converters what
+`types strict` (the default) or `types decay` tells targy's converters what
 restic and borg do with typed rules. autoversion matches the rules itself,
 and its restic mode backs up the destination, which only holds kept files.
 So the line is accepted, kept in the file and shown by `filter dump`, and
@@ -226,7 +226,7 @@ line, `use` lines first).
 
 ## Commands
 
-Names follow ownit's `filter dump` and `filter scan` where the meaning is
+Names follow targy's `filter dump` and `filter scan` where the meaning is
 the same.
 
 | command | what it does |
@@ -329,7 +329,7 @@ Each group is one named, code-defined set of rules, used with `use NAME`.
 - **`build`, `dist` and `out`** use `/x/*`. They're common words, so a file
   with that name stays.
 - **Data, not code:** groups are defined as data (e.g.
-  `filterrules/groups.json`, embedded), so they can be shared with ownit
+  `filterrules/groups.json`, embedded), so they can be shared with targy
   later. Since 2026-10-31 they are rules files, `filters/NAME.filter`, in
   the shared syntax (plans/feature_reusable_filter_files.md).
 
@@ -575,15 +575,15 @@ it has its rules, it gets `use default` and its first sync copies all of
 - `default` is the union of the nine groups: the spec says built-in Rules
   use nothing.
 - `contradiction`: a literal include and a literal exclude with the same
-  path, whatever their types, as in ownit's reference matcher.
+  path, whatever their types, as in targy's reference matcher.
 - "Changes nothing" for a literal include is checked for each type the
   include applies to: as a file for `f:`, as a folder for `d:`, both for
-  an untyped include. ownit did the same in f1aa055, and the spec says so.
+  an untyped include. targy did the same in f1aa055, and the spec says so.
 - `whole-root` is only for an untyped `/*` without any include and an
   untyped `/**/*`: `f:/*` keeps every folder, `d:/*` every file (spec,
   f1aa055). Likewise, only an untyped `exclude /*` makes an allowlist for
   the "nothing alive" check.
-- The conformance suite is copied from ownit d721a7f. It now also has the
+- The conformance suite is copied from targy d721a7f. It now also has the
   `sugar`, `invalid_files` and `invalid_filters` sections, all tested.
 - Name patterns are matched by a precompiled matcher (1.6 µs per entry
   with `default`, about half of today's regexes), tested against
