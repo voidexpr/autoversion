@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/nicad/autoversion/filterrules"
+	"golang.org/x/sys/unix"
 )
 
 const alwaysAppliedText = "symlinks, /" + markerFileName + " and /" + filterFileName
@@ -50,37 +51,53 @@ type sourceRules struct {
 	markers  map[string]bool
 }
 
-// newSourceRules returns the rules of a source, with the marker lookup the
-// rules' exclude marker:NAME lines need. rules is unchanged.
+// newSourceRules returns the rules of a source, with the lookups the rules'
+// exclude marker:NAME and exclude xattr:NAME lines need. rules is unchanged.
 func newSourceRules(root string, rules *filterrules.Rules, nestedGit bool) *sourceRules {
 	s := &sourceRules{root: root, nestedGit: nestedGit}
-	s.rules = rules.WithMarkers(s.holdsMarker)
+	s.rules = rules.WithMarkers(s.holdsMarker).WithXattrs(s.hasXattr)
 	return s
 }
 
 // holdsMarker reports whether the folder relDir of the source directly holds
 // an entry named name
 func (s *sourceRules) holdsMarker(relDir, name string) bool {
-	key := relDir + "/" + name
+	return s.cached(relDir+"/"+name, func() bool {
+		_, err := os.Lstat(filepath.Join(s.root, filepath.FromSlash(relDir), name))
+		return err == nil
+	})
+}
+
+// hasXattr reports whether the entry rel of the source carries the extended
+// attribute name (never followed through a symlink)
+func (s *sourceRules) hasXattr(rel, name string) bool {
+	return s.cached("@"+rel+"/"+name, func() bool {
+		_, err := unix.Lgetxattr(filepath.Join(s.root, filepath.FromSlash(rel)), name, nil)
+		return err == nil
+	})
+}
+
+// cached returns lookup's answer for key, from the walk cache when on
+func (s *sourceRules) cached(key string, lookup func() bool) bool {
 	s.markerMu.Lock()
 	defer s.markerMu.Unlock()
 	if held, ok := s.markers[key]; ok {
 		return held
 	}
-	_, err := os.Lstat(filepath.Join(s.root, filepath.FromSlash(relDir), name))
-	held := err == nil
+	held := lookup()
 	if s.markers != nil {
 		s.markers[key] = held
 	}
 	return held
 }
 
-// cacheMarkers turns the marker cache on for a walk; the function returned
-// turns it off. Outside a walk a marker entry may appear or go at any time.
+// cacheMarkers turns the marker and attribute cache on for a walk; the
+// function returned turns it off. Outside a walk a marker entry or an
+// attribute may appear or go at any time.
 func (s *sourceRules) cacheMarkers() func() {
 	s.markerMu.Lock()
 	defer s.markerMu.Unlock()
-	if s.markers != nil || len(s.rules.Markers()) == 0 {
+	if s.markers != nil || len(s.rules.Markers())+len(s.rules.Xattrs()) == 0 {
 		return func() {}
 	}
 	s.markers = map[string]bool{}

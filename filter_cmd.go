@@ -233,6 +233,9 @@ shared with targy. Without the file, they are "use default". Example, for
   named NAME (marker:{CACHEDIR.TAG,pyvenv.cfg}), except that entry: the
   folder is stored bare with the marker. It counts as a named wildcard
   exclude on the folder.
+- exclude xattr:NAME leaves out every entry carrying the extended attribute
+  NAME (xattr:com.apple.metadata:com_apple_backup_excludeItem: what Time
+  Machine skips, use time-machine), a folder with everything below it.
 - max-file-size SIZE RULE scopes a limit to what a path rule covers
   (max-file-size none /**/.git), any number of lines: the closest match
   sets a kept file's limit, ranked like rules, ties give the strictest;

@@ -251,6 +251,14 @@ exclude f:/**/.git/objects/pack/{tmp_pack_*,.tmp-*}
 exclude f:/**/{.org.chromium.Chromium.*,.com.google.Chrome.*}
 ```
 
+## time-machine: what apps and the user told Time Machine not to back up (tmutil addexclusion, Xcode, Docker, Parallels caches and disks)
+
+`use time-machine`, [time-machine.filter](time-machine.filter)
+
+```
+exclude xattr:com.apple.metadata:com_apple_backup_excludeItem
+```
+
 ## toolchains: toolchains, tool installs and package registries a tool reinstalls itself
 
 `use toolchains`, [toolchains.filter](toolchains.filter)

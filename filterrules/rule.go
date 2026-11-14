@@ -50,6 +50,7 @@ type Rule struct {
 	Text   string // without the type prefix: "/**/*.old", or "marker:NAME"
 	Group  string // the built-in group it comes from, "" for a filter's own rules
 	Marker string // for "exclude marker:NAME", the entry name; "" for a path rule
+	Xattr  string // for "exclude xattr:NAME", the attribute name; "" for a path rule
 
 	segments []pattern
 	star     int // position of the "**" segment, -1 without one
@@ -111,15 +112,20 @@ func (r Rule) String() string {
 }
 
 // Literal reports whether the rule has no "*": it names one path. A marker
-// rule names no path.
+// or attribute rule names no path.
 func (r Rule) Literal() bool {
-	return r.Marker == "" && !strings.Contains(r.Text, "*")
+	return r.onPath() && !strings.Contains(r.Text, "*")
 }
 
 // Named reports whether a wildcard rule's last name is plain (/**/.cache,
 // /*/node_modules): it names the entries it matches, unlike /.* or /**/*.log.
 func (r Rule) Named() bool {
-	return r.Marker == "" && !r.Literal() && r.segments[len(r.segments)-1].parts == nil
+	return r.onPath() && !r.Literal() && r.segments[len(r.segments)-1].parts == nil
+}
+
+// onPath reports whether the rule matches paths: not a marker or attribute rule
+func (r Rule) onPath() bool {
+	return r.Marker == "" && r.Xattr == ""
 }
 
 func (r *Rule) fits(isDir bool) bool {
@@ -187,7 +193,10 @@ func ParseRule(kind Kind, text string) ([]Rule, error) {
 
 func parseSugar(kind Kind, text string) ([]Rule, error) {
 	if name, ok := strings.CutPrefix(text, "marker:"); ok {
-		return parseMarkers(kind, name)
+		return parseMarkers(kind, "marker", name)
+	}
+	if name, ok := strings.CutPrefix(text, "xattr:"); ok {
+		return parseMarkers(kind, "xattr", name)
 	}
 	typ := TypeAny
 	if len(text) >= 2 && text[1] == ':' && isLetter(text[0]) {
@@ -218,17 +227,23 @@ func parseSugar(kind Kind, text string) ([]Rule, error) {
 
 // parseMarkers parses "exclude marker:NAME" (NAME with braces): a folder
 // that directly holds an entry named NAME is left out, stored bare with the
-// entry. NAME is one entry name: no "/" or "*".
-func parseMarkers(kind Kind, text string) ([]Rule, error) {
+// entry. NAME is one entry name: no "/" or "*". With what "xattr", it
+// parses "exclude xattr:NAME": an entry carrying the extended attribute
+// NAME is left out.
+func parseMarkers(kind Kind, what, text string) ([]Rule, error) {
 	names, err := expandBraces(text)
 	if err != nil {
 		return nil, err
 	}
+	code := "bad-" + what
 	var rules []Rule
 	for _, name := range names {
 		switch {
 		case name == "" || strings.ContainsAny(name, "/*"):
-			return nil, ruleError("bad-marker", "one entry name: marker:CACHEDIR.TAG")
+			if what == "xattr" {
+				return nil, ruleError(code, "one attribute name: xattr:com.apple.metadata:com_apple_backup_excludeItem")
+			}
+			return nil, ruleError(code, "one entry name: marker:CACHEDIR.TAG")
 		case name == "." || name == "..":
 			return nil, ruleError("dot-segment", ". and .. are not allowed")
 		case name != strings.Trim(name, " "):
@@ -236,10 +251,16 @@ func parseMarkers(kind Kind, text string) ([]Rule, error) {
 		case strings.ContainsFunc(name, isForbidden):
 			return nil, ruleError("forbidden-char", "not allowed: ? [ ] { } \\ $ ! and control characters")
 		}
-		rules = append(rules, Rule{Kind: Exclude, Text: "marker:" + name, Marker: name, star: -1})
+		rule := Rule{Kind: Exclude, Text: what + ":" + name, star: -1}
+		if what == "xattr" {
+			rule.Xattr = name
+		} else {
+			rule.Marker = name
+		}
+		rules = append(rules, rule)
 	}
 	if kind != Exclude {
-		return nil, ruleError("bad-marker", "a marker is an exclude")
+		return nil, ruleError(code, "a "+what+" rule is an exclude")
 	}
 	return dedupe(rules), nil
 }

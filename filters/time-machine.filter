@@ -1,0 +1,5 @@
+# time-machine: what apps and the user told Time Machine not to back up (tmutil addexclusion, Xcode, Docker, Parallels caches and disks)
+version 1
+
+# the attribute on the entry itself; not in junk: people mark big media as not for Time Machine and still want it elsewhere
+exclude xattr:com.apple.metadata:com_apple_backup_excludeItem

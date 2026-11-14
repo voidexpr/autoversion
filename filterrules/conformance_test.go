@@ -20,14 +20,15 @@ func TestConformance(t *testing.T) {
 	var suite struct {
 		Version int `json:"version"`
 		Cases   []struct {
-			Name        string           `json:"name"`
-			Tools       []string         `json:"tools"` // empty: every tool, native included
-			Tree        []string         `json:"tree"`
-			Exclude     []string         `json:"exclude"`
-			Include     []string         `json:"include"`
-			Kept        []string         `json:"kept"`
-			MaxFileSize json.RawMessage  `json:"max_file_size"` // the directive's value, or a list of lines ("10M", "none /**/.git"); absent without
-			Sizes       map[string]int64 `json:"sizes"`         // file entry to bytes, 0 when absent
+			Name        string              `json:"name"`
+			Tools       []string            `json:"tools"` // empty: every tool, native included
+			Tree        []string            `json:"tree"`
+			Exclude     []string            `json:"exclude"`
+			Include     []string            `json:"include"`
+			Kept        []string            `json:"kept"`
+			MaxFileSize json.RawMessage     `json:"max_file_size"` // the directive's value, or a list of lines ("10M", "none /**/.git"); absent without
+			Sizes       map[string]int64    `json:"sizes"`         // file entry to bytes, 0 when absent
+			Xattrs      map[string][]string `json:"xattrs"`        // entry to the extended attributes it carries
 		} `json:"cases"`
 		Invalid []struct {
 			Rule string `json:"rule"`
@@ -76,7 +77,7 @@ func TestConformance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r = r.WithMarkers(treeHas(c.Tree))
+			r = r.WithMarkers(treeHas(c.Tree)).WithXattrs(treeXattrs(c.Xattrs))
 			got, want := selectTree(r, c.Tree, c.Sizes), slices.Clone(c.Kept)
 			slices.Sort(got)
 			slices.Sort(want)
@@ -226,6 +227,18 @@ func checkSkipDir(t *testing.T, r *Rules, tree []string) {
 				t.Errorf("SkipDir(%s) is true, but %s below it is kept", dir, entry)
 			}
 		}
+	}
+}
+
+// treeXattrs is the attribute lookup for a case: whether the entry rel
+// carries the attribute name
+func treeXattrs(xattrs map[string][]string) func(rel, name string) bool {
+	byEntry := map[string][]string{}
+	for entry, names := range xattrs {
+		byEntry[strings.TrimSuffix(entry, "/")] = names
+	}
+	return func(rel, name string) bool {
+		return slices.Contains(byEntry[rel], name)
 	}
 }
 

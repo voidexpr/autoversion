@@ -24,12 +24,17 @@ type Rules struct {
 	paths       ruleIndex // the path rules of all, markers aside
 	includes    []*Rule
 	markers     []*Rule // exclude marker:NAME rules
+	xattrs      []*Rule // exclude xattr:NAME rules
 	sizeLimits  []Rule  // the scoped max-file-size lines, expanded
 	sizes       ruleIndex
 
 	// markerExists reports whether the folder relDir directly holds an
 	// entry named name; nil (markers never match) except in a WithMarkers copy
 	markerExists func(relDir, name string) bool
+	// xattrExists reports whether the entry rel carries the extended
+	// attribute name; nil (attribute rules never match) except in a
+	// WithXattrs copy
+	xattrExists func(rel, name string) bool
 }
 
 // ruleIndex files rules by what decideLevel tries at a level
@@ -168,8 +173,12 @@ func compile(all []Rule) *Rules {
 	for i := range r.all {
 		rule := &r.all[i]
 		rule.pos = i
-		if rule.Marker != "" {
+		switch {
+		case rule.Marker != "":
 			r.markers = append(r.markers, rule)
+			continue
+		case rule.Xattr != "":
+			r.xattrs = append(r.xattrs, rule)
 			continue
 		}
 		r.paths.add(rule)
@@ -231,6 +240,38 @@ func (r *Rules) WithMarkers(exists func(relDir, name string) bool) *Rules {
 	c := *r
 	c.markerExists = exists
 	return &c
+}
+
+// WithXattrs returns a copy that decides exclude xattr:NAME rules with
+// exists, which says whether the entry rel carries the attribute name. The
+// same conditions as WithMarkers apply.
+func (r *Rules) WithXattrs(exists func(rel, name string) bool) *Rules {
+	c := *r
+	c.xattrExists = exists
+	return &c
+}
+
+// Xattrs returns the attribute names of the xattr rules (exclude xattr:NAME)
+func (r *Rules) Xattrs() []string {
+	var names []string
+	for _, x := range r.xattrs {
+		names = append(names, x.Xattr)
+	}
+	return names
+}
+
+// attrBy returns the xattr rule that leaves out the entry rel: it carries
+// the attribute
+func (r *Rules) attrBy(rel string) *Rule {
+	if r.xattrExists == nil {
+		return nil
+	}
+	for _, x := range r.xattrs {
+		if r.xattrExists(rel, x.Xattr) {
+			return x
+		}
+	}
+	return nil
 }
 
 // Markers returns the entry names of the marker rules (exclude marker:NAME)
@@ -318,9 +359,10 @@ type Decision struct {
 
 // Decide decides an entry. The closest match wins: the entry itself is
 // checked first, then each folder above it. A folder holding a marker entry
-// (see WithMarkers) counts as a named wildcard exclude at its own level
-// (see decideLevel), except for the marker entry itself, decided as if its
-// folder had no marker.
+// (see WithMarkers), or an entry carrying an attribute (see WithXattrs),
+// counts as a named wildcard exclude at its own level (see decideLevel),
+// except for the marker entry itself, decided as if its folder had no
+// marker.
 func (r *Rules) Decide(rel string, isDir bool) Decision {
 	if rel == "" {
 		return Decision{Kept: true}
@@ -337,12 +379,19 @@ func (r *Rules) Decide(rel string, isDir bool) Decision {
 		}
 		levelIsDir := isDir || d < len(names)
 		var marked func() *Rule
-		if levelIsDir && len(r.markers) > 0 {
+		if levelIsDir && len(r.markers) > 0 || len(r.xattrs) > 0 {
 			path, levelExcept := rel[:end], ""
 			if d == len(names)-1 {
 				levelExcept = except
 			}
-			marked = func() *Rule { return r.markedBy(path, levelExcept) }
+			marked = func() *Rule {
+				if levelIsDir {
+					if m := r.markedBy(path, levelExcept); m != nil {
+						return m
+					}
+				}
+				return r.attrBy(path)
+			}
 		}
 		if rule := r.decideLevel(names[:d], rel[:end], levelIsDir, marked); rule != nil {
 			return Decision{Kept: rule.Kind == Include, Level: d, Rule: rule}

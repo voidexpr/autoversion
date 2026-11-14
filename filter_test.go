@@ -3,8 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // setRules sets the active rules for a test, use default plus lines, and
@@ -348,6 +351,38 @@ func TestSkipDir(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestShouldTrack_Xattr: exclude xattr:NAME leaves out an entry carrying the
+// attribute, a folder with everything below it; a literal include on the
+// folder wins
+func TestShouldTrack_Xattr(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("extended attributes are set with Setxattr on macOS only here")
+	}
+	const attr = "com.apple.metadata:com_apple_backup_excludeItem"
+	root := resolvedTempDir(t)
+	for _, name := range []string{"cache/f", "env/bin", "src/a.c", "big.iso", "keep.txt"} {
+		writeFile(t, filepath.Join(root, name), "x")
+	}
+	for _, name := range []string{"cache", "env", "big.iso"} {
+		if err := unix.Setxattr(filepath.Join(root, name), attr, []byte("com.apple.backupd"), 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setRules(t, root, "use time-machine", "include /env")
+	for name, want := range map[string]bool{"cache/f": false, "big.iso": false, "env/bin": true, "src/a.c": true, "keep.txt": true} {
+		if got, _ := ShouldTrack(filepath.Join(root, name), false); got != want {
+			t.Errorf("ShouldTrack(%s) = %v, want %v", name, got, want)
+		}
+	}
+	if !skipDir(filepath.Join(root, "cache")) || skipDir(filepath.Join(root, "env")) || skipDir(filepath.Join(root, "src")) {
+		t.Error("skipDir: a marked folder is skipped, an included or plain one is not")
+	}
+	d := rulesSet().rules.Decide("cache/f", false)
+	if d.Kept || d.Rule == nil || d.Rule.String() != "exclude xattr:"+attr || d.Level != 1 {
+		t.Errorf("Decide(cache/f) = %+v", d)
+	}
 }
 
 func TestRulesSetRequired(t *testing.T) {

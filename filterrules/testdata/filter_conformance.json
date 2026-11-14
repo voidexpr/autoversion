@@ -172,6 +172,24 @@
       "kept": ["a/", "a/.git/", "a/.git/y.bin", "b/", "b/w.pack"]
     },
     {
+      "name": "xattr: an entry carrying the attribute is left out, a folder with everything below",
+      "tools": ["native", "autoversion"],
+      "tree": ["build/", "build/x", "big.iso", "keep.txt", "src/", "src/a.c"],
+      "xattrs": {"build/": ["com.apple.metadata:com_apple_backup_excludeItem"], "big.iso": ["com.apple.metadata:com_apple_backup_excludeItem"]},
+      "exclude": ["xattr:com.apple.metadata:com_apple_backup_excludeItem"],
+      "include": [],
+      "kept": ["keep.txt", "src/", "src/a.c"]
+    },
+    {
+      "name": "xattr: a literal include on the entry wins, an include below it matches closer",
+      "tools": ["native", "autoversion"],
+      "tree": ["tools/", "tools/env/", "tools/env/bin", "data/", "data/cache/", "data/cache/keep", "data/cache/x"],
+      "xattrs": {"tools/env/": ["com.apple.metadata:com_apple_backup_excludeItem"], "data/cache/": ["com.apple.metadata:com_apple_backup_excludeItem"]},
+      "exclude": ["xattr:com.apple.metadata:com_apple_backup_excludeItem"],
+      "include": ["/tools/env", "/**/cache/keep"],
+      "kept": ["tools/", "tools/env/", "tools/env/bin", "data/", "data/cache/", "data/cache/keep"]
+    },
+    {
       "name": "markers: a folder holding the entry is left out, stored bare with the entry",
       "tools": ["native", "restic", "borg", "autoversion"],
       "tree": [
@@ -228,6 +246,8 @@
     {"rule": "marker:", "code": "bad-marker"},
     {"rule": "marker:a/b", "code": "bad-marker"},
     {"rule": "marker:*.tag", "code": "bad-marker"},
+    {"rule": "xattr:", "code": "bad-xattr"},
+    {"rule": "xattr:a/b", "code": "bad-xattr"},
     {"rule": "marker:a?b", "code": "forbidden-char"}
   ],
   "sugar": [
