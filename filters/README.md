@@ -162,6 +162,7 @@ use agents
 use cache-markers
 use trash
 use browser-profiles
+use nas
 exclude /**/{vendor,deps}
 ```
 
