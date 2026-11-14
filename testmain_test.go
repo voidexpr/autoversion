@@ -35,6 +35,9 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 	os.RemoveAll(home)
+	if benchTree.root != "" {
+		os.RemoveAll(benchTree.root)
+	}
 	os.Exit(code)
 }
 

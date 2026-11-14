@@ -201,6 +201,14 @@
       "kept": ["cache/", "cache/CACHEDIR.TAG", "keep.txt", "proj/", "proj/.venv/", "proj/.venv/pyvenv.cfg", "proj/main.py"]
     },
     {
+      "name": "markers: the marker entry is a file; a folder of that name is left out with the rest, nothing stored bare",
+      "tools": ["native", "autoversion"],
+      "tree": ["data/", "data/.nobackup/", "data/.nobackup/x", "data/f", "other/", "other/.nobackup", "other/y"],
+      "exclude": ["marker:.nobackup"],
+      "include": [],
+      "kept": ["other/", "other/.nobackup"]
+    },
+    {
       "name": "markers: a literal include on the marked folder wins (native and autoversion; restic and borg can't)",
       "tools": ["native", "autoversion"],
       "tree": ["tools/", "tools/env/", "tools/env/pyvenv.cfg", "tools/env/bin/", "tools/env/bin/run", "other/", "other/env/", "other/env/pyvenv.cfg", "other/env/x"],

@@ -13,9 +13,9 @@ import (
 // kept.
 //
 // Nothing changes a Rules after New: it is safe for concurrent use, and
-// several walks can share one. Each walk of a tree with marker rules decides
-// with its own copy, see WithMarkers. The *Rule values that List and
-// Decision.Rule return are shared by every copy: read only.
+// several walks can share one. Deciding goes through a Tree bound to one
+// tree on disk, see Bind. The *Rule values that List and Decision.Rule
+// return are shared by every Tree: read only.
 type Rules struct {
 	types       string
 	maxFileSize string    // as written, "" without the directive
@@ -313,8 +313,8 @@ type Decision struct {
 	Rule  *Rule // the rule that decided, nil when no rule matched
 }
 
-// decideLevel returns the rule that decides the level q (path qPath), or nil
-// when no rule matches it. A literal rule beats a wildcard rule, and a named
+// decideLevel returns the rule that decides the level q, in the folder dir
+// ("" for the root), or nil when no rule matches it. A literal rule beats a wildcard rule, and a named
 // wildcard (/**/.cache) beats the other wildcards (/.*, /**/*.log). The
 // level's marker or attribute (marked, nil without such rules; see Tree) is
 // a named wildcard exclude: a named include ties with it and wins. In a

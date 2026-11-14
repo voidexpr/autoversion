@@ -256,11 +256,8 @@ func checkWalk(t *testing.T, tr *Tree, tree []string, want []string) {
 	for _, entry := range tree {
 		rel := strings.TrimSuffix(entry, "/")
 		isDir[rel] = strings.HasSuffix(entry, "/")
-		parent := ""
-		if i := strings.LastIndexByte(rel, '/'); i >= 0 {
-			parent = rel[:i]
-		}
-		children[parent] = append(children[parent], rel[len(parent)+min(len(parent), 1):])
+		parent, name := splitLast(rel)
+		children[parent] = append(children[parent], name)
 	}
 	var got []string
 	var visit func(d *Dir)
@@ -271,7 +268,7 @@ func checkWalk(t *testing.T, tr *Tree, tree []string, want []string) {
 				rel = d.Rel() + "/" + name
 			}
 			if isDir[rel] {
-				if c := d.Child(name, children[rel]); !c.Skip() {
+				if c := d.Child(name, listing(children[rel])); !c.Skip() {
 					if c.Decision().Kept {
 						got = append(got, rel+"/")
 					}
@@ -282,7 +279,7 @@ func checkWalk(t *testing.T, tr *Tree, tree []string, want []string) {
 			}
 		}
 	}
-	visit(tr.Root(children[""]))
+	visit(tr.Root())
 	// A walk lists a kept folder once entered; Decide's kept list also has
 	// the bare folders a kept entry sits in: compare on files and folders
 	// Decide keeps that the walk reached

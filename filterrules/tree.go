@@ -3,7 +3,7 @@ package filterrules
 import (
 	"os"
 	"path/filepath"
-	"strings"
+	"sync"
 	"sync/atomic"
 
 	"golang.org/x/sys/unix"
@@ -90,40 +90,49 @@ type Dir struct {
 	rel      string
 	names    []string
 	decision Decision
-	held     []bool // per marker rule, whether the folder holds its entry; nil: unknown, ask the lookups
+
+	// For marker rules: list gives the folder's listing (names) when the
+	// caller has one, nil otherwise (the lookups answer); held, resolved
+	// once from the listing, says per marker rule whether the folder holds
+	// its entry
+	list func() []string
+	once sync.Once
+	held []bool
 }
 
-// Root returns the root folder. entries is its listing (names), nil when
-// the caller doesn't have it. The root is always kept.
-func (t *Tree) Root(entries []string) *Dir {
-	return &Dir{tree: t, decision: Decision{Kept: true}, held: t.heldFrom(entries)}
+// Root returns the root folder, always kept
+func (t *Tree) Root() *Dir {
+	return &Dir{tree: t, decision: Decision{Kept: true}}
 }
 
-// heldFrom returns which marker entries a listing holds, nil for no listing
-func (t *Tree) heldFrom(entries []string) []bool {
-	if entries == nil {
-		return nil
-	}
-	held := make([]bool, len(t.rules.markers))
-	for i, m := range t.rules.markers {
-		for _, name := range entries {
-			if name == m.Marker {
-				held[i] = true
-				break
-			}
-		}
-	}
-	return held
-}
-
-// Child returns the subfolder name of d, decided. entries is its listing
-// (names), nil when the caller doesn't have it: the folder's marker rules
-// then cost one lstat each, when no path rule decides the folder.
-func (d *Dir) Child(name string, entries []string) *Dir {
-	c := &Dir{tree: d.tree, parent: d, rel: d.join(name), held: d.tree.heldFrom(entries)}
+// Child returns the subfolder name of d, decided. list returns the
+// folder's listing (names); it is called at most once, and only when a
+// marker rule has to be checked: no path rule decides the folder, and the
+// rules have marker lines. A walker passes the read it does anyway, so the
+// listing is read once and a folder a rule leaves out is never listed.
+// nil: the caller has no listing, and a marker rule then costs one lstat.
+func (d *Dir) Child(name string, list func() []string) *Dir {
+	c := &Dir{tree: d.tree, parent: d, rel: d.join(name), list: list}
 	c.names = append(append(make([]string, 0, len(d.names)+1), d.names...), name)
 	c.decision = c.decideSelf(-1)
 	return c
+}
+
+// resolveHeld fills held from the listing, once
+func (d *Dir) resolveHeld() {
+	d.once.Do(func() {
+		markers := d.tree.rules.markers
+		d.held = make([]bool, len(markers))
+		entries := d.list()
+		for i, m := range markers {
+			for _, name := range entries {
+				if name == m.Marker {
+					d.held[i] = true
+					break
+				}
+			}
+		}
+	})
 }
 
 // decideSelf decides the folder: its own level, else its parent's
@@ -207,12 +216,15 @@ func (d *Dir) join(name string) string {
 	return d.rel + "/" + name
 }
 
-// holds reports whether the folder holds the entry of the marker rule i
+// holds reports whether the folder holds the entry of the marker rule i:
+// from the listing, else the lookups answer (one lstat per question; a
+// folder is asked once per marker at most, and stops at the first held)
 func (d *Dir) holds(i int) bool {
-	if d.held != nil {
-		return d.held[i]
+	if d.list == nil {
+		return d.tree.lookups.HoldsMarker(d.rel, d.tree.rules.markers[i].Marker)
 	}
-	return d.tree.lookups.HoldsMarker(d.rel, d.tree.rules.markers[i].Marker)
+	d.resolveHeld()
+	return d.held[i]
 }
 
 // markedBy returns the marker rule that leaves out the folder, the rule at
@@ -240,7 +252,7 @@ func (t *Tree) attrBy(rel string) *Rule {
 // Node returns the folder relDir ("" for the root), building the folders
 // above it without their listings
 func (t *Tree) Node(relDir string) *Dir {
-	d := t.Root(nil)
+	d := t.Root()
 	for _, name := range splitPath(relDir) {
 		d = d.Child(name, nil)
 	}
@@ -254,10 +266,7 @@ func (t *Tree) Decide(rel string, isDir bool) Decision {
 	if rel == "" {
 		return Decision{Kept: true}
 	}
-	parent, name := "", rel
-	if i := strings.LastIndexByte(rel, '/'); i >= 0 {
-		parent, name = rel[:i], rel[i+1:]
-	}
+	parent, name := splitLast(rel)
 	d := t.Node(parent)
 	if isDir {
 		return d.Child(name, nil).decision

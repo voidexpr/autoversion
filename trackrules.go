@@ -21,6 +21,8 @@ func alwaysExcluded(rel string) bool {
 	return rel == markerFileName || rel == filterFileName
 }
 
+const gitDirName = ".git"
+
 // gitExcluded reports whether an entry is a .git or anything under one:
 // what the nested-git group leaves out (exclude /**/.git), decided without
 // a rules walk. A git destination applies it whatever its rules say: git
@@ -29,7 +31,7 @@ func gitExcluded(rel string) bool {
 	for rel != "" {
 		var name string
 		name, rel, _ = strings.Cut(rel, "/")
-		if name == ".git" {
+		if name == gitDirName {
 			return true
 		}
 	}
@@ -54,6 +56,13 @@ func newSourceRules(root string, rules *filterrules.Rules, nestedGit bool) *sour
 // leftOut reports whether an entry is left out before the rules
 func (s *sourceRules) leftOut(rel string) bool {
 	return alwaysExcluded(rel) || s.nestedGit && gitExcluded(rel)
+}
+
+// leftOutName is leftOut for the entry name of a folder a walk entered: the
+// folder itself isn't left out, so only the name counts (inRoot: the folder
+// is the root)
+func (s *sourceRules) leftOutName(inRoot bool, name string) bool {
+	return inRoot && alwaysExcluded(name) || s.nestedGit && name == gitDirName
 }
 
 // rel returns path relative to the root with "/" separators ("" for the
@@ -118,23 +127,27 @@ func (s *sourceRules) walk(dir string, fn func(path string, info fs.FileInfo) er
 		dirs++
 		for _, e := range entries {
 			name := e.Name()
-			childPath := filepath.Join(path, name)
-			childRel := node.Rel() + "/" + name
-			if node.Rel() == "" {
-				childRel = name
-			}
-			if s.leftOut(childRel) {
+			if s.leftOutName(node.Rel() == "", name) {
 				continue
 			}
 			if e.IsDir() {
-				children, err := os.ReadDir(childPath)
-				if err != nil {
+				// The listing is read once, when the rules need it to decide
+				// the folder or when the walk enters it; a folder a rule
+				// leaves out is never read
+				childPath := filepath.Join(path, name)
+				var children []fs.DirEntry
+				read := func() []fs.DirEntry {
+					if children == nil {
+						children, _ = os.ReadDir(childPath)
+					}
+					return children
+				}
+				child := node.Child(name, func() []string { return names(read()) })
+				if child.Skip() || read() == nil {
 					continue
 				}
-				if child := node.Child(name, names(children)); !child.Skip() {
-					if err := visit(childPath, child, children); err != nil {
-						return err
-					}
+				if err := visit(childPath, child, children); err != nil {
+					return err
 				}
 				continue
 			}
@@ -145,7 +158,7 @@ func (s *sourceRules) walk(dir string, fn func(path string, info fs.FileInfo) er
 			if err != nil {
 				continue
 			}
-			if err := fn(childPath, info); err != nil {
+			if err := fn(filepath.Join(path, name), info); err != nil {
 				return err
 			}
 		}

@@ -45,15 +45,15 @@ func TestMarkers(t *testing.T) {
 	asked := 0
 	counting := testLookups{func(dir, name string) bool { asked++; return treeHas(tree)(dir, name) }, noAttr}
 	wt := r.BindWith(counting)
-	root := wt.Root([]string{"CACHEDIR.TAG", "keep.txt", "cache", "proj", "tools"})
-	cache := root.Child("cache", []string{"CACHEDIR.TAG", "data.bin", "sub"})
+	root := wt.Root()
+	cache := root.Child("cache", listing([]string{"CACHEDIR.TAG", "data.bin", "sub"}))
 	if cache.Decision().Kept || cache.Skip() || !cache.File("CACHEDIR.TAG").Kept || cache.File("data.bin").Kept {
 		t.Errorf("cache from its listing: %+v, skip %v", cache.Decision(), cache.Skip())
 	}
-	if sub := cache.Child("sub", []string{"x"}); !sub.Skip() || sub.Decision().Level != 1 {
+	if sub := cache.Child("sub", listing([]string{"x"})); !sub.Skip() || sub.Decision().Level != 1 {
 		t.Errorf("cache/sub: %+v, skip %v", sub.Decision(), sub.Skip())
 	}
-	env := root.Child("tools", []string{"env"}).Child("env", []string{"pyvenv.cfg", "bin"})
+	env := root.Child("tools", listing([]string{"env"})).Child("env", listing([]string{"pyvenv.cfg", "bin"}))
 	if !env.Decision().Kept || env.Skip() {
 		t.Errorf("tools/env, included: %+v", env.Decision())
 	}
@@ -107,6 +107,11 @@ func TestMarkerRules(t *testing.T) {
 // noAttr is the attribute lookup of a tree without attributes
 func noAttr(string, string) bool { return false }
 
+// listing returns a folder listing as Dir.Child takes it
+func listing(names []string) func() []string {
+	return func() []string { return names }
+}
+
 // One Rules shared by walks of two trees, each deciding with its own Tree,
 // two goroutines per tree sharing its Dirs (go test -race)
 func TestBindConcurrent(t *testing.T) {
@@ -122,7 +127,7 @@ func TestBindConcurrent(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	for _, c := range trees {
-		root := c.tr.Root(nil)
+		root := c.tr.Root()
 		for range 2 {
 			wg.Go(func() {
 				for range 1000 {

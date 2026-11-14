@@ -198,11 +198,7 @@ func readRules(destPath string) (*filterrules.Rules, error) {
 func listDir(root string) filterrules.ListFunc {
 	return func(rel string) ([]string, error) {
 		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(rel)))
-		var names []string
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		return names, err
+		return names(entries), err
 	}
 }
 

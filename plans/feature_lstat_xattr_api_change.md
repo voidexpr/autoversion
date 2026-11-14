@@ -21,12 +21,16 @@ Every file re-matches all its ancestor levels on each `Decide`.
 
 The walker drives, the library keeps one node per folder.
 
-- `tree := rules.Bind(root)`, once per scan. `dir := tree.Root(entries)`,
-  `child := dir.Child(name, entries)`, `child.File(name, isDir, hasXattr)`.
-  A node holds its folder's decision, computed once.
-- `entries` is the folder listing the walker already read (`[]string` of
-  names). Markers become a map lookup: zero syscalls. `nil` means "I don't
-  have it": the library does one `lstat` per marker name, as today.
+- `tree := rules.Bind(root)`, once per scan. `dir := tree.Root()`,
+  `child := dir.Child(name, list)`, `child.File(name)`. A node holds its
+  folder's decision, computed once.
+- `list` returns the folder listing (names). The library calls it at most
+  once, and only when no path rule decides the folder and the rules have
+  marker lines; the walker reads the folder in it and reuses the result
+  when it enters the folder. Markers then cost no syscall, and a folder a
+  rule leaves out is never listed (the review of 32da595 found the first
+  version listing every subfolder before asking Skip). `nil` means "I
+  don't have it": the library does one `lstat` per marker name, as today.
 - `hasXattr` is `func(name string) bool`. The caller passes what it has;
   `nil` means the library calls `lgetxattr` itself, only when the rules
   have an `xattr:` line. `filterrules.NoXattrs` is the explicit opt-out.
@@ -110,13 +114,13 @@ markers+xattr are the two caches.
 `use default` 4.0 s (first run, cold), `+ cache-markers` 2.0 s,
 `+ time-machine` 6.6 s.
 
-### After (same tree, same machine)
+### After (same tree, same machine; with the review's fixes and the lazy listing)
 
 | rule set | ns/op | kept | lookups/op | B/op | allocs/op |
 |---|---|---|---|---|---|
-| default | 227 ms (−4%) | 44 940 | 0 | 33.4 MB (−8%) | 356 k (−12%) |
-| markers | 206 ms (−15%) | 40 348 | 0 (was 8 400) | 31.6 MB (−36%) | 343 k (−62%) |
-| markers+xattr | 954 ms (−5%) | 39 760 | 55 055 (−13%) | 43.6 MB (−46%) | 554 k (−56%) |
+| default | 210 ms (−11%) | 44 940 | 0 | 31.9 MB (−13%) | 351 k (−13%) |
+| markers | 198 ms (−18%) | 40 348 | 0 (was 8 400) | 30.8 MB (−38%) | 338 k (−63%) |
+| markers+xattr | 942 ms (−6%) | 39 760 | 55 055 (−13%) | 42.8 MB (−47%) | 550 k (−57%) |
 
 - Markers cost nothing: the listing the walker read answers them.
 - Xattr is one `lgetxattr` per folder and per file reaching that tier,
@@ -132,8 +136,9 @@ markers+xattr are the two caches.
 
 `filter scan --summary` on `~/projects`, old and new binaries alternated,
 three rounds each (warm cache): `use default` old 4.1–4.4 s, new 4.0 s;
-`+ cache-markers` old 4.4–4.5 s, new 3.9–4.2 s; `+ time-machine` old
-7.9–9.5 s, new 6.7–7.3 s (160 k `lgetxattr` calls either way).
+`+ cache-markers` old 4.4–4.5 s, new 3.9–4.2 s, and after the lazy
+listing old 2.1–6.4 s, new 1.5–4.1 s; `+ time-machine` old 7.9–9.5 s, new
+6.7–7.3 s (160 k `lgetxattr` calls either way).
 
 ## dvgo
 
