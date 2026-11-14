@@ -50,13 +50,13 @@ func TestClaudeExample(t *testing.T) {
 		{"file-history/abc/1.json", false, 1, "exclude /*"},
 	}
 	for _, tt := range tests {
-		d := r.Decide(tt.entry, false)
+		d := bare(r).Decide(tt.entry, false)
 		if d.Kept != tt.kept || d.Level != tt.level || d.Rule == nil || d.Rule.String() != tt.rule {
 			t.Errorf("%s: kept %v level %d by %v, want %v level %d by %q",
 				tt.entry, d.Kept, d.Level, d.Rule, tt.kept, tt.level, tt.rule)
 		}
 	}
-	if d := r.Decide("skills/pdf/node_modules", true); d.Rule.Group != "deps" {
+	if d := bare(r).Decide("skills/pdf/node_modules", true); d.Rule.Group != "deps" {
 		t.Errorf("node_modules decided by group %q, want deps", d.Rule.Group)
 	}
 
@@ -73,7 +73,7 @@ func TestClaudeExample(t *testing.T) {
 		"projects/-Users-x/memory":    false,
 	}
 	for dir, want := range skip {
-		if got := r.SkipDir(dir); got != want {
+		if got := bare(r).SkipDir(dir); got != want {
 			t.Errorf("SkipDir(%s) = %v, want %v", dir, got, want)
 		}
 	}
@@ -82,7 +82,7 @@ func TestClaudeExample(t *testing.T) {
 		"skills/", "skills/pdf/", "skills/pdf/SKILL.md", "skills/synced/", "skills/synced/a.md",
 		"projects/", "projects/-Users-x/", "projects/-Users-x/memory/", "projects/-Users-x/memory/MEMORY.md",
 		"projects/-Users-x/abc.jsonl", "plugins/", "plugins/CLAUDE.md"}
-	checkSkipDir(t, r, tree)
+	checkSkipDir(t, bare(r), tree)
 	if problems := r.Check(listTree(tree)); len(problems) > 0 {
 		t.Errorf("problems: %v", problems)
 	}
@@ -137,13 +137,18 @@ func TestDefaultGroups(t *testing.T) {
 // checkDecisions checks the entries r leaves out and keeps
 func checkDecisions(t *testing.T, r *Rules, out, kept []string) {
 	t.Helper()
+	checkTreeDecisions(t, bare(r), out, kept)
+}
+
+func checkTreeDecisions(t *testing.T, tr *Tree, out, kept []string) {
+	t.Helper()
 	for _, entry := range out {
-		if decide(r, entry).Kept {
+		if decide(tr, entry).Kept {
 			t.Errorf("%s kept, want left out", entry)
 		}
 	}
 	for _, entry := range kept {
-		if d := decide(r, entry); !d.Kept {
+		if d := decide(tr, entry); !d.Kept {
 			t.Errorf("%s left out by %v, want kept", entry, d.Rule)
 		}
 	}
@@ -332,8 +337,9 @@ func BenchmarkDecideDefault(b *testing.B) {
 	f := &File{}
 	f.Use("default")
 	r, _ := New(f)
+	tr := bare(r)
 	for b.Loop() {
-		r.Decide("projects/autoversion/filterrules/testdata/filter_conformance.json", false)
+		tr.Decide("projects/autoversion/filterrules/testdata/filter_conformance.json", false)
 	}
 }
 
@@ -344,7 +350,7 @@ func TestList(t *testing.T) {
 		t.Errorf("List(): %d rules, first %v, last group %q", len(list), list[0], list[len(list)-1].Group)
 	}
 	for _, entry := range []string{"a", "x/.DS_Store", "node_modules/y"} {
-		d := r.Decide(entry, false)
+		d := bare(r).Decide(entry, false)
 		if d.Rule == nil || !slices.Contains(list, d.Rule) {
 			t.Errorf("%s: decided by %v, not a pointer into List()", entry, d.Rule)
 		}

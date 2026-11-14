@@ -19,28 +19,51 @@ func TestMarkers(t *testing.T) {
 		t.Errorf("Markers() = %q", got)
 	}
 
-	// Without a lookup, markers never match; WithMarkers leaves r as it is
-	bare := r
-	r = r.WithMarkers(treeHas(tree))
-	if !decide(bare, "cache/data.bin").Kept {
-		t.Error("without WithMarkers, cache/data.bin is left out")
+	// Without lookups, markers never match
+	if !decide(bare(r), "cache/data.bin").Kept {
+		t.Error("with NoLookups, cache/data.bin is left out")
 	}
+	tr := r.BindWith(testLookups{treeHas(tree), noAttr})
 
-	d := decide(r, "cache/data.bin")
+	d := decide(tr, "cache/data.bin")
 	if d.Kept || d.Rule == nil || d.Rule.String() != "exclude marker:CACHEDIR.TAG" || d.Level != 1 {
 		t.Errorf("cache/data.bin: %+v", d)
 	}
-	checkDecisions(t, r,
+	checkTreeDecisions(t, tr,
 		[]string{"cache/", "cache/data.bin", "cache/sub/", "cache/sub/x", "proj/.venv/", "proj/.venv/lib/x"},
 		[]string{"keep.txt", "CACHEDIR.TAG", "cache/CACHEDIR.TAG", "proj/.venv/pyvenv.cfg", "proj/main.py",
 			"tools/env/", "tools/env/pyvenv.cfg", "tools/env/bin/run"})
 
 	// A walker enters a marked folder for its marker entry, skips its subfolders
-	if r.SkipDir("cache") || !r.SkipDir("cache/sub") || r.SkipDir("tools/env") {
+	if tr.SkipDir("cache") || !tr.SkipDir("cache/sub") || tr.SkipDir("tools/env") {
 		t.Errorf("SkipDir: cache %v (want false), cache/sub %v (want true), tools/env %v (want false)",
-			r.SkipDir("cache"), r.SkipDir("cache/sub"), r.SkipDir("tools/env"))
+			tr.SkipDir("cache"), tr.SkipDir("cache/sub"), tr.SkipDir("tools/env"))
 	}
-	checkSkipDir(t, r, tree)
+	checkSkipDir(t, tr, tree)
+
+	// The same from a walker's Dirs, with the listings: no lookup asked
+	asked := 0
+	counting := testLookups{func(dir, name string) bool { asked++; return treeHas(tree)(dir, name) }, noAttr}
+	wt := r.BindWith(counting)
+	root := wt.Root([]string{"CACHEDIR.TAG", "keep.txt", "cache", "proj", "tools"})
+	cache := root.Child("cache", []string{"CACHEDIR.TAG", "data.bin", "sub"})
+	if cache.Decision().Kept || cache.Skip() || !cache.File("CACHEDIR.TAG").Kept || cache.File("data.bin").Kept {
+		t.Errorf("cache from its listing: %+v, skip %v", cache.Decision(), cache.Skip())
+	}
+	if sub := cache.Child("sub", []string{"x"}); !sub.Skip() || sub.Decision().Level != 1 {
+		t.Errorf("cache/sub: %+v, skip %v", sub.Decision(), sub.Skip())
+	}
+	env := root.Child("tools", []string{"env"}).Child("env", []string{"pyvenv.cfg", "bin"})
+	if !env.Decision().Kept || env.Skip() {
+		t.Errorf("tools/env, included: %+v", env.Decision())
+	}
+	if asked != 0 {
+		t.Errorf("%d lookups asked with the listings given", asked)
+	}
+	// Without a listing, the lookups answer, once per marker name
+	if c := root.Child("cache", nil); c.Decision().Kept || asked != 1 {
+		t.Errorf("cache without a listing: %+v, %d lookups (want 1: the first marker holds)", c.Decision(), asked)
+	}
 
 	// Check: the root holds a marker; /tools/env is marked and included
 	var codes []string
@@ -81,29 +104,37 @@ func TestMarkerRules(t *testing.T) {
 	}
 }
 
-// One Rules shared by walks of two trees, each deciding with its own
-// WithMarkers copy, two goroutines per copy (go test -race)
-func TestWithMarkersConcurrent(t *testing.T) {
+// noAttr is the attribute lookup of a tree without attributes
+func noAttr(string, string) bool { return false }
+
+// One Rules shared by walks of two trees, each deciding with its own Tree,
+// two goroutines per tree sharing its Dirs (go test -race)
+func TestBindConcurrent(t *testing.T) {
 	r := newFileRules(t, "version 1\nexclude marker:CACHEDIR.TAG\n")
-	copies := []struct {
+	trees := []struct {
 		name string
-		r    *Rules
+		tr   *Tree
 		kept bool
 	}{
-		{"marked tree", r.WithMarkers(treeHas([]string{"cache/", "cache/CACHEDIR.TAG", "cache/x"})), false},
-		{"unmarked tree", r.WithMarkers(treeHas([]string{"cache/", "cache/x"})), true},
-		{"no lookup", r, true},
+		{"marked tree", r.BindWith(testLookups{treeHas([]string{"cache/", "cache/CACHEDIR.TAG", "cache/x"}), noAttr}), false},
+		{"unmarked tree", r.BindWith(testLookups{treeHas([]string{"cache/", "cache/x"}), noAttr}), true},
+		{"no lookup", bare(r), true},
 	}
 	var wg sync.WaitGroup
-	for _, c := range copies {
+	for _, c := range trees {
+		root := c.tr.Root(nil)
 		for range 2 {
 			wg.Go(func() {
 				for range 1000 {
-					if got := c.r.Decide("cache/x", false).Kept; got != c.kept {
+					if got := c.tr.Decide("cache/x", false).Kept; got != c.kept {
 						t.Errorf("%s: cache/x kept %v, want %v", c.name, got, c.kept)
 						return
 					}
-					if c.r.SkipDir("cache") {
+					if got := root.Child("cache", nil).File("x").Kept; got != c.kept {
+						t.Errorf("%s: cache/x from a shared Dir kept %v, want %v", c.name, got, c.kept)
+						return
+					}
+					if c.tr.SkipDir("cache") {
 						t.Errorf("%s: SkipDir(cache)", c.name)
 						return
 					}

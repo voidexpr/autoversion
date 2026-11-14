@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nicad/autoversion/filterrules"
 	"golang.org/x/sys/unix"
 )
 
@@ -303,7 +304,7 @@ func TestShouldTrack_NestedGit(t *testing.T) {
 	// gitExcluded decides like the group
 	group := defaultRulesWith(t, "use nested-git")
 	for _, name := range append(append([]string{}, gitEntries...), others...) {
-		if got, want := gitExcluded(name), !group.Decide(name, false).Kept; got != want {
+		if got, want := gitExcluded(name), !group.BindWith(filterrules.NoLookups).Decide(name, false).Kept; got != want {
 			t.Errorf("gitExcluded(%s) = %v, the nested-git group says %v", name, got, want)
 		}
 	}
@@ -379,7 +380,7 @@ func TestShouldTrack_Xattr(t *testing.T) {
 	if !skipDir(filepath.Join(root, "cache")) || skipDir(filepath.Join(root, "env")) || skipDir(filepath.Join(root, "src")) {
 		t.Error("skipDir: a marked folder is skipped, an included or plain one is not")
 	}
-	d := rulesSet().rules.Decide("cache/f", false)
+	d := rulesSet().tree.Decide("cache/f", false)
 	if d.Kept || d.Rule == nil || d.Rule.String() != "exclude xattr:"+attr || d.Level != 1 {
 		t.Errorf("Decide(cache/f) = %+v", d)
 	}

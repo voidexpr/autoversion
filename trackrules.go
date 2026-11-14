@@ -5,10 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/nicad/autoversion/filterrules"
-	"golang.org/x/sys/unix"
 )
 
 const alwaysAppliedText = "symlinks, /" + markerFileName + " and /" + filterFileName
@@ -39,73 +37,18 @@ func gitExcluded(rel string) bool {
 }
 
 // sourceRules decides what autoversion tracks in a source: alwaysExcluded,
-// gitExcluded for a git destination, then the destination's rules
+// gitExcluded for a git destination, then the destination's rules, bound
+// to the source for their marker and attribute lookups
 type sourceRules struct {
 	root      string
 	rules     *filterrules.Rules
+	tree      *filterrules.Tree
 	nestedGit bool // a git destination: .git folders are left out whatever the rules say
-
-	// markers caches which folders hold a marker entry during a walk
-	// (relDir + "/" + name); nil outside a walk, where each lookup stats
-	markerMu sync.Mutex
-	markers  map[string]bool
 }
 
-// newSourceRules returns the rules of a source, with the lookups the rules'
-// exclude marker:NAME and exclude xattr:NAME lines need. rules is unchanged.
+// newSourceRules returns the rules of a source. rules is unchanged.
 func newSourceRules(root string, rules *filterrules.Rules, nestedGit bool) *sourceRules {
-	s := &sourceRules{root: root, nestedGit: nestedGit}
-	s.rules = rules.WithMarkers(s.holdsMarker).WithXattrs(s.hasXattr)
-	return s
-}
-
-// holdsMarker reports whether the folder relDir of the source directly holds
-// an entry named name
-func (s *sourceRules) holdsMarker(relDir, name string) bool {
-	return s.cached(relDir+"/"+name, func() bool {
-		_, err := os.Lstat(filepath.Join(s.root, filepath.FromSlash(relDir), name))
-		return err == nil
-	})
-}
-
-// hasXattr reports whether the entry rel of the source carries the extended
-// attribute name (never followed through a symlink)
-func (s *sourceRules) hasXattr(rel, name string) bool {
-	return s.cached("@"+rel+"/"+name, func() bool {
-		_, err := unix.Lgetxattr(filepath.Join(s.root, filepath.FromSlash(rel)), name, nil)
-		return err == nil
-	})
-}
-
-// cached returns lookup's answer for key, from the walk cache when on
-func (s *sourceRules) cached(key string, lookup func() bool) bool {
-	s.markerMu.Lock()
-	defer s.markerMu.Unlock()
-	if held, ok := s.markers[key]; ok {
-		return held
-	}
-	held := lookup()
-	if s.markers != nil {
-		s.markers[key] = held
-	}
-	return held
-}
-
-// cacheMarkers turns the marker and attribute cache on for a walk; the
-// function returned turns it off. Outside a walk a marker entry or an
-// attribute may appear or go at any time.
-func (s *sourceRules) cacheMarkers() func() {
-	s.markerMu.Lock()
-	defer s.markerMu.Unlock()
-	if s.markers != nil || len(s.rules.Markers())+len(s.rules.Xattrs()) == 0 {
-		return func() {}
-	}
-	s.markers = map[string]bool{}
-	return func() {
-		s.markerMu.Lock()
-		s.markers = nil
-		s.markerMu.Unlock()
-	}
+	return &sourceRules{root: root, rules: rules, tree: rules.Bind(root), nestedGit: nestedGit}
 }
 
 // leftOut reports whether an entry is left out before the rules
@@ -126,10 +69,11 @@ func (s *sourceRules) rel(path string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-// tracked reports whether the rules keep an entry of the source
+// tracked reports whether the rules keep an entry of the source. For a
+// one-off question (an event): a walk decides from its folders.
 func (s *sourceRules) tracked(path string, isDir bool) bool {
 	rel, ok := s.rel(path)
-	return ok && !s.leftOut(rel) && s.rules.Decide(rel, isDir).Kept
+	return ok && !s.leftOut(rel) && s.tree.Decide(rel, isDir).Kept
 }
 
 // limit returns the size limit of a file of the source, in bytes (0: none),
@@ -150,7 +94,7 @@ func (s *sourceRules) limit(path string) (int64, *filterrules.Rule) {
 // left out, and nothing below it can be kept
 func (s *sourceRules) skipDir(path string) bool {
 	rel, ok := s.rel(path)
-	return !ok || s.leftOut(rel) || s.rules.SkipDir(rel)
+	return !ok || s.leftOut(rel) || s.tree.SkipDir(rel)
 }
 
 // walk calls fn for each file the rules keep under dir, a folder of the
@@ -158,30 +102,73 @@ func (s *sourceRules) skipDir(path string) bool {
 // are not regular files are never tracked; the size limit is fn's to check.
 // An error from fn stops the walk. walk returns the number of folders
 // visited: the watches a Linux watcher needs.
+//
+// Each folder is read once; its listing gives the rules its marker entries,
+// so a marker rule costs no lookup. An entry's type comes from the listing.
 func (s *sourceRules) walk(dir string, fn func(path string, info fs.FileInfo) error) (int, error) {
-	defer s.cacheMarkers()()
+	rel, ok := s.rel(dir)
+	if !ok {
+		return 0, nil
+	}
 	dirs := 0
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if s.skipDir(path) {
-				return filepath.SkipDir
+	// visit handles the folder node, whose listing entries was read to
+	// decide it
+	var visit func(path string, node *filterrules.Dir, entries []fs.DirEntry) error
+	visit = func(path string, node *filterrules.Dir, entries []fs.DirEntry) error {
+		dirs++
+		for _, e := range entries {
+			name := e.Name()
+			childPath := filepath.Join(path, name)
+			childRel := node.Rel() + "/" + name
+			if node.Rel() == "" {
+				childRel = name
 			}
-			dirs++
-			return nil
+			if s.leftOut(childRel) {
+				continue
+			}
+			if e.IsDir() {
+				children, err := os.ReadDir(childPath)
+				if err != nil {
+					continue
+				}
+				if child := node.Child(name, names(children)); !child.Skip() {
+					if err := visit(childPath, child, children); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if !e.Type().IsRegular() || !node.File(name).Kept {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			if err := fn(childPath, info); err != nil {
+				return err
+			}
 		}
-		if !d.Type().IsRegular() || !s.tracked(path, false) {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		return fn(path, info)
-	})
-	return dirs, err
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || s.leftOut(rel) {
+		return 0, nil
+	}
+	node := s.tree.Node(rel)
+	if node.Skip() {
+		return 0, nil
+	}
+	return dirs, visit(dir, node, entries)
+}
+
+// names returns the names of a listing
+func names(entries []fs.DirEntry) []string {
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.Name()
+	}
+	return out
 }
 
 // walkDestination calls fn with the path, relative to the destination, of

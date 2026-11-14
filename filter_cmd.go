@@ -367,7 +367,7 @@ func explain(s *sourceRules, path string) error {
 	case s.nestedGit && gitExcluded(rel):
 		result = "left out: " + nestedGitText
 	default:
-		d := s.rules.Decide(rel, isDir)
+		d := s.tree.Decide(rel, isDir)
 		switch {
 		case d.Rule == nil:
 			result = "kept: no rule matches it or a folder above it"

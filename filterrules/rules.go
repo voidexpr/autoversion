@@ -27,26 +27,37 @@ type Rules struct {
 	xattrs      []*Rule // exclude xattr:NAME rules
 	sizeLimits  []Rule  // the scoped max-file-size lines, expanded
 	sizes       ruleIndex
-
-	// markerExists reports whether the folder relDir directly holds an
-	// entry named name; nil (markers never match) except in a WithMarkers copy
-	markerExists func(relDir, name string) bool
-	// xattrExists reports whether the entry rel carries the extended
-	// attribute name; nil (attribute rules never match) except in a
-	// WithXattrs copy
-	xattrExists func(rel, name string) bool
 }
 
 // ruleIndex files rules by what decideLevel tries at a level
 type ruleIndex struct {
-	literal  map[string][]*Rule // literal rules by path
-	byName   map[string][]*Rule // wildcard rules by the name a level must have: /**/node_modules
-	byExt    map[string][]*Rule // wildcard rules by the extension a level must have: f:/**/*.log
-	wildcard []*Rule            // the other wildcard rules, tried at each level
+	literal  map[string]map[string][]*Rule // literal rules by the path of their folder ("" for the root), then their name
+	byName   map[string][]*Rule            // wildcard rules by the name a level must have: /**/node_modules
+	byExt    map[string][]*Rule            // wildcard rules by the extension a level must have: f:/**/*.log
+	wildcard []*Rule                       // the other wildcard rules, tried at each level
 }
 
 func newRuleIndex() ruleIndex {
-	return ruleIndex{literal: map[string][]*Rule{}, byName: map[string][]*Rule{}, byExt: map[string][]*Rule{}}
+	return ruleIndex{literal: map[string]map[string][]*Rule{}, byName: map[string][]*Rule{}, byExt: map[string][]*Rule{}}
+}
+
+// literalAt returns the literal rules on the entry name of the folder dir
+func (x *ruleIndex) literalAt(dir, name string) []*Rule {
+	return x.literal[dir][name]
+}
+
+// literalOn returns the literal rules on the path rel
+func (x *ruleIndex) literalOn(rel string) []*Rule {
+	dir, name := splitLast(rel)
+	return x.literalAt(dir, name)
+}
+
+// splitLast splits a path into its folder ("" for the root) and its name
+func splitLast(rel string) (dir, name string) {
+	if i := strings.LastIndexByte(rel, '/'); i >= 0 {
+		return rel[:i], rel[i+1:]
+	}
+	return "", rel
 }
 
 // New combines a file's rules with the groups it uses, and validates them
@@ -126,7 +137,8 @@ func (r *Rules) Limit(rel string) *Rule {
 		if d < len(names) {
 			end -= len(names[d]) + 1
 		}
-		if rule := r.sizes.limitLevel(names[:d], rel[:end], d < len(names)); rule != nil {
+		dir, _ := splitLast(rel[:end])
+		if rule := r.sizes.limitLevel(names[:d], dir, d < len(names)); rule != nil {
 			return rule
 		}
 	}
@@ -144,9 +156,9 @@ func (r *Rules) TooLarge(rel string, size int64) bool {
 	return limit > 0 && size > limit
 }
 
-// limitLevel returns the scoped line that decides the level q (path qPath):
-// of the first tier with a match, the strictest
-func (x *ruleIndex) limitLevel(q []string, qPath string, isDir bool) *Rule {
+// limitLevel returns the scoped line that decides the level q, in the
+// folder dir: of the first tier with a match, the strictest
+func (x *ruleIndex) limitLevel(q []string, dir string, isDir bool) *Rule {
 	strictest := func(rules ...[]*Rule) *Rule {
 		var best *Rule
 		for _, rules := range rules {
@@ -159,7 +171,7 @@ func (x *ruleIndex) limitLevel(q []string, qPath string, isDir bool) *Rule {
 		return best
 	}
 	name := q[len(q)-1]
-	if rule := strictest(x.literal[qPath]); rule != nil {
+	if rule := strictest(x.literalAt(dir, name)); rule != nil {
 		return rule
 	}
 	if rule := strictest(x.byName[name]); rule != nil {
@@ -196,7 +208,11 @@ func compile(all []Rule) *Rules {
 // extension of a level, and the others.
 func (x *ruleIndex) add(rule *Rule) {
 	if rule.Literal() {
-		x.literal[rule.Text[1:]] = append(x.literal[rule.Text[1:]], rule)
+		dir, name := splitLast(rule.Text[1:])
+		if x.literal[dir] == nil {
+			x.literal[dir] = map[string][]*Rule{}
+		}
+		x.literal[dir][name] = append(x.literal[dir][name], rule)
 		return
 	}
 	last := rule.segments[len(rule.segments)-1]
@@ -228,29 +244,6 @@ func (r *Rules) List() []*Rule {
 	return list
 }
 
-// WithMarkers returns a copy of r that decides with exists as the tree
-// lookup its marker rules need: exists reports whether the folder relDir
-// ("" for the root) directly holds an entry named name. The copy shares the
-// compiled rules, and r is unchanged. Without a lookup markers never match:
-// Markers says whether a filter has any.
-//
-// exists runs on the goroutine that calls Decide or SkipDir: when several
-// goroutines decide with the same copy, it must be safe for concurrent use.
-func (r *Rules) WithMarkers(exists func(relDir, name string) bool) *Rules {
-	c := *r
-	c.markerExists = exists
-	return &c
-}
-
-// WithXattrs returns a copy that decides exclude xattr:NAME rules with
-// exists, which says whether the entry rel carries the attribute name. The
-// same conditions as WithMarkers apply.
-func (r *Rules) WithXattrs(exists func(rel, name string) bool) *Rules {
-	c := *r
-	c.xattrExists = exists
-	return &c
-}
-
 // Xattrs returns the attribute names of the xattr rules (exclude xattr:NAME)
 func (r *Rules) Xattrs() []string {
 	var names []string
@@ -260,20 +253,6 @@ func (r *Rules) Xattrs() []string {
 	return names
 }
 
-// attrBy returns the xattr rule that leaves out the entry rel: it carries
-// the attribute
-func (r *Rules) attrBy(rel string) *Rule {
-	if r.xattrExists == nil {
-		return nil
-	}
-	for _, x := range r.xattrs {
-		if r.xattrExists(rel, x.Xattr) {
-			return x
-		}
-	}
-	return nil
-}
-
 // Markers returns the entry names of the marker rules (exclude marker:NAME)
 func (r *Rules) Markers() []string {
 	var names []string
@@ -281,31 +260,6 @@ func (r *Rules) Markers() []string {
 		names = append(names, m.Marker)
 	}
 	return names
-}
-
-// markedBy returns the marker rule that leaves out the folder relDir: it
-// holds the marker's entry. A marker named except doesn't count: the
-// marker entry itself is decided as if its folder had no such marker.
-func (r *Rules) markedBy(relDir, except string) *Rule {
-	if r.markerExists == nil {
-		return nil
-	}
-	for _, m := range r.markers {
-		if m.Marker != except && r.markerExists(relDir, m.Marker) {
-			return m
-		}
-	}
-	return nil
-}
-
-// isMarkerName reports whether an entry named name is a marker entry
-func (r *Rules) isMarkerName(name string) bool {
-	for _, m := range r.markers {
-		if m.Marker == name {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *Rules) validate() error {
@@ -328,7 +282,7 @@ func (r *Rules) validate() error {
 		if !inc.Literal() {
 			continue
 		}
-		for _, other := range r.paths.literal[inc.Text[1:]] {
+		for _, other := range r.paths.literalOn(inc.Text[1:]) {
 			if other.Kind == Exclude {
 				errs = append(errs, &Error{Code: "contradiction", Rule: inc.Text,
 					Reason: "both excluded and included: delete one"})
@@ -337,12 +291,14 @@ func (r *Rules) validate() error {
 		}
 	}
 	// Two literal scoped limits on the same path with different sizes
-	for _, rules := range r.sizes.literal {
-		for i, a := range rules {
-			for _, b := range rules[:i] {
-				if a.Type == b.Type && a.sizeBytes != b.sizeBytes {
-					errs = append(errs, &Error{Code: "contradiction", Rule: a.String(),
-						Reason: "two limits on the same path (" + b.String() + "): delete one"})
+	for _, byName := range r.sizes.literal {
+		for _, rules := range byName {
+			for i, a := range rules {
+				for _, b := range rules[:i] {
+					if a.Type == b.Type && a.sizeBytes != b.sizeBytes {
+						errs = append(errs, &Error{Code: "contradiction", Rule: a.String(),
+							Reason: "two limits on the same path (" + b.String() + "): delete one"})
+					}
 				}
 			}
 		}
@@ -357,58 +313,15 @@ type Decision struct {
 	Rule  *Rule // the rule that decided, nil when no rule matched
 }
 
-// Decide decides an entry. The closest match wins: the entry itself is
-// checked first, then each folder above it. A folder holding a marker entry
-// (see WithMarkers), or an entry carrying an attribute (see WithXattrs),
-// counts as a named wildcard exclude at its own level (see decideLevel),
-// except for the marker entry itself, decided as if its folder had no
-// marker.
-func (r *Rules) Decide(rel string, isDir bool) Decision {
-	if rel == "" {
-		return Decision{Kept: true}
-	}
-	names := strings.Split(rel, "/")
-	except := ""
-	if r.isMarkerName(names[len(names)-1]) {
-		except = names[len(names)-1]
-	}
-	end := len(rel)
-	for d := len(names); d >= 1; d-- {
-		if d < len(names) {
-			end -= len(names[d]) + 1
-		}
-		levelIsDir := isDir || d < len(names)
-		var marked func() *Rule
-		if levelIsDir && len(r.markers) > 0 || len(r.xattrs) > 0 {
-			path, levelExcept := rel[:end], ""
-			if d == len(names)-1 {
-				levelExcept = except
-			}
-			marked = func() *Rule {
-				if levelIsDir {
-					if m := r.markedBy(path, levelExcept); m != nil {
-						return m
-					}
-				}
-				return r.attrBy(path)
-			}
-		}
-		if rule := r.decideLevel(names[:d], rel[:end], levelIsDir, marked); rule != nil {
-			return Decision{Kept: rule.Kind == Include, Level: d, Rule: rule}
-		}
-	}
-	return Decision{Kept: true}
-}
-
 // decideLevel returns the rule that decides the level q (path qPath), or nil
 // when no rule matches it. A literal rule beats a wildcard rule, and a named
 // wildcard (/**/.cache) beats the other wildcards (/.*, /**/*.log). The
-// folder's marker (marked, nil without markers) is a named wildcard exclude:
-// a named include ties with it and wins. In a tier an include beats an
-// exclude, then the first rule in order wins.
-func (r *Rules) decideLevel(q []string, qPath string, isDir bool, marked func() *Rule) *Rule {
+// level's marker or attribute (marked, nil without such rules; see Tree) is
+// a named wildcard exclude: a named include ties with it and wins. In a
+// tier an include beats an exclude, then the first rule in order wins.
+func (r *Rules) decideLevel(q []string, dir string, isDir bool, marked func() *Rule) *Rule {
 	var exclude *Rule
-	for _, rule := range r.paths.literal[qPath] {
+	for _, rule := range r.paths.literalAt(dir, q[len(q)-1]) {
 		if rule.fits(isDir) {
 			if rule.Kind == Include {
 				return rule
@@ -462,21 +375,6 @@ func (r *Rules) CanMatchBelow(relDir string) bool {
 		}
 	}
 	return false
-}
-
-// SkipDir reports whether a walker can skip the folder relDir: it is left
-// out, no include can match below it, and it holds no marker entry that is
-// kept (a marked folder is stored bare with its marker)
-func (r *Rules) SkipDir(relDir string) bool {
-	if r.Decide(relDir, true).Kept || r.CanMatchBelow(relDir) {
-		return false
-	}
-	for _, m := range r.markers {
-		if r.markerExists != nil && r.markerExists(relDir, m.Marker) && r.Decide(relDir+"/"+m.Marker, false).Kept {
-			return false
-		}
-	}
-	return true
 }
 
 func splitPath(rel string) []string {
@@ -653,7 +551,7 @@ func (r *Rules) includeChangesNothing(inc *Rule) bool {
 		}
 		return true
 	}
-	without := compile(others)
+	without := compile(others).BindWith(NoLookups)
 	rel := inc.Text[1:]
 	keptAs := func(isDir bool) bool { return without.Decide(rel, isDir).Kept }
 	switch inc.Type {

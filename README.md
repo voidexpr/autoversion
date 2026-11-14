@@ -64,6 +64,7 @@ make install    # copies binary to /usr/local/bin
 make uninstall  # removes from /usr/local/bin
 make watch-check  # real watch on a temp source (git, --no-git, allowlist): file and directory changes, rules, no copy loop
 make filter       # regenerate filters/README.md from the group files (make test fails while it is stale)
+go test -run XXX -bench BenchmarkWalk -benchtime 5x .   # walk a generated tree with three rule sets: time, memory, disk lookups
 ```
 
 To try the Linux (inotify) watcher from macOS, `make docker-test` builds the image, then runs `init` and `watch` in a container. `SOURCE` (default `test_watch`) is mounted read-only at `/source`, `DESTINATION` (default: a new `/tmp/autoversion_docker_test/<timestamp>-<random>` directory) at `/destination`. Stop it with Ctrl+C.
@@ -569,8 +570,9 @@ go get github.com/nicad/autoversion@main      # in the importing module
 The API, all in `filterrules`:
 - `ParseFile(r)` reads a rules file into a `File` (`Root`, `Types`, `MaxFileSize` as written, `Uses`, `Lines`, `Rules`); `File.Use`, `File.Add` and `File.Format` build one from flags. `ParseRule` expands one rule's sugar.
 - `New(file)` combines the file's rules with its groups and validates them (`whole-root`, `contradiction`).
-- `Rules.Decide(rel, isDir)` decides one entry (`Kept`, the `Rule` and `Level` that decided); `Rules.SkipDir(relDir)` says whether a walker can skip a folder; `Rules.CanMatchBelow(relDir)` whether an include can match under it.
-- `Rules.WithMarkers(exists)` returns a copy that decides `exclude marker:NAME` rules with `exists(relDir, name)`, which says whether a folder of the tree directly holds an entry; without it, markers never match (`Rules.Markers()` lists them). Nothing changes a `Rules` after `New`: it is safe for concurrent use, each tree walked gets its own copy, and `exists` must be safe for concurrent use when goroutines share a copy. The `*Rule` values of `List` and `Decision.Rule` are shared by every copy: read only.
+- Deciding goes through a `Tree`, bound to one tree on disk: `rules.Bind(root)` reads markers with `lstat` and attributes with `lgetxattr` (`DiskLookups`); `rules.BindWith(lookups)` takes another `Lookups`, `filterrules.NoLookups` being the explicit "marker and xattr rules never match". There is no way to decide without one, so a tool can't skip those rules by forgetting them.
+- A walker builds a `Dir` per folder it enters, from `tree.Root(entries)` down with `dir.Child(name, entries)`, where `entries` is the listing it just read: marker rules then cost no syscall, and `nil` means "ask the lookups". `dir.File(name)` decides a non-folder entry, `dir.Skip()` says whether the walker can skip the folder, `dir.Decision()` is the folder's own. A `Dir` is read only once built: goroutines of a parallel walker share their parent's `Dir`. Live memory is one `Dir` per folder in flight.
+- `tree.Decide(rel, isDir)` and `tree.SkipDir(relDir)` answer for one path, building the folders above it on the way: for `explain`, a watch event, tests. `Rules.CanMatchBelow(relDir)` says whether an include can match under a folder. `Rules.Markers()` and `Rules.Xattrs()` list the marker and attribute rules. The `*Rule` values of `List` and `Decision.Rule` are shared: read only.
 - `Rules.MaxFileSize()` and `Rules.TooLarge(size)` for the size limit; `ParseSize` for a `10M`-style value.
 - `Rules.Check(list)` finds dead rules and includes that change nothing, given a function that lists a folder; `Rules.Dump()` prints the expanded rules.
 - `Rules.List()` returns the combined rules, the filter's own first, then its groups'; a `Decision.Rule` points into it.

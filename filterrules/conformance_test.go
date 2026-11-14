@@ -77,14 +77,15 @@ func TestConformance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r = r.WithMarkers(treeHas(c.Tree)).WithXattrs(treeXattrs(c.Xattrs))
-			got, want := selectTree(r, c.Tree, c.Sizes), slices.Clone(c.Kept)
+			tree := r.BindWith(testLookups{treeHas(c.Tree), treeXattrs(c.Xattrs)})
+			got, want := selectTree(tree, c.Tree, c.Sizes), slices.Clone(c.Kept)
 			slices.Sort(got)
 			slices.Sort(want)
 			if !slices.Equal(got, want) {
 				t.Errorf("kept\n got %q\nwant %q", got, want)
 			}
-			checkSkipDir(t, r, c.Tree)
+			checkSkipDir(t, tree, c.Tree)
+			checkWalk(t, tree, c.Tree, got)
 		})
 	}
 	if native == 0 {
@@ -187,18 +188,32 @@ func newRules(t *testing.T, exclude, include []string, uses ...string) *Rules {
 	return r
 }
 
+// testLookups answers from a case's tree and xattrs
+type testLookups struct {
+	holds func(dir, name string) bool
+	attr  func(rel, name string) bool
+}
+
+func (l testLookups) HoldsMarker(relDir, name string) bool { return l.holds(relDir, name) }
+func (l testLookups) HasXattr(rel, name string) bool       { return l.attr(rel, name) }
+
+// bare binds rules without lookups: marker and xattr rules never match
+func bare(r *Rules) *Tree {
+	return r.BindWith(NoLookups)
+}
+
 // decide decides a tree entry: a folder ends with "/"
-func decide(r *Rules, entry string) Decision {
-	return r.Decide(strings.TrimSuffix(entry, "/"), strings.HasSuffix(entry, "/"))
+func decide(tr *Tree, entry string) Decision {
+	return tr.Decide(strings.TrimSuffix(entry, "/"), strings.HasSuffix(entry, "/"))
 }
 
 // selectTree returns the kept entries of a tree (folders end with "/"), bare
 // folders included, in tree order. sizes gives file sizes for the size
 // limit, missing entries are empty.
-func selectTree(r *Rules, tree []string, sizes map[string]int64) []string {
+func selectTree(tr *Tree, tree []string, sizes map[string]int64) []string {
 	kept := map[string]bool{}
 	for _, entry := range tree {
-		if decide(r, entry).Kept && (strings.HasSuffix(entry, "/") || !r.TooLarge(entry, sizes[entry])) {
+		if decide(tr, entry).Kept && (strings.HasSuffix(entry, "/") || !tr.Rules().TooLarge(entry, sizes[entry])) {
 			kept[entry] = true
 			names := strings.Split(strings.TrimSuffix(entry, "/"), "/")
 			for i := 1; i < len(names); i++ {
@@ -216,16 +231,72 @@ func selectTree(r *Rules, tree []string, sizes map[string]int64) []string {
 }
 
 // checkSkipDir checks that SkipDir never skips a folder holding a kept entry
-func checkSkipDir(t *testing.T, r *Rules, tree []string) {
+func checkSkipDir(t *testing.T, tr *Tree, tree []string) {
 	t.Helper()
 	for _, dir := range tree {
-		if !strings.HasSuffix(dir, "/") || !r.SkipDir(strings.TrimSuffix(dir, "/")) {
+		if !strings.HasSuffix(dir, "/") || !tr.SkipDir(strings.TrimSuffix(dir, "/")) {
 			continue
 		}
 		for _, entry := range tree {
-			if strings.HasPrefix(entry, dir) && entry != dir && decide(r, entry).Kept {
+			if strings.HasPrefix(entry, dir) && entry != dir && decide(tr, entry).Kept {
 				t.Errorf("SkipDir(%s) is true, but %s below it is kept", dir, entry)
 			}
+		}
+	}
+}
+
+// checkWalk walks the case's tree the way a walker does, from Dirs built
+// with each folder's listing, and checks it decides every entry like
+// Decide does: the kept files, folders and bare marked folders are want.
+// Sizes aside: the walk doesn't apply them.
+func checkWalk(t *testing.T, tr *Tree, tree []string, want []string) {
+	t.Helper()
+	children := map[string][]string{}
+	isDir := map[string]bool{}
+	for _, entry := range tree {
+		rel := strings.TrimSuffix(entry, "/")
+		isDir[rel] = strings.HasSuffix(entry, "/")
+		parent := ""
+		if i := strings.LastIndexByte(rel, '/'); i >= 0 {
+			parent = rel[:i]
+		}
+		children[parent] = append(children[parent], rel[len(parent)+min(len(parent), 1):])
+	}
+	var got []string
+	var visit func(d *Dir)
+	visit = func(d *Dir) {
+		for _, name := range children[d.Rel()] {
+			rel := name
+			if d.Rel() != "" {
+				rel = d.Rel() + "/" + name
+			}
+			if isDir[rel] {
+				if c := d.Child(name, children[rel]); !c.Skip() {
+					if c.Decision().Kept {
+						got = append(got, rel+"/")
+					}
+					visit(c)
+				}
+			} else if d.File(name).Kept {
+				got = append(got, rel)
+			}
+		}
+	}
+	visit(tr.Root(children[""]))
+	// A walk lists a kept folder once entered; Decide's kept list also has
+	// the bare folders a kept entry sits in: compare on files and folders
+	// Decide keeps that the walk reached
+	for _, entry := range want {
+		if strings.HasSuffix(entry, "/") {
+			continue
+		}
+		if !slices.Contains(got, entry) && decide(tr, entry).Kept {
+			t.Errorf("walk: %s kept by Decide, not reached by the walk", entry)
+		}
+	}
+	for _, entry := range got {
+		if !decide(tr, entry).Kept {
+			t.Errorf("walk: %s kept by the walk, not by Decide", entry)
 		}
 	}
 }

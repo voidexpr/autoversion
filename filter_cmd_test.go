@@ -110,7 +110,7 @@ func TestSourceRulesWalk(t *testing.T) {
 	if files, dirs, _ := walk(source, ""); !slices.Contains(files, "sub/.git/config") || dirs != 4 {
 		t.Errorf("mirror: files %q, folders visited %d, want sub/.git/config and 4", files, dirs)
 	}
-	s.rules = defaultRulesWith(t, "use nested-git", "exclude /skipped")
+	s = newSourceRules(source, defaultRulesWith(t, "use nested-git", "exclude /skipped"), false)
 	if files, dirs, _ := walk(source, ""); slices.Contains(files, "sub/.git/config") || dirs != 3 {
 		t.Errorf("mirror with use nested-git: files %q, folders visited %d", files, dirs)
 	}
@@ -194,7 +194,8 @@ func TestRulesText(t *testing.T) {
 			t.Errorf("rules %q (error %v), want %q", text, err, want)
 		}
 		rules, err := rulesFromFlags(source)
-		if err != nil || rules.Decide("x", false).Kept || !rules.Decide("notes", true).Kept {
+		tree := rules.BindWith(filterrules.NoLookups)
+		if err != nil || tree.Decide("x", false).Kept || !tree.Decide("notes", true).Kept {
 			t.Errorf("scan and dump combine them: error %v", err)
 		}
 		if _, bytes := rules.MaxFileSize(); bytes != 5<<20 {
@@ -235,7 +236,8 @@ func TestRulesText(t *testing.T) {
 		defer func() { os.Stdin = oldStdin }()
 		setRuleFlags(t, "-", []string{"default"}, nil, nil)
 		rules, err := rulesFromFlags(source)
-		if err != nil || rules.Decide("other", true).Kept || !rules.Decide("notes", true).Kept || rules.Decide("notes/x.log", false).Kept {
+		tree := rules.BindWith(filterrules.NoLookups)
+		if err != nil || tree.Decide("other", true).Kept || !tree.Decide("notes", true).Kept || tree.Decide("notes/x.log", false).Kept {
 			t.Errorf("rules from stdin: error %v", err)
 		}
 	})

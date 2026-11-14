@@ -141,12 +141,12 @@ func TestDecideSpecExcludes(t *testing.T) {
 	for _, tt := range tests {
 		r := newRules(t, []string{tt.rule}, nil)
 		for _, entry := range tt.out {
-			if decide(r, entry).Kept {
+			if decide(bare(r), entry).Kept {
 				t.Errorf("exclude %s: %s kept, want left out", tt.rule, entry)
 			}
 		}
 		for _, entry := range tt.kept {
-			if !decide(r, entry).Kept {
+			if !decide(bare(r), entry).Kept {
 				t.Errorf("exclude %s: %s left out, want kept", tt.rule, entry)
 			}
 		}
@@ -195,7 +195,7 @@ func TestDecideSpecIncludes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		r := newRules(t, tt.rules[0], tt.rules[1])
-		d := decide(r, tt.entry)
+		d := decide(bare(r), tt.entry)
 		rule := ""
 		if d.Rule != nil {
 			rule = d.Rule.String()
@@ -229,7 +229,7 @@ func TestDecideTypedRules(t *testing.T) {
 	}
 	for _, tt := range tests {
 		r := newRules(t, tt.exclude, tt.include)
-		if got := decide(r, tt.entry).Kept; got != tt.kept {
+		if got := decide(bare(r), tt.entry).Kept; got != tt.kept {
 			t.Errorf("exclude %q include %q: %s kept %v, want %v", tt.exclude, tt.include, tt.entry, got, tt.kept)
 		}
 	}

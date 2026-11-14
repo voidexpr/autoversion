@@ -93,10 +93,51 @@ cache-markers`, both + `use time-machine`. Reports ns/op, allocs/op and
 lookups/op (marker `lstat`s and `lgetxattr`s the library asked for). Plus
 `filter scan --summary` timings on `~/projects` with the same three sets.
 
-### Before
+### Before (34b3242 plus the counter, macOS, 2 800 folders, 56 000 files)
 
-(filled in below)
+| rule set | ns/op | kept | lookups/op | B/op | allocs/op |
+|---|---|---|---|---|---|
+| default | 237 ms | 44 940 | 0 | 36.5 MB | 404 k |
+| markers | 241 ms | 40 348 | 8 400 | 49.3 MB | 908 k |
+| markers+xattr | 999 ms | 39 760 | 63 084 | 80.3 MB | 1 271 k |
 
-### After
+Markers: 8 400 lookups is one `lstat` per folder per marker name (2 800 ×
+3). Xattr: one `lgetxattr` per folder and per kept-folder file, about 13 µs
+each on APFS; that is the 760 ms. The 31 MB between default and
+markers+xattr are the two caches.
 
-(filled in below)
+`filter scan --summary` on `~/projects` (28 k folders, 160 k files kept):
+`use default` 4.0 s (first run, cold), `+ cache-markers` 2.0 s,
+`+ time-machine` 6.6 s.
+
+### After (same tree, same machine)
+
+| rule set | ns/op | kept | lookups/op | B/op | allocs/op |
+|---|---|---|---|---|---|
+| default | 227 ms (−4%) | 44 940 | 0 | 33.4 MB (−8%) | 356 k (−12%) |
+| markers | 206 ms (−15%) | 40 348 | 0 (was 8 400) | 31.6 MB (−36%) | 343 k (−62%) |
+| markers+xattr | 954 ms (−5%) | 39 760 | 55 055 (−13%) | 43.6 MB (−46%) | 554 k (−56%) |
+
+- Markers cost nothing: the listing the walker read answers them.
+- Xattr is one `lgetxattr` per folder and per file reaching that tier,
+  ~13 µs each on APFS, inherent to the rule: the caller can pass the
+  answer instead (`Lookups`), the library never reads one twice.
+- Memory: no cache maps; per folder one `Dir` (parent pointer, path,
+  names, decision, a `[]bool` per marker rule) and the listing names the
+  walker holds while in the folder. A file's path slice lives on the stack
+  up to depth 31; its path string is built only for an xattr lookup.
+- Of the remaining allocations, 80% are the OS listing (`ReadDir`,
+  `unixDirent`) and the `lstat` behind `DirEntry.Info` per kept file, as
+  before.
+
+`filter scan --summary` on `~/projects`, old and new binaries alternated,
+three rounds each (warm cache): `use default` old 4.1–4.4 s, new 4.0 s;
+`+ cache-markers` old 4.4–4.5 s, new 3.9–4.2 s; `+ time-machine` old
+7.9–9.5 s, new 6.7–7.3 s (160 k `lgetxattr` calls either way).
+
+## dvgo
+
+Its scanner builds one `Dir` per folder from the listing it reads, and
+decides files from it; a parallel scanner shares the parent `Dir` across
+goroutines. `rules.Bind(abs)` replaces nothing it had: `Rules.Decide` is
+gone, so the old code doesn't compile. `go get github.com/nicad/autoversion@<commit>`.
