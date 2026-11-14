@@ -65,6 +65,23 @@ func TestMarkers(t *testing.T) {
 		t.Errorf("cache without a listing: %+v, %d lookups (want 1: the first marker holds)", c.Decision(), asked)
 	}
 
+	// A folder a path rule leaves out is skipped without its listing or a
+	// lookup: its marker entry could only inherit the exclusion
+	nm := newFileRules(t, "version 1\nuse default\nexclude marker:{CACHEDIR.TAG,pyvenv.cfg}\n")
+	listed, asked := 0, 0
+	nt := nm.BindWith(testLookups{func(string, string) bool { asked++; return true }, noAttr})
+	node := nt.Root().Child("node_modules", func() []string { listed++; return []string{"CACHEDIR.TAG", "x.js"} })
+	if !node.Skip() || listed != 0 || asked != 0 {
+		t.Errorf("node_modules: skip %v, listed %d, asked %d (want true, 0, 0)", node.Skip(), listed, asked)
+	}
+	// Unless an include can keep something below: then it isn't skipped,
+	// decided before any listing
+	inc := newFileRules(t, "version 1\nuse default\nexclude marker:CACHEDIR.TAG\ninclude /**/CACHEDIR.TAG\n")
+	node = inc.BindWith(NoLookups).Root().Child("node_modules", func() []string { listed++; return []string{"CACHEDIR.TAG"} })
+	if node.Skip() || listed != 0 {
+		t.Errorf("node_modules with an include below: skip %v, listed %d (want false, 0)", node.Skip(), listed)
+	}
+
 	// Check: the root holds a marker; /tools/env is marked and included
 	var codes []string
 	for _, p := range r.Check(listTree(tree)) {

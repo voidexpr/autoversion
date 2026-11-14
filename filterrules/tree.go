@@ -201,12 +201,30 @@ func (d *Dir) Skip() bool {
 	if d.decision.Kept || d.tree.rules.CanMatchBelow(d.rel) {
 		return false
 	}
-	for i, m := range d.tree.rules.markers {
-		if d.holds(i) && d.File(m.Marker).Kept {
+	for i := range d.tree.rules.markers {
+		if d.markerKept(i) && d.holds(i) {
 			return false
 		}
 	}
 	return true
+}
+
+// markerKept reports whether the entry of the marker rule i would be kept
+// if the folder held it, without asking the lookups or the listing unless
+// the folder was left out by that very marker: a path rule on the entry
+// decides it, else it inherits the folder's decision. An xattr on the
+// entry could only leave it out, so not asking errs towards not skipping.
+func (d *Dir) markerKept(i int) bool {
+	m := d.tree.rules.markers[i]
+	var buf [32]string
+	names := append(append(buf[:0], d.names...), m.Marker)
+	if rule := d.tree.rules.decideLevel(names, d.rel, false, nil); rule != nil {
+		return rule.Kind == Include
+	}
+	if r := d.decision.Rule; r != nil && r.Marker == m.Marker && d.decision.Level == len(d.names) {
+		return d.decideSelf(i).Kept
+	}
+	return d.decision.Kept
 }
 
 func (d *Dir) join(name string) string {
