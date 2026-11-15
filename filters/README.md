@@ -8,7 +8,7 @@ Each file is a rules file in the filter syntax shared with targy, see the
 or `--use NAME` on the command line. A group that combines others has only
 `use` lines: a tool reading these files directly resolves `use NAME` as
 `NAME.filter` in this folder, or runs `autoversion filter dump --use NAME` for
-the group flat. File-name rules are typed (`f:`), so a folder named `x.old`
+the group flat. File-name rules are typed (`f:`), so a folder named `x.tmp`
 or `x.mp3` is kept.
 
 ## agents: regenerable state of coding agents; transcripts and memories stay in
@@ -44,7 +44,7 @@ exclude /**/target/{debug,release}
 exclude /**/target/{classes,test-classes,generated-sources,generated-test-sources,maven-status,surefire-reports,streams}
 exclude /**/{.build,DerivedData,zig-out,cdk.out,_mdfmt}
 exclude /**/bin/{linux,darwin,windows,freebsd}-*
-exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}
+exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.depend}
 exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}
 ```
 
@@ -67,13 +67,14 @@ exclude /**/.evidence/{template,meta}
 exclude /**/{Code Cache,GPUCache,DawnCache,DawnGraphiteCache,DawnWebGPUCache,ShaderCache,GrShaderCache}
 ```
 
-## data: database folders and write-ahead logs
+## data: database folders, write-ahead logs and dumps
 
 `use data`, [data.filter](data.filter)
 
 ```
 exclude /**/{pgdata,*.pgdb}
 exclude f:/**/*.wal
+exclude f:/**/{*.dump,*.dmp,*.sql.gz,*.sql.bz2,*.sql.xz,*.sql.zst}
 ```
 
 ## default: the groups applied unless a filter says otherwise
@@ -180,7 +181,7 @@ exclude /**/.config/herdr/session-snapshots
 `use logs`, [logs.filter](logs.filter)
 
 ```
-exclude f:/**/{*.log,*.out,*.stdout,*.err,*.stderr,*.pid,*.dump}
+exclude f:/**/{*.log,*.out,*.stdout,*.err,*.stderr,*.pid}
 ```
 
 ## media: music, photos and videos
@@ -237,12 +238,12 @@ exclude f:/**/{*.jpg,*.jpeg,*.png,*.heic,*.heif,*.gif,*.tif,*.tiff,*.bmp,*.webp,
 exclude f:/**/{*.JPG,*.JPEG,*.PNG,*.HEIC,*.HEIF,*.GIF,*.TIF,*.TIFF,*.BMP,*.WEBP,*.DNG,*.CR2,*.CR3,*.NEF,*.ARW,*.ORF,*.RAF,*.RW2}
 ```
 
-## temp: temporary files and old copies
+## temp: temporary files and editor backup copies
 
 `use temp`, [temp.filter](temp.filter)
 
 ```
-exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
+exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak}
 exclude f:/**/.git/*.lock
 exclude f:/**/.git/refs/heads/*.lock
 exclude f:/**/.git/refs/remotes/*/*.lock

@@ -45,13 +45,14 @@ func TestShouldTrack(t *testing.T) {
 		// Should exclude - file extensions
 		{"log file", "app.log", "log data", false},
 		{"dump file", "core.dump", "data", false},
+		{"oracle dump", "exp.dmp", "data", false},
+		{"compressed sql dump", "db.sql.gz", "data", false},
 		{"swp file", ".file.swp", "vim swap", false},
 		{"swpx file", ".file.swpx", "vim swap", false},
 		{"swo file", ".file.swo", "vim swap", false},
 		{"pid file", "app.pid", "1234", false},
 		{"pyc file", "module.pyc", "bytecode", false},
 		{"wal file", "db.wal", "wal data", false},
-		{"old file", "backup.old", "old", false},
 		{"temp file", "scratch.temp", "temp", false},
 		{"atomic write temp", "PLAN.md.tmp.18812.1760578375713", "temp", false},
 		{"DS_Store", ".DS_Store", "mac", false},
@@ -78,7 +79,7 @@ func TestShouldTrack(t *testing.T) {
 		{"Windows exe", "app.exe", "exe", false},
 		{"PDB debug", "app.pdb", "pdb", false},
 		{"precompiled header", "stdafx.gch", "gch", false},
-		{"dependency file", "main.d", "dep", false},
+		{"d source", "main.d", "import std.stdio;", true},
 
 		// Java
 		{"class file", "Main.class", "bytecode", false},
@@ -320,7 +321,7 @@ func TestSkipDir(t *testing.T) {
 		"project/builder":          false,
 		"project/build":            false, // its content is left out, not the folder
 		"Backups":                  false,
-		"x.old":                    false, // f: rules are for files
+		"x.tmp":                    false, // f: rules are for files
 		"project/node_modules":     true,
 		"project/node_modules/pkg": true,
 		"project/.venv":            true,

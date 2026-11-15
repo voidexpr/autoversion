@@ -455,12 +455,12 @@ What is tracked is decided by the destination's rules (see **filter**), then:
 The built-in groups are rules files, `filters/NAME.filter`, compiled into the binary; other tools can read them as they are. [filters/README.md](filters/README.md) lists every rule, generated from them (`filter groups` prints the same). In short, `use default` leaves out:
 - **os:** `.DS_Store`, `Thumbs.db`, `desktop.ini`, `.nfs*`, `.localized` files; `.Spotlight-V100`, `.Trashes`, `.dropbox`, `.fseventsd`
 - **editors:** `*.swp`, `*~`, Vim's `4913`, `*.iml` files; `.idea`
-- **temp:** `*.tmp`, `*.tmp.*`, `*.temp`, `*.bak`, `*.old` files; git's locks and in-flight objects under `.git` (`*.lock`, `objects/*/tmp_obj_*`, `objects/pack/tmp_pack_*`), which a mirror copying `.git` would otherwise copy and remove again; Chromium's `.org.chromium.Chromium.*` temp files
-- **logs:** `*.log`, `*.out`, `*.err`, `*.pid`, `*.dump` files
+- **temp:** `*.tmp`, `*.tmp.*`, `*.temp`, `*.bak` files; git's locks and in-flight objects under `.git` (`*.lock`, `objects/*/tmp_obj_*`, `objects/pack/tmp_pack_*`), which a mirror copying `.git` would otherwise copy and remove again; Chromium's `.org.chromium.Chromium.*` temp files
+- **logs:** `*.log`, `*.out`, `*.err`, `*.pid` files
 - **build:** the content of `build/`, `dist/` and `out/`; `target/debug`, `target/release` and Maven's and sbt's `target/classes`, `target/streams`, …; `.build`, `DerivedData`, `zig-out`, `cdk.out`, `_mdfmt`, per-platform `bin/linux-*`, `bin/darwin-*`, …; `*.o`, `*.so`, `*.dylib`, `*.class`, `*.jar`, `*.pyc`, … files
 - **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.local/share/pnpm`, `.npm`, `.venv`, `venv`, `__pycache__`, `__pypackages__`, `.gradle`, `.direnv`, `go/pkg/mod`, `.modcache`, `toolchain/zig*`
 - **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`, `.parcel-cache`, `.turbo`, `.svelte-kit`, `.angular`, `.zig-cache`, `.gocache`, `.evidence/template`, `.evidence/meta`, `.playwright-mcp`, `playwright-report`, `test-results`; Chromium and Electron profile caches `Code Cache`, `GPUCache`, `DawnCache`, `ShaderCache`, …
-- **data:** `pgdata`, `*.pgdb`; `*.wal` files
+- **data:** `pgdata`, `*.pgdb`; `*.wal` files; dumps: `*.dump`, `*.dmp`, `*.sql.gz`, `*.sql.bz2`, `*.sql.xz`, `*.sql.zst` files
 - **vcs:** `.hg`, `.svn`, `.cvs`
 
 Opt-in groups, not in `default` (`use default` and `use nested-git`, for example):
@@ -482,7 +482,7 @@ Opt-in groups, not in `default` (`use default` and `use nested-git`, for example
 
 A group rule names what it matches (`/**/.cache`), so it beats an include ending in a wildcard on the same level: an allowlist of the dot entries of a home folder, `exclude /*`, `include /.*` and `use junk`, leaves out `.cache`, `.Trash` and the rest at the root (in the spec since 2026-11-06, see `plans/spec_named_wildcard_tier.md`). Suffix rules like `*.log` don't name their entries, so such files at the root stay in.
 
-Rules for file names only apply to files (`f:`): a folder named `x.old` or `conf.d` is kept. Lock files (`Cargo.lock`, `uv.lock`) and `.vscode/` are tracked.
+Rules for file names only apply to files (`f:`): a folder named `x.tmp` or `conf.d` is kept. Lock files (`Cargo.lock`, `uv.lock`) and `.vscode/` are tracked.
 
 ## Configuration
 

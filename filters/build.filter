@@ -8,5 +8,5 @@ exclude /**/target/{classes,test-classes,generated-sources,generated-test-source
 exclude /**/{.build,DerivedData,zig-out,cdk.out,_mdfmt}
 # per-platform binaries (GOOS-GOARCH folders); a bare bin is too common a name
 exclude /**/bin/{linux,darwin,windows,freebsd}-*
-exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.d,*.depend}
+exclude f:/**/{*.o,*.obj,*.so,*.a,*.lib,*.sym,*.dylib,*.rlib,*.rmeta,*.dll,*.exe,*.pdb,*.ilk,*.exp,*.gch,*.pch,*.depend}
 exclude f:/**/{*.class,*.jar,*.war,*.ear,*.pyc,*.beam}

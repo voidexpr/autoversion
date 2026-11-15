@@ -31,7 +31,7 @@ var errDestinationRules = errors.New("the destination has its own rules: give --
 func addRuleFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&filterFileFlag, "filter", "", "rules file (- for stdin), in the shared filter syntax (see filter --help)")
 	cmd.Flags().StringArrayVar(&includeFlags, "include", nil, "include rule, e.g. /notes or 'f:/**/*.md' (repeatable)")
-	cmd.Flags().StringArrayVar(&excludeFlags, "exclude", nil, "exclude rule, e.g. /Backup or 'f:/**/*.old' (repeatable)")
+	cmd.Flags().StringArrayVar(&excludeFlags, "exclude", nil, "exclude rule, e.g. /Backup or 'f:/**/*.bak' (repeatable)")
 	cmd.Flags().StringArrayVar(&useFlags, "use", nil, "built-in group, e.g. default (repeatable, see filter groups)")
 	cmd.Flags().StringVar(&maxFileSizeFlag, "max-file-size", "", "size limit, e.g. 10M (units k, m, g, t or kb, mb, gb, tb; bytes without one; none): the max-file-size line of the rules")
 }

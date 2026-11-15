@@ -27,7 +27,7 @@ Each file is a rules file in the filter syntax shared with targy, see the
 or ` + "`--use NAME`" + ` on the command line. A group that combines others has only
 ` + "`use`" + ` lines: a tool reading these files directly resolves ` + "`use NAME`" + ` as
 ` + "`NAME.filter`" + ` in this folder, or runs ` + "`autoversion filter dump --use NAME`" + ` for
-the group flat. File-name rules are typed (` + "`f:`" + `), so a folder named ` + "`x.old`" + `
+the group flat. File-name rules are typed (` + "`f:`" + `), so a folder named ` + "`x.tmp`" + `
 or ` + "`x.mp3`" + ` is kept.
 
 `)

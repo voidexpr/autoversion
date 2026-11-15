@@ -92,12 +92,12 @@ func TestClaudeExample(t *testing.T) {
 func TestDefaultGroups(t *testing.T) {
 	r := newRules(t, nil, nil, "default")
 	out := []string{
-		"a.log", "a.dump", "a.swp", "a.swpx", "a.swo", "a.pid", "x.beam",
+		"a.log", "a.dump", "exp.dmp", "db.sql.gz", "db.sql.zst", "a.swp", "a.swpx", "a.swo", "a.pid", "x.beam",
 		"4913", "a/4913", "notes.txt~",
 		"a.out", "run.stdout", "x.err", "x.stderr", "x.depend", ".dropbox/x", ".dropbox.cache/x",
-		"a.old", "a.temp", "a.bak", "a.tmp",
+		"a.temp", "a.bak", "a.tmp",
 		".DS_Store", "a/.DS_Store", ".nfs000123", ".localized", "Desktop/.localized", ".fseventsd/x",
-		"lib.o", "x.obj", "x.so", "x.a", "x.dylib", "x.rlib", "x.rmeta", "x.dll", "x.exe", "x.pdb", "x.d", "x.gch",
+		"lib.o", "x.obj", "x.so", "x.a", "x.dylib", "x.rlib", "x.rmeta", "x.dll", "x.exe", "x.pdb", "x.gch",
 		"A.class", "x.jar", "x.war", "x.ear",
 		".hg/x", ".svn/x", ".cvs/x",
 		"x.tmp.1", "x.tmp.1.2", "PLAN.md.tmp.18812.1760578375713",

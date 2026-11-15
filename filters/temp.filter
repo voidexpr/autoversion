@@ -1,7 +1,7 @@
-# temp: temporary files and old copies
+# temp: temporary files and editor backup copies
 version 1
 
-exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak,*.old}
+exclude f:/**/{*.tmp,*.tmp.*,*.temp,*.bak}
 # git's locks and in-flight objects (a mirror copying .git sees them; a git destination never does)
 exclude f:/**/.git/*.lock
 exclude f:/**/.git/refs/heads/*.lock
