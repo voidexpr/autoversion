@@ -92,7 +92,7 @@ func TestClaudeExample(t *testing.T) {
 func TestDefaultGroups(t *testing.T) {
 	r := newRules(t, nil, nil, "default")
 	out := []string{
-		"a.log", "a.dump", "exp.dmp", "db.sql.gz", "db.sql.zst", "a.swp", "a.swpx", "a.swo", "a.pid", "x.beam",
+		"a.log", "a.swp", "a.swpx", "a.swo", "a.pid", "x.beam",
 		"4913", "a/4913", "notes.txt~",
 		"a.out", "run.stdout", "x.err", "x.stderr", "x.depend", ".dropbox/x", ".dropbox.cache/x",
 		"a.temp", "a.bak", "a.tmp",
@@ -115,6 +115,7 @@ func TestDefaultGroups(t *testing.T) {
 		"go/pkg/mod/x", "a/go/pkg/mod/github.com/x@v1.0.0/y.go",
 	}
 	kept := []string{
+		"db.dump", "exp.dmp", "db.sql.gz", "schema.sql",
 		"Cargo.lock", "uv.lock", "flake.lock", "x.bea#", "2024", "notes.output.md", "x.errors/a.txt", "x.nfs",
 		".localized/", ".localized/x", ".local/share/x", "pnpm/x", "share/pnpm/x",
 		"conf.d/", "conf.d/x.conf", "foo.old/", "foo.old/x.txt", "x.log/y.txt", "a.tmp.d/",
@@ -173,13 +174,16 @@ func TestOptInGroups(t *testing.T) {
 			"Carthage/Build/x", "Carthage/Checkouts/x", "renv/library/x", ".yarn/cache/x", ".yarn/unplugged/x"},
 		[]string{"Podfile", "Podfile.lock", "Cartfile.resolved", ".terraform.lock.hcl", "renv.lock", "renv/activate.R",
 			".yarn/releases/yarn.cjs", ".yarn/plugins/x", ".yarnrc.yml", "Build/x"})
+	checkDecisions(t, newRules(t, nil, nil, "db-dumps"),
+		[]string{"db.dump", "exp.dmp", "db.sql.gz", "x/db.sql.zst"},
+		[]string{"schema.sql", "db.sql", "dump/", "dump/x"})
 	checkDecisions(t, newRules(t, nil, nil, "installers"),
 		[]string{"x.dmg", "Downloads/App.pkg", "Old.pkg/", "Old.pkg/Contents/Info.plist", "Suite.mpkg/", "flat.mpkg"},
 		[]string{"x.dmg/", "x.pkgs", "a.dmg.txt", "pkg/x"})
 }
 
 func TestGroups(t *testing.T) {
-	want := []string{"agents", "browser-profiles", "build", "cache-markers", "caches", "data", "default", "deps", "editors", "extra-tools", "home-caches", "installers", "junk", "local-state", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "time-machine", "toolchains", "trash", "vcs", "videos", "vms"}
+	want := []string{"agents", "browser-profiles", "build", "cache-markers", "caches", "data", "db-dumps", "default", "deps", "editors", "extra-tools", "home-caches", "installers", "junk", "local-state", "logs", "media", "music", "nas", "nested-git", "os", "photos", "temp", "time-machine", "toolchains", "trash", "vcs", "videos", "vms"}
 	if got := GroupNames(); !slices.Equal(got, want) {
 		t.Errorf("groups %q, want %q", got, want)
 	}

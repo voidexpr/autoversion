@@ -1,7 +1,5 @@
-# data: database folders, write-ahead logs and dumps
+# data: database folders and write-ahead logs
 version 1
 
 exclude /**/{pgdata,*.pgdb}
 exclude f:/**/*.wal
-# dumps: pg_dump custom format and core dumps, Oracle Data Pump, compressed SQL dumps
-exclude f:/**/{*.dump,*.dmp,*.sql.gz,*.sql.bz2,*.sql.xz,*.sql.zst}

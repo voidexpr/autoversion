@@ -1,0 +1,5 @@
+# db-dumps: database dumps, for a backup that leaves them to the database's own backup
+version 1
+
+# pg_dump custom format, Oracle Data Pump, compressed SQL dumps; plain *.sql is source
+exclude f:/**/{*.dump,*.dmp,*.sql.gz,*.sql.bz2,*.sql.xz,*.sql.zst}

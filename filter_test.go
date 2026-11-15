@@ -44,9 +44,8 @@ func TestShouldTrack(t *testing.T) {
 
 		// Should exclude - file extensions
 		{"log file", "app.log", "log data", false},
-		{"dump file", "core.dump", "data", false},
-		{"oracle dump", "exp.dmp", "data", false},
-		{"compressed sql dump", "db.sql.gz", "data", false},
+		{"database dump", "db.dump", "data", true},
+		{"compressed sql dump", "db.sql.gz", "data", true},
 		{"swp file", ".file.swp", "vim swap", false},
 		{"swpx file", ".file.swpx", "vim swap", false},
 		{"swo file", ".file.swo", "vim swap", false},

@@ -460,7 +460,7 @@ The built-in groups are rules files, `filters/NAME.filter`, compiled into the bi
 - **build:** the content of `build/`, `dist/` and `out/`; `target/debug`, `target/release` and Maven's and sbt's `target/classes`, `target/streams`, …; `.build`, `DerivedData`, `zig-out`, `cdk.out`, `_mdfmt`, per-platform `bin/linux-*`, `bin/darwin-*`, …; `*.o`, `*.so`, `*.dylib`, `*.class`, `*.jar`, `*.pyc`, … files
 - **deps:** `node_modules`, `bower_components`, `.pnpm-store`, `.local/share/pnpm`, `.npm`, `.venv`, `venv`, `__pycache__`, `__pypackages__`, `.gradle`, `.direnv`, `go/pkg/mod`, `.modcache`, `toolchain/zig*`
 - **caches:** `.cache`, `.next`, `.nuxt`, `.output`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`, `.parcel-cache`, `.turbo`, `.svelte-kit`, `.angular`, `.zig-cache`, `.gocache`, `.evidence/template`, `.evidence/meta`, `.playwright-mcp`, `playwright-report`, `test-results`; Chromium and Electron profile caches `Code Cache`, `GPUCache`, `DawnCache`, `ShaderCache`, …
-- **data:** `pgdata`, `*.pgdb`; `*.wal` files; dumps: `*.dump`, `*.dmp`, `*.sql.gz`, `*.sql.bz2`, `*.sql.xz`, `*.sql.zst` files
+- **data:** `pgdata`, `*.pgdb`; `*.wal` files
 - **vcs:** `.hg`, `.svn`, `.cvs`
 
 Opt-in groups, not in `default` (`use default` and `use nested-git`, for example):
@@ -477,6 +477,7 @@ Opt-in groups, not in `default` (`use default` and `use nested-git`, for example
 - **cache-markers:** `exclude marker:{CACHEDIR.TAG,pyvenv.cfg,CMakeCache.txt}`: any folder tagged as a cache, a virtualenv or a CMake build tree by a file it holds, wherever it is. Not in **default**: restic and borg honor markers, rsync doesn't, so a filter previewed here would keep more there.
 - **junk:** one line for everything a backup can do without: `default`, `extra-tools`, `home-caches`, `toolchains`, `local-state`, `vms`, `agents`, `cache-markers`, `trash`, `browser-profiles`, `nas`, plus `vendor` and `deps` folders (asimov excludes them next to `go.mod`, `composer.json`, `Gemfile`, `mix.exs`; often committed, so not in `default`).
 - **browser-profiles:** what a Chromium or Chrome user data folder re-downloads or regenerates: component updater folders (`component_crx_cache`, `PKIMetadata`, `CertificateRevocation`, …), `Crashpad`, `BrowserMetrics`, `Service Worker`, `blob_storage`, a profile's `Cache`, `Network Persistent State`, `Local State` (rewritten on every start). Cookies, local storage and preferences stay, so a scraping profile keeps its logins. Opt-in because `Service Worker` and `blob_storage` hold site data some want.
+- **db-dumps:** database dumps, `*.dump`, `*.dmp`, `*.sql.gz`, `*.sql.bz2`, `*.sql.xz`, `*.sql.zst` files, for a backup that leaves them to the database's own backup. Not in `default` or `junk`: a dump is a backup worth keeping. Plain `*.sql` is source.
 - **time-machine:** `exclude xattr:com.apple.metadata:com_apple_backup_excludeItem`: what apps (Xcode, Docker, Parallels) and `tmutil addexclusion` told Time Machine not to back up. Not in `junk`: people mark big media as not for Time Machine and still want it elsewhere. On Linux the attribute never exists.
 - **trash:** `.Trash`, a group of its own so other filters (targy's `common`) can take it; not in `default`, a backup of a home may want it.
 

@@ -67,13 +67,20 @@ exclude /**/.evidence/{template,meta}
 exclude /**/{Code Cache,GPUCache,DawnCache,DawnGraphiteCache,DawnWebGPUCache,ShaderCache,GrShaderCache}
 ```
 
-## data: database folders, write-ahead logs and dumps
+## data: database folders and write-ahead logs
 
 `use data`, [data.filter](data.filter)
 
 ```
 exclude /**/{pgdata,*.pgdb}
 exclude f:/**/*.wal
+```
+
+## db-dumps: database dumps, for a backup that leaves them to the database's own backup
+
+`use db-dumps`, [db-dumps.filter](db-dumps.filter)
+
+```
 exclude f:/**/{*.dump,*.dmp,*.sql.gz,*.sql.bz2,*.sql.xz,*.sql.zst}
 ```
 
