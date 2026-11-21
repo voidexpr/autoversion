@@ -11,20 +11,23 @@ import (
 )
 
 // testdata/filter_conformance.json is targy's tests/filter_conformance.json,
-// copied unchanged from targy commit ca45764.
+// copied from targy commit ca45764, plus the "named" section and the "use"
+// cases and invalid files, which targy copies back.
 func TestConformance(t *testing.T) {
 	data, err := os.ReadFile("testdata/filter_conformance.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var suite struct {
-		Version int `json:"version"`
+		Version int               `json:"version"`
+		Named   map[string]string `json:"named"` // the filters a use line may name, beside the built-in groups
 		Cases   []struct {
 			Name        string              `json:"name"`
 			Tools       []string            `json:"tools"` // empty: every tool, native included
 			Tree        []string            `json:"tree"`
 			Exclude     []string            `json:"exclude"`
 			Include     []string            `json:"include"`
+			Use         []string            `json:"use"` // names of the named section
 			Kept        []string            `json:"kept"`
 			MaxFileSize json.RawMessage     `json:"max_file_size"` // the directive's value, or a list of lines ("10M", "none /**/.git"); absent without
 			Sizes       map[string]int64    `json:"sizes"`         // file entry to bytes, 0 when absent
@@ -56,6 +59,7 @@ func TestConformance(t *testing.T) {
 	if suite.Version != 1 {
 		t.Fatalf("version %d, want 1", suite.Version)
 	}
+	named := textFilters(suite.Named)
 
 	native := 0
 	for _, c := range suite.Cases {
@@ -65,6 +69,11 @@ func TestConformance(t *testing.T) {
 		native++
 		t.Run(c.Name, func(t *testing.T) {
 			f := newFile(t, c.Exclude, c.Include)
+			for _, name := range c.Use {
+				if err := f.UseWith(name, named); err != nil {
+					t.Fatal(err)
+				}
+			}
 			for _, line := range sizeLines(t, c.MaxFileSize) {
 				size, rule, scoped := strings.Cut(line, " ")
 				if !scoped {
@@ -73,7 +82,7 @@ func TestConformance(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			r, err := New(f)
+			r, err := NewWith(f, named)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -113,9 +122,15 @@ func TestConformance(t *testing.T) {
 			t.Errorf("%s %q: expanded %q (error %v), want %q", s.Kind, s.Rule, got, err, s.Expanded)
 		}
 	}
+	// a use line fails at parse (unknown-rules) or when the rules are built
+	// (use-cycle, a bad used filter), line 0 then
 	for _, inv := range suite.InvalidFiles {
-		_, err := ParseFile(strings.NewReader(inv.Text))
-		if e, ok := err.(*Error); !ok || e.Code != inv.Code || e.Line != inv.Line {
+		f, err := ParseFileWith(strings.NewReader(inv.Text), named)
+		if err == nil {
+			_, err = NewWith(f, named)
+		}
+		var e *Error
+		if !errors.As(err, &e) || e.Code != inv.Code || e.Line != inv.Line {
 			t.Errorf("file %q: error %v, want %s on line %d", inv.Text, err, inv.Code, inv.Line)
 		}
 	}

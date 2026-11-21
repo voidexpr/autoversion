@@ -132,7 +132,7 @@ func (s *groupSet) group(name string) ([]Rule, error) {
 	}
 	rules, ok := s.rules[name]
 	if !ok {
-		return nil, unknownGroup(name)
+		return nil, unknownName(name, nil)
 	}
 	return slices.Clone(rules), nil
 }
@@ -151,13 +151,8 @@ func parseGroup(name, text string) (*GroupInfo, []Rule, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	for directive, value := range map[string]string{"root": f.Root, "types": f.Types, "max-file-size": f.MaxFileSize} {
-		if value != "" {
-			return nil, nil, &Error{Code: "bad-directive", Rule: directive + " " + value, Reason: "a filter's choice, not a group's"}
-		}
-	}
-	for _, l := range f.SizeLimits {
-		return nil, nil, &Error{Code: "bad-directive", Rule: l.String(), Reason: "a filter's choice, not a group's"}
+	if err := notUsable(f); err != nil {
+		return nil, nil, err
 	}
 	info := &GroupInfo{Name: name, About: strings.TrimSpace(about), Use: f.Uses}
 	for _, l := range f.Lines {
@@ -190,8 +185,4 @@ func GroupNames() []string {
 // for the filters using it, and only for them.
 func Group(name string) ([]Rule, error) {
 	return loadGroups().group(name)
-}
-
-func unknownGroup(name string) error {
-	return &Error{Code: "unknown-rules", Rule: name, Reason: "known groups: " + strings.Join(GroupNames(), ", ")}
 }

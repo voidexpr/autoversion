@@ -85,8 +85,13 @@ func (f *File) Add(kind Kind, text string) error {
 
 // Use adds a built-in group
 func (f *File) Use(name string) error {
-	if !groupExists(name) {
-		return unknownGroup(name)
+	return f.UseWith(name, nil)
+}
+
+// UseWith adds a filter of named, or a built-in group
+func (f *File) UseWith(name string, named Resolver) error {
+	if !knownName(name, named) {
+		return unknownName(name, named)
 	}
 	if !slices.Contains(f.Uses, name) {
 		f.Uses = append(f.Uses, name)
@@ -128,8 +133,14 @@ var directiveWord = regexp.MustCompile(`^[a-z][a-z-]*$`)
 // ParseFile reads a rules file: "version 1" first, then the directives
 // (root, types, max-file-size, use), then the rule lines ("exclude RULE",
 // "include RULE", or a bare RULE, which is an include). Line order means
-// nothing else.
+// nothing else. A use line names a built-in group.
 func ParseFile(r io.Reader) (*File, error) {
+	return ParseFileWith(r, nil)
+}
+
+// ParseFileWith is ParseFile with use lines naming the filters of named
+// too, see Resolver. It checks the names only: NewWith resolves them.
+func ParseFileWith(r io.Reader, named Resolver) (*File, error) {
 	f := &File{}
 	seenVersion := false
 	sc := bufio.NewScanner(r)
@@ -192,7 +203,7 @@ func ParseFile(r io.Reader) (*File, error) {
 			}
 			f.MaxFileSize = rest
 		case "use":
-			err = f.Use(rest)
+			err = f.UseWith(rest, named)
 		case "exclude":
 			err = f.Add(Exclude, rest)
 		case "include":

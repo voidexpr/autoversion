@@ -48,7 +48,7 @@ type Rule struct {
 	Kind   Kind
 	Type   Type
 	Text   string // without the type prefix: "/**/*.old", or "marker:NAME"
-	Group  string // the built-in group it comes from, "" for a filter's own rules
+	Group  string // the filter it comes from, a built-in group or a used filter (see Resolver), "" for a filter's own rules
 	Marker string // for "exclude marker:NAME", the entry name; "" for a path rule
 	Xattr  string // for "exclude xattr:NAME", the attribute name; "" for a path rule
 

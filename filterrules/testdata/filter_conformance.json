@@ -224,8 +224,39 @@
       "exclude": ["f:/**/*.old", "d:/**/build"],
       "include": [],
       "kept": ["c/", "keep.txt", "w/"]
+    },
+    {
+      "name": "use: a used filter may include; its rules apply under the user's root",
+      "tools": ["native", "autoversion"],
+      "use": ["keep-docs"],
+      "tree": ["docs/", "docs/a.md", "src/", "src/b.go"],
+      "exclude": ["/*"],
+      "include": [],
+      "kept": ["docs/", "docs/a.md"]
+    },
+    {
+      "name": "use: names with a folder prefix, a used filter using another",
+      "tools": ["native", "autoversion"],
+      "use": ["dev/go", "agent/secrets"],
+      "tree": ["a/", "a/main.go", "a/main.test", "a/bin/", "a/bin/x", "a/.env"],
+      "exclude": [],
+      "include": [],
+      "kept": ["a/", "a/main.go"]
     }
   ],
+  "named": {
+    "keep-docs": "version 1\ninclude /docs\n",
+    "dev/go": "version 1\nuse dev/build\nexclude /**/*.test\n",
+    "dev/build": "version 1\nexclude /**/bin\n",
+    "agent/secrets": "version 1\nexclude /**/.env\n",
+    "loop-a": "version 1\nuse loop-b\n",
+    "loop-b": "version 1\nuse loop-a\n",
+    "self": "version 1\nuse self\n",
+    "rooted": "version 1\nroot ~\nexclude /x\n",
+    "typed": "version 1\ntypes decay\nexclude /x\n",
+    "sized": "version 1\nmax-file-size 1M\nexclude /x\n",
+    "scoped": "version 1\nmax-file-size 1M /x\n"
+  },
   "invalid": [
     {"rule": "node_modules", "code": "no-root"},
     {"rule": "**/node_modules", "code": "no-root"},
@@ -289,7 +320,14 @@
     {"text": "version 1\nmax-file-size 10M marker:CACHEDIR.TAG\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 10M /a/!b\n", "code": "bad-directive", "line": 2},
     {"text": "version 1\nmax-file-size 10M /a\nexclude /x\nmax-file-size 1M /b\n", "code": "bad-directive", "line": 4},
-    {"text": "version 1\nexclude /x\nmax-file-size 4k\n", "code": "bad-directive", "line": 3}
+    {"text": "version 1\nexclude /x\nmax-file-size 4k\n", "code": "bad-directive", "line": 3},
+    {"text": "version 1\nuse dev/nope\n", "code": "unknown-rules", "line": 2},
+    {"text": "version 1\nuse loop-a\n", "code": "use-cycle", "line": 0},
+    {"text": "version 1\nuse self\n", "code": "use-cycle", "line": 0},
+    {"text": "version 1\nuse rooted\n", "code": "bad-directive", "line": 0},
+    {"text": "version 1\nuse typed\n", "code": "bad-directive", "line": 0},
+    {"text": "version 1\nuse sized\n", "code": "bad-directive", "line": 0},
+    {"text": "version 1\nuse scoped\n", "code": "bad-directive", "line": 0}
   ],
   "invalid_filters": [
     {"exclude": ["/*"], "include": [], "codes": ["whole-root"]},

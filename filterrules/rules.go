@@ -63,15 +63,21 @@ func splitLast(rel string) (dir, name string) {
 // New combines a file's rules with the groups it uses, and validates them
 // (whole-root, contradiction).
 func New(f *File) (*Rules, error) {
-	all := slices.Clone(f.Rules)
-	for _, name := range f.Uses {
-		rules, err := Group(name)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, rules...)
+	return NewWith(f, nil)
+}
+
+// NewWith is New with the use lines resolved against named first, then
+// the built-in groups, see Resolver. A used filter's own use lines resolve
+// the same way; a cycle is a use-cycle error naming the chain, and a used
+// filter that carries a root, types or max-file-size a bad-directive error
+// naming it. The rules keep the name of the filter they come from in
+// Rule.Group.
+func NewWith(f *File, named Resolver) (*Rules, error) {
+	used, err := usedRules(f.Uses, named, nil)
+	if err != nil {
+		return nil, err
 	}
-	r := compile(dedupe(all))
+	r := compile(dedupe(append(slices.Clone(f.Rules), used...)))
 	r.types = f.Types
 	if f.MaxFileSize != "" {
 		bytes, err := ParseSize(f.MaxFileSize)
@@ -234,8 +240,9 @@ func extension(name string) string {
 	return ""
 }
 
-// List returns the combined rules, the filter's own first, then its groups',
-// duplicates removed. Decide's Decision.Rule points into this list.
+// List returns the combined rules, the filter's own first, then the used
+// filters' and groups' in use order, duplicates removed (the first kept,
+// with its Group). Decide's Decision.Rule points into this list.
 func (r *Rules) List() []*Rule {
 	list := make([]*Rule, len(r.all))
 	for i := range r.all {
