@@ -1,4 +1,4 @@
-module github.com/nicad/autoversion
+module github.com/voidexpr/autoversion
 
 go 1.25.0
 

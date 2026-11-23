@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/nicad/autoversion/filterrules"
+	"github.com/voidexpr/autoversion/filterrules"
 )
 
 // activeRules decide what sync, watch and the watchers track, see SetFilter

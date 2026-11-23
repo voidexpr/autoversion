@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nicad/autoversion/filterrules"
+	"github.com/voidexpr/autoversion/filterrules"
 	"github.com/spf13/cobra"
 )
 

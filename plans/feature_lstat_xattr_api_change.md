@@ -145,4 +145,4 @@ listing old 2.1–6.4 s, new 1.5–4.1 s; `+ time-machine` old 7.9–9.5 s, new
 Its scanner builds one `Dir` per folder from the listing it reads, and
 decides files from it; a parallel scanner shares the parent `Dir` across
 goroutines. `rules.Bind(abs)` replaces nothing it had: `Rules.Decide` is
-gone, so the old code doesn't compile. `go get github.com/nicad/autoversion@<commit>`.
+gone, so the old code doesn't compile. `go get github.com/voidexpr/autoversion@<commit>`.

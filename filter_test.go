@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nicad/autoversion/filterrules"
+	"github.com/voidexpr/autoversion/filterrules"
 	"golang.org/x/sys/unix"
 )
 

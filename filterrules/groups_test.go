@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/nicad/autoversion/filters"
+	"github.com/voidexpr/autoversion/filters"
 )
 
 // TestGroupFiles checks the group files: each loads (a "# NAME: about"

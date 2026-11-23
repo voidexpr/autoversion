@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nicad/autoversion/filterrules"
+	"github.com/voidexpr/autoversion/filterrules"
 )
 
 // markerFileName marks a directory as an autoversion destination and names its source

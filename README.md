@@ -561,11 +561,10 @@ Libraries considered:
 
 ### Using the filter library from another Go module
 
-The filter syntax lives in two packages other tools can import: `filterrules` (parser, matcher, checks) and `filters` (the built-in groups, embedded; `filterrules` imports it). Their only dependency beyond the standard library is `golang.org/x/sys` (`lgetxattr` for the xattr rules). dvgo uses them to apply the same rules to its scans. The importing module needs Go 1.25 or later. The repository is private, so Go must fetch it with git instead of the module proxy:
+The filter syntax lives in two packages other tools can import: `filterrules` (parser, matcher, checks) and `filters` (the built-in groups, embedded; `filterrules` imports it). Their only dependency beyond the standard library is `golang.org/x/sys` (`lgetxattr` for the xattr rules). dvgo uses them to apply the same rules to its scans. The importing module needs Go 1.25 or later. The repository is public, so the module proxy serves it:
 
 ```bash
-go env -w 'GOPRIVATE=github.com/nicad/*'
-go get github.com/nicad/autoversion@main      # in the importing module
+go get github.com/voidexpr/autoversion@main      # in the importing module
 ```
 
 The API, all in `filterrules`:

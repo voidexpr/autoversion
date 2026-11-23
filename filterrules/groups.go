@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nicad/autoversion/filters"
+	"github.com/voidexpr/autoversion/filters"
 )
 
 // GroupInfo is a built-in group: filters/NAME.filter, a rules file whose

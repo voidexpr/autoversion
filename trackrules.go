@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nicad/autoversion/filterrules"
+	"github.com/voidexpr/autoversion/filterrules"
 )
 
 const alwaysAppliedText = "symlinks, /" + markerFileName + " and /" + filterFileName
